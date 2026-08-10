@@ -48,7 +48,8 @@ function StatCard({ label, value, note }) {
 
 function AdminToast({ message }) {
   if (!message) return null;
-  return <motion.div className="admin-toast" role="status" initial={{ opacity: 0, y: 12, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 8 }} transition={{ duration: .18 }}><span className="admin-toast-mark">✓</span><span>{message}</span></motion.div>;
+  // La salida es más rápida que la entrada (~75%): confirma sin demorar al usuario.
+  return <motion.div className="admin-toast" role="status" initial={{ opacity: 0, y: 12, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1, transition: { duration: .22, ease: [0.22, 1, 0.36, 1] } }} exit={{ opacity: 0, y: 8, transition: { duration: .15 } }}><span className="admin-toast-mark">✓</span><span>{message}</span></motion.div>;
 }
 
 function DashboardSkeleton() {

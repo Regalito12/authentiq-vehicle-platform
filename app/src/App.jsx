@@ -312,10 +312,12 @@ function VehicleCard({ vehicle, onOpen, onToggleCompare, isCompared, isFavorite,
     <motion.article
       className="vehicle-card"
       layout
+      initial={{ opacity: 0, scale: .96 }}
+      animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: .98 }}
       whileHover={{ y: -4 }}
       whileTap={{ scale: 0.99 }}
-      transition={{ duration: 0.2, ease: "easeOut" }}
+      transition={{ duration: 0.28, ease: [0.25, 1, 0.5, 1] }}
     >
       <div className="vehicle-image-wrap">
         <button className="vehicle-card-image-button" type="button" onClick={open} aria-label={`Abrir ficha de ${vehicle.brand} ${vehicle.model}`}>
@@ -854,7 +856,7 @@ export default function App() {
          <div className="catalog-toolbar"><span>{loading ? "Consultando inventario" : `${filteredVehicles.length} de ${vehicles.length} vehiculos visibles`}</span><span className="catalog-toolbar-line" /><span>Desliza para explorar</span><button className={`favorites-filter ${favoritesOnly ? "is-active" : ""}`} type="button" onClick={() => setFavoritesOnly((current) => !current)} aria-pressed={favoritesOnly}>♡ Favoritos {favoriteIds.length ? `· ${favoriteIds.length}` : ""}</button></div>
         {loading && <p className="state-message">Cargando inventario…</p>}
         {error && <p className="state-message error">{error}. Verifica que la API esté corriendo en el puerto 3001.</p>}
-        {!loading && !error && (filteredVehicles.length ? <div className="vehicle-grid">{filteredVehicles.map((vehicle) => <VehicleCard key={vehicle.id} vehicle={vehicle} isCompared={compareVehicles.some((item) => item.id === vehicle.id)} isFavorite={favoriteIds.includes(vehicle.id)} onToggleFavorite={toggleFavorite} onToggleCompare={toggleCompare} onOpen={(item) => navigate(vehiclePath(item))} />)}</div> : <div className="catalog-empty"><h3>No encontramos vehículos con esos criterios.</h3><p>Prueba limpiando la búsqueda o seleccionando otros filtros.</p><button className="secondary-action" onClick={clearFilters}>Limpiar filtros</button></div>)}
+        {!loading && !error && (filteredVehicles.length ? <div className="vehicle-grid"><AnimatePresence mode="popLayout" initial={false}>{filteredVehicles.map((vehicle) => <VehicleCard key={vehicle.id} vehicle={vehicle} isCompared={compareVehicles.some((item) => item.id === vehicle.id)} isFavorite={favoriteIds.includes(vehicle.id)} onToggleFavorite={toggleFavorite} onToggleCompare={toggleCompare} onOpen={(item) => navigate(vehiclePath(item))} />)}</AnimatePresence></div> : <div className="catalog-empty"><h3>No encontramos vehículos con esos criterios.</h3><p>Prueba limpiando la búsqueda o seleccionando otros filtros.</p><button className="secondary-action" onClick={clearFilters}>Limpiar filtros</button></div>)}
         <CompareTable vehicles={compareVehicles} />
         <ContactForm />
         <BlogSection posts={posts} />
