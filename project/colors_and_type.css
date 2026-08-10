@@ -1,0 +1,133 @@
+/* ============================================================
+   AUTHENTIQ — Design Tokens
+   Colors, Type, Motion, Spacing
+   Porsche-inspired editorial minimalism
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter+Tight:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+:root {
+  /* ============ COLORS — Light (default / Buyer mode) ============ */
+  /* Base neutrals — warm cream + editorial ink */
+  --bg:         #faf8f5;   /* page background — warm off-white */
+  --bg-alt:     #f2eee7;   /* alt panels, review section */
+  --ink:        #0a0a0a;   /* primary text, primary buttons */
+  --ink-2:      #1a1917;   /* secondary strong text */
+  --ink-soft:   #3d3a35;   /* body copy on light bg */
+  --muted:      #6b6660;   /* muted labels, mono captions */
+  --line:       #d9d3c8;   /* primary borders */
+  --line-2:     #ebe6dc;   /* subtle inner borders */
+
+  /* Accent — muted champagne (never neon, never bright) */
+  --accent:      #c8a24b;
+  --accent-deep: #a4832e;
+
+  /* Semantic */
+  --danger:  #b04a3a;
+  --success: #4b7a5c;
+
+  /* ============ COLORS — Dark (Dealer / B2B mode) ============ */
+  --dark-bg:    #0d0c0a;
+  --dark-bg-2:  #17150f;
+  --dark-line:  #2a2620;
+  --dark-ink:   #f2eee7;
+
+  /* ============ TYPE ============ */
+  --f-display: "Inter Tight", "Helvetica Neue", sans-serif;
+  --f-mono:    "IBM Plex Mono", ui-monospace, monospace;
+
+  /* Semantic type roles */
+  --t-hero:      500 clamp(72px, 12vw, 180px)/0.88 var(--f-display);   /* hero title */
+  --t-h1:        400 72px/0.95 var(--f-display);                       /* page title, letter-spacing -0.03em */
+  --t-h2:        400 44px/1 var(--f-display);                          /* section heads, letter-spacing -0.02em */
+  --t-h3:        500 36px/1.05 var(--f-display);                       /* catalog title, letter-spacing -0.02em */
+  --t-title:     500 20px/1.2 var(--f-display);                        /* card / component title */
+  --t-body:      400 15px/1.55 var(--f-display);                       /* body copy */
+  --t-copy:      400 14px/1.55 var(--f-display);                       /* dense body */
+  --t-mono-lg:   500 13px/1.2 var(--f-mono);                           /* price, primary mono */
+  --t-mono:      400 12px/1.4 var(--f-mono);                           /* spec values */
+  --t-mono-sm:   400 11px/1.2 var(--f-mono);                           /* labels, nav, buttons */
+  --t-mono-xs:   400 10px/1.2 var(--f-mono);                           /* eyebrows, tags */
+  --t-mono-xxs:  400 9px/1.2 var(--f-mono);                            /* tiniest micro-labels */
+
+  /* Letter-spacing scale (mono labels use uppercase) */
+  --ls-tight:  -0.04em;   /* hero */
+  --ls-tight2: -0.03em;   /* h1 */
+  --ls-tight3: -0.02em;   /* h2, h3, big prices */
+  --ls-tight4: -0.01em;   /* card titles, subheads */
+  --ls-normal: 0;
+  --ls-mono-1: 0.05em;    /* mono values */
+  --ls-mono-2: 0.08em;    /* mono labels */
+  --ls-mono-3: 0.1em;     /* mono buttons, eyebrows */
+  --ls-mono-4: 0.15em;    /* offer label */
+
+  /* ============ SPACING ============ */
+  --s-1:  4px;
+  --s-2:  8px;
+  --s-3:  12px;
+  --s-4:  16px;
+  --s-5:  20px;
+  --s-6:  24px;
+  --s-7:  28px;
+  --s-8:  32px;
+  --s-10: 40px;
+  --s-12: 48px;    /* section h-padding */
+  --s-15: 60px;
+  --s-20: 80px;    /* section v-padding bottom */
+  --s-25: 100px;   /* section v-padding top */
+
+  /* ============ BORDERS + RADIUS ============ */
+  --br-0: 0;              /* AUTHENTIQ is almost entirely square */
+  --br-pill: 999px;       /* only mode toggle uses this */
+  --br-full: 50%;         /* swatches, avatars, dots */
+  --bw-hair: 1px;
+  --bw-thick: 2px;
+
+  /* ============ ELEVATION (used sparingly) ============ */
+  --shadow-nav:   0 1px 0 var(--line-2);
+  --shadow-fab:   0 10px 40px rgba(10,10,10,0.2);
+  --shadow-panel: -20px 0 60px rgba(10,10,10,0.08);
+  --shadow-hero:  drop-shadow(0 30px 60px rgba(10,10,10,0.25));
+
+  /* ============ MOTION ============ */
+  --ease:       cubic-bezier(.22,.61,.36,1);   /* the only easing curve */
+  --dur-fast:   200ms;
+  --dur:        250ms;
+  --dur-slow:   400ms;
+  --dur-image:  700ms;    /* card image scale on hover */
+  --dur-hero:   30s;      /* hero background drift */
+
+  /* ============ IMAGE FILTERS ============ */
+  --img-editorial: grayscale(20%) contrast(1.05) brightness(0.98);
+}
+
+/* ============ SEMANTIC ELEMENT RESET ============ */
+html, body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--f-display);
+  font-feature-settings: "ss01", "cv11";
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  font-size: 15px;
+  line-height: 1.4;
+}
+
+.mono {
+  font-family: var(--f-mono);
+  font-feature-settings: "zero";
+  letter-spacing: 0;
+}
+
+.eyebrow {
+  font: var(--t-mono-xs);
+  letter-spacing: var(--ls-mono-3);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.italic-accent {
+  font-style: italic;
+  color: var(--accent);
+  font-weight: 400;
+}

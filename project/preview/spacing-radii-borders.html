@@ -1,0 +1,27 @@
+<!doctype html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);}
+  body{padding:20px;box-sizing:border-box;min-height:220px;}
+  .row{display:flex;gap:12px;align-items:center;}
+  .col{display:flex;flex-direction:column;gap:12px;}
+  
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;}
+  .item{display:flex;flex-direction:column;gap:8px;align-items:center;text-align:center;}
+  .shape{background:var(--bg-alt);border:1px solid var(--line);width:64px;height:64px;}
+  .shape.pill{width:80px;height:32px;border-radius:999px;}
+  .shape.circle{border-radius:50%;}
+  .shape.swatch{border-radius:50%;background:var(--accent);border-color:var(--ink);}
+  .k{font:var(--t-mono-sm);letter-spacing:var(--ls-mono-1);}
+  .v{font:var(--t-mono-xs);letter-spacing:var(--ls-mono-2);color:var(--muted);text-transform:uppercase;}
+  .h{font:var(--t-mono-xs);letter-spacing:var(--ls-mono-3);color:var(--muted);text-transform:uppercase;margin-bottom:12px;}
+
+</style></head><body>
+<div class="h">RADII — square by default</div>
+<div class="grid">
+  <div class="item"><div class="shape"></div><div class="k">0</div><div class="v">cards · modals · inputs</div></div>
+  <div class="item"><div class="shape pill"></div><div class="k">999px</div><div class="v">mode toggle only</div></div>
+  <div class="item"><div class="shape circle"></div><div class="k">50%</div><div class="v">avatars · fabs</div></div>
+  <div class="item"><div class="shape swatch"></div><div class="k">swatch</div><div class="v">1px ink border · scale 1.1 hover</div></div>
+</div>
+</body></html>

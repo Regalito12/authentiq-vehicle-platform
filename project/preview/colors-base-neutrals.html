@@ -1,0 +1,25 @@
+<!doctype html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);}
+  body{padding:20px;box-sizing:border-box;min-height:200px;}
+  .row{display:flex;gap:12px;align-items:center;}
+  .col{display:flex;flex-direction:column;gap:12px;}
+  
+  .swatches{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;}
+  .sw{aspect-ratio:1.4/1;border:1px solid var(--line-2);padding:10px;display:flex;flex-direction:column;justify-content:space-between;}
+  .sw .n{font:var(--t-mono-sm);letter-spacing:var(--ls-mono-2);text-transform:uppercase;}
+  .sw .h{font:var(--t-mono-xs);letter-spacing:var(--ls-mono-1);color:var(--muted);}
+
+</style></head><body>
+<div class="swatches">
+  <div class="sw" style="background:#faf8f5;color:#0a0a0a;"><span class="n">bg</span><span class="h">#FAF8F5</span></div>
+  <div class="sw" style="background:#f2eee7;color:#0a0a0a;"><span class="n">bg-alt</span><span class="h">#F2EEE7</span></div>
+  <div class="sw" style="background:#ebe6dc;color:#0a0a0a;"><span class="n">line-2</span><span class="h">#EBE6DC</span></div>
+  <div class="sw" style="background:#d9d3c8;color:#0a0a0a;"><span class="n">line</span><span class="h">#D9D3C8</span></div>
+  <div class="sw" style="background:#6b6660;color:#faf8f5;"><span class="n">muted</span><span class="h">#6B6660</span></div>
+  <div class="sw" style="background:#3d3a35;color:#faf8f5;"><span class="n">ink-soft</span><span class="h">#3D3A35</span></div>
+  <div class="sw" style="background:#1a1917;color:#faf8f5;"><span class="n">ink-2</span><span class="h">#1A1917</span></div>
+  <div class="sw" style="background:#0a0a0a;color:#faf8f5;"><span class="n">ink</span><span class="h">#0A0A0A</span></div>
+</div>
+</body></html>

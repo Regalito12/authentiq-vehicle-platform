@@ -1,0 +1,29 @@
+{
+  "name": "authentiq-api",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js",
+    "create-admin": "node scripts/create-admin.js",
+    "smoke": "node scripts/smoke-test.js",
+    "test:roles": "node scripts/role-matrix-test.js",
+    "test:e2e": "node scripts/e2e-test.js",
+    "check:components": "node scripts/check-components.js",
+    "test:browser": "node scripts/browser-check.js",
+    "verify": "node scripts/check-components.js && node scripts/preflight.js && node scripts/smoke-test.js && node scripts/role-matrix-test.js && node scripts/e2e-test.js",
+    "preflight": "node scripts/preflight.js"
+  },
+  "dependencies": {
+    "bcryptjs": "latest",
+    "cors": "latest",
+    "dotenv": "latest",
+    "express": "latest",
+    "express-rate-limit": "^8.6.2",
+    "helmet": "^8.3.0",
+    "jsonwebtoken": "latest",
+    "multer": "^2.2.0",
+    "pg": "latest"
+  }
+}

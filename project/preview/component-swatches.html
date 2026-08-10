@@ -1,0 +1,31 @@
+<!doctype html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);}
+  body{padding:20px;box-sizing:border-box;min-height:170px;}
+  .row{display:flex;gap:12px;align-items:center;}
+  .col{display:flex;flex-direction:column;gap:12px;}
+  
+  .picker{padding:18px;border:1px solid var(--line);background:var(--bg);max-width:420px;}
+  .head{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;}
+  .label{font-family:var(--f-mono);font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:var(--muted);}
+  .name{font-family:var(--f-mono);font-size:12px;letter-spacing:0.05em;}
+  .swatches{display:flex;gap:10px;}
+  .swatch{width:34px;height:34px;border-radius:50%;border:1px solid var(--line);cursor:pointer;position:relative;}
+  .swatch.active::after{content:"";position:absolute;inset:-5px;border:1px solid var(--ink);border-radius:50%;}
+
+</style></head><body>
+<div class="picker">
+  <div class="head">
+    <span class="label">Color exterior</span>
+    <span class="name">Champagne</span>
+  </div>
+  <div class="swatches">
+    <div class="swatch" style="background:#e5e2d8;"></div>
+    <div class="swatch" style="background:#0a0a0a;"></div>
+    <div class="swatch" style="background:#5a5852;"></div>
+    <div class="swatch active" style="background:#c8a24b;"></div>
+    <div class="swatch" style="background:#a63325;"></div>
+  </div>
+</div>
+</body></html>

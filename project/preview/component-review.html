@@ -1,0 +1,33 @@
+<!doctype html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);}
+  body{padding:20px;box-sizing:border-box;min-height:280px;}
+  .row{display:flex;gap:12px;align-items:center;}
+  .col{display:flex;flex-direction:column;gap:12px;}
+  
+  body{background:var(--bg-alt);}
+  .card{padding:24px;background:var(--bg);border:1px solid var(--line-2);display:flex;flex-direction:column;gap:16px;max-width:340px;}
+  .stars{color:var(--accent);letter-spacing:4px;font-size:13px;}
+  .text{font-size:14px;line-height:1.55;color:var(--ink-soft);text-wrap:pretty;}
+  .veh{font-family:var(--f-mono);font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:var(--accent);padding-top:14px;border-top:1px solid var(--line-2);}
+  .author{display:flex;align-items:center;gap:12px;}
+  .avatar{width:40px;height:40px;border-radius:50%;background:var(--bg-alt);overflow:hidden;flex-shrink:0;}
+  .avatar img{width:100%;height:100%;object-fit:cover;display:block;}
+  .name{font-size:13px;font-weight:500;margin-bottom:2px;}
+  .role{font-family:var(--f-mono);font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;}
+
+</style></head><body>
+<div class="card">
+  <div class="stars">★★★★★</div>
+  <div class="text">"La compra fue tan editorial como el auto. Cero fricción, cero adornos, todo verificado."</div>
+  <div class="veh">Porsche 911 GT3 · 2026</div>
+  <div class="author">
+    <div class="avatar"><img src="../assets/reviewer-1.jpg" alt=""/></div>
+    <div>
+      <div class="name">Sofía R.</div>
+      <div class="role">Comprador · CDMX</div>
+    </div>
+  </div>
+</div>
+</body></html>

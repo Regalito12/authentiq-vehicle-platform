@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AUTHENTIQ — Premium Vehicles</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="styles.css">
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel" src="tweaks_panel.jsx"></script>
+  <script type="text/babel" src="i18n.jsx"></script>
+  <script type="text/babel" src="data.jsx"></script>
+  <script type="text/babel" src="nav-home.jsx"></script>
+  <script type="text/babel" src="viewer.jsx"></script>
+  <script type="text/babel" src="detail.jsx"></script>
+  <script type="text/babel" src="calendar.jsx"></script>
+  <script type="text/babel" src="chat-offer.jsx"></script>
+  <script type="text/babel" src="compare.jsx"></script>
+
+  <script type="text/babel">
+    const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+      "viewerVariant": "rotate",
+      "chatVariant": "panel",
+      "offerVariant": "slider"
+    }/*EDITMODE-END*/;
+
+    function App() {
+      const [screen, setScreen] = React.useState(() => localStorage.getItem("authentiq_screen") || "home");
+      const [vehicle, setVehicle] = React.useState(() => {
+        const id = localStorage.getItem("authentiq_vehicle");
+        return VEHICLES.find(v => v.id === id) || VEHICLES[0];
+      });
+      const [mode, setMode] = React.useState(() => localStorage.getItem("authentiq_mode") || "buyer");
+      const [modal, setModal] = React.useState(null);
+      const [chatOpen, setChatOpen] = React.useState(false);
+      const [notification, setNotification] = React.useState(null);
+      const [compareIds, setCompareIds] = React.useState(() => {
+        try { return JSON.parse(localStorage.getItem("authentiq_compare") || "[]"); } catch { return []; }
+      });
+      const { t, lang } = useT();
+      const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
+
+      React.useEffect(() => { localStorage.setItem("authentiq_compare", JSON.stringify(compareIds)); }, [compareIds]);
+
+      const toggleCompare = (id) => {
+        setCompareIds(ids => ids.includes(id) ? ids.filter(x => x !== id) : (ids.length >= 3 ? ids : [...ids, id]));
+      };
+      const compareVehicles = compareIds.map(id => VEHICLES.find(v => v.id === id)).filter(Boolean);
+
+      React.useEffect(() => { localStorage.setItem("authentiq_screen", screen); }, [screen]);
+      React.useEffect(() => { localStorage.setItem("authentiq_vehicle", vehicle.id); }, [vehicle]);
+      React.useEffect(() => {
+        localStorage.setItem("authentiq_mode", mode);
+        document.body.classList.toggle("b2b", mode === "dealer");
+      }, [mode]);
+
+      const selectVehicle = (v) => {
+        setVehicle(v);
+        setScreen("detail");
+        window.scrollTo(0, 0);
+      };
+
+      const openModal = (type) => {
+        if (type === "chat") { setChatOpen(true); return; }
+        setModal(type);
+      };
+
+      const showNotif = (text) => {
+        setNotification(text);
+        setTimeout(() => setNotification(null), 3000);
+      };
+
+      const handleCalConfirm = ({date, time}) => {
+        setModal(null);
+        const dstr = date.toLocaleDateString(lang === "es" ? "es-ES" : "en-US", {day:"numeric", month:"short"});
+        showNotif(lang === "es"
+          ? `✓ Cita confirmada — ${dstr} · ${time}`
+          : `✓ Booking confirmed — ${dstr} · ${time}`);
+      };
+
+      const handleOfferSubmit = (data) => {
+        setModal(null);
+        showNotif(lang === "es"
+          ? `✓ Oferta enviada — $${data.offer.toLocaleString()}`
+          : `✓ Offer sent — $${data.offer.toLocaleString()}`);
+      };
+
+      return (
+        <>
+          <Nav current={screen} onNav={setScreen} mode={mode} setMode={setMode}/>
+
+          <div className="stage">
+            {screen === "home" && <Home onSelectVehicle={selectVehicle} compareIds={compareIds} onToggleCompare={toggleCompare}/>}
+            {screen === "detail" && (
+              <VehicleDetail
+                vehicle={vehicle}
+                onBack={() => setScreen("home")}
+                onOpenModal={openModal}
+                viewerVariant={tweaks.viewerVariant}
+              />
+            )}
+          </div>
+
+          {/* Modals */}
+          {modal === "calendar" && (
+            <Calendar vehicle={vehicle} onClose={() => setModal(null)} onConfirm={handleCalConfirm}/>
+          )}
+          {modal === "offer" && (
+            <OfferModal
+              vehicle={vehicle}
+              onClose={() => setModal(null)}
+              onSubmit={handleOfferSubmit}
+              variant={tweaks.offerVariant}
+            />
+          )}
+          {modal === "compare" && (
+            <CompareModal
+              vehicles={compareVehicles}
+              allVehicles={VEHICLES}
+              onClose={() => setModal(null)}
+              onAdd={(id) => setCompareIds(ids => ids.includes(id) ? ids : [...ids, id])}
+              onRemove={(id) => setCompareIds(ids => ids.filter(x => x !== id))}
+            />
+          )}
+
+          {/* Compare FAB */}
+          {compareIds.length > 0 && !modal && (
+            <button className="compare-fab" onClick={() => setModal("compare")}>
+              {lang === "es" ? "Comparar" : "Compare"}
+              <span className="count">{compareIds.length}</span>
+            </button>
+          )}
+
+          {/* Chat — dependent on variant */}
+          {chatOpen && tweaks.chatVariant !== "bubble" && (
+            <ChatPanel vehicle={vehicle} onClose={() => setChatOpen(false)} variant={tweaks.chatVariant}/>
+          )}
+          {chatOpen && tweaks.chatVariant === "bubble" && (
+            <ChatPanel vehicle={vehicle} onClose={() => setChatOpen(false)} variant="bubble"/>
+          )}
+          {tweaks.chatVariant === "bubble" && !chatOpen && screen === "detail" && (
+            <ChatBubble onClick={() => setChatOpen(true)}/>
+          )}
+
+          {/* Notification toast */}
+          {notification && (
+            <div style={{
+              position: "fixed", bottom: 32, left: "50%", transform: "translateX(-50%)",
+              padding: "14px 24px", background: "var(--ink)", color: "var(--bg)",
+              fontFamily: "var(--f-mono)", fontSize: 12, letterSpacing: "0.05em",
+              zIndex: 200, animation: "modalIn 300ms cubic-bezier(.22,.61,.36,1)"
+            }}>
+              {notification}
+            </div>
+          )}
+
+          {/* Tweaks panel — variations for viewer, chat, offer */}
+          <TweaksPanel title={t("tweaks.title")}>
+            <TweakSection title={t("tweaks.viewer")}>
+              <TweakRadio
+                label=""
+                value={tweaks.viewerVariant}
+                onChange={(v) => setTweak("viewerVariant", v)}
+                options={[
+                  { value: "rotate", label: t("tweaks.viewer.rotate") },
+                  { value: "gallery", label: t("tweaks.viewer.gallery") },
+                  { value: "split", label: t("tweaks.viewer.split") },
+                ]}
+              />
+              <div style={{fontFamily:"var(--f-mono)", fontSize:10, color:"var(--muted)", letterSpacing:"0.05em", lineHeight:1.5, marginTop: 6}}>
+                {lang === "es"
+                  ? "Cambia cómo se presenta el vehículo en la vista detalle."
+                  : "Change how the vehicle is presented in the detail view."}
+              </div>
+            </TweakSection>
+
+            <TweakSection title={t("tweaks.chat")}>
+              <TweakRadio
+                label=""
+                value={tweaks.chatVariant}
+                onChange={(v) => setTweak("chatVariant", v)}
+                options={[
+                  { value: "panel", label: t("tweaks.chat.panel") },
+                  { value: "bubble", label: t("tweaks.chat.bubble") },
+                ]}
+              />
+              <TweakButton onClick={() => { setScreen("detail"); setChatOpen(true); }}>
+                {lang === "es" ? "Abrir chat ahora" : "Open chat now"}
+              </TweakButton>
+            </TweakSection>
+
+            <TweakSection title={t("tweaks.offer")}>
+              <TweakRadio
+                label=""
+                value={tweaks.offerVariant}
+                onChange={(v) => setTweak("offerVariant", v)}
+                options={[
+                  { value: "slider", label: t("tweaks.offer.slider") },
+                  { value: "form", label: t("tweaks.offer.form") },
+                  { value: "auction", label: t("tweaks.offer.auction") },
+                ]}
+              />
+              <TweakButton onClick={() => { setScreen("detail"); setModal("offer"); }}>
+                {lang === "es" ? "Abrir modal de oferta" : "Open offer modal"}
+              </TweakButton>
+            </TweakSection>
+          </TweaksPanel>
+        </>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(
+      <LangProvider>
+        <App/>
+      </LangProvider>
+    );
+  </script>
+</body>
+</html>

@@ -1,0 +1,25 @@
+# Dependencias (se reinstalan con npm install / npm ci)
+node_modules/
+
+# Build de producción (se regenera con npm run build)
+app/dist/
+
+# Credenciales locales — nunca deben versionarse
+.env
+.env.local
+.env.backup*
+
+# Media subida por usuarios: vive en el servidor, no en el repositorio.
+# Ver DEPLOYMENT-CHECKLIST.md sobre backup de UPLOADS_DIR.
+app/server/uploads/
+
+# Salida de la verificación en navegador (capturas de pantalla, se regeneran)
+app/server/browser-check/
+
+# Artefactos de herramientas ajenas al proyecto, no al producto
+.codex-remote-attachments/
+app/.img2threejs/
+
+# Sistema operativo / editor
+.DS_Store
+Thumbs.db

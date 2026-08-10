@@ -1,0 +1,36 @@
+<!doctype html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);}
+  body{padding:20px;box-sizing:border-box;min-height:320px;}
+  .row{display:flex;gap:12px;align-items:center;}
+  .col{display:flex;flex-direction:column;gap:12px;}
+  
+  .card{max-width:280px;cursor:pointer;}
+  .card-img{aspect-ratio:4/3;background:var(--bg-alt);position:relative;overflow:hidden;border:1px solid var(--line-2);margin-bottom:14px;display:block;width:100%;}
+  .card-img img{width:100%;height:100%;object-fit:cover;display:block;}
+  .card-tag{position:absolute;top:12px;left:12px;font-family:var(--f-mono);font-size:10px;letter-spacing:0.1em;text-transform:uppercase;padding:4px 8px;background:var(--ink);color:var(--bg);}
+  .card-info{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;}
+  .card-title{font-size:19px;letter-spacing:-0.01em;margin-bottom:4px;font-weight:500;}
+  .card-sub{font-family:var(--f-mono);font-size:11px;letter-spacing:0.05em;color:var(--muted);text-transform:uppercase;}
+  .card-price{font-family:var(--f-mono);font-size:12px;letter-spacing:0.02em;text-align:right;white-space:nowrap;}
+  .card-price .label{display:block;font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:4px;}
+
+</style></head><body>
+<div class="card">
+  <div class="card-img">
+    <img src="../assets/porsche-911-gt3.jpg" alt=""/>
+    <span class="card-tag">Nuevo</span>
+  </div>
+  <div class="card-info">
+    <div>
+      <div class="card-title">Porsche 911 GT3</div>
+      <div class="card-sub">2026 · 502 HP</div>
+    </div>
+    <div class="card-price">
+      <span class="label">Desde</span>
+      $189,500
+    </div>
+  </div>
+</div>
+</body></html>

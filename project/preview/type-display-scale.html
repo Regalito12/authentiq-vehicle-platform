@@ -1,0 +1,28 @@
+<!doctype html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);}
+  body{padding:20px;box-sizing:border-box;min-height:360px;}
+  .row{display:flex;gap:12px;align-items:center;}
+  .col{display:flex;flex-direction:column;gap:12px;}
+  
+  .scale{display:flex;flex-direction:column;gap:14px;}
+  .item{display:grid;grid-template-columns:1fr auto;gap:20px;align-items:baseline;border-bottom:1px solid var(--line-2);padding-bottom:10px;}
+  .item:last-child{border:none;}
+  .spec{font:var(--t-mono-xs);letter-spacing:var(--ls-mono-2);color:var(--muted);text-transform:uppercase;white-space:nowrap;}
+  .h-hero{font-family:var(--f-display);font-weight:500;font-size:64px;line-height:0.88;letter-spacing:-0.04em;}
+  .h1{font-family:var(--f-display);font-weight:400;font-size:44px;line-height:0.95;letter-spacing:-0.03em;}
+  .h2{font-family:var(--f-display);font-weight:400;font-size:32px;line-height:1;letter-spacing:-0.02em;}
+  .h3{font-family:var(--f-display);font-weight:500;font-size:24px;letter-spacing:-0.02em;}
+  .h4{font-family:var(--f-display);font-weight:500;font-size:20px;letter-spacing:-0.01em;}
+  .italic-accent{font-style:italic;color:var(--accent);font-weight:400;}
+
+</style></head><body>
+<div class="scale">
+  <div class="item"><div class="h-hero">Conducir <span class="italic-accent">es.</span></div><div class="spec">HERO · 500 · clamp 72–180 · -0.04em</div></div>
+  <div class="item"><div class="h1">Porsche 911 <span class="italic-accent">GT3</span></div><div class="spec">H1 · 400 · 72 · -0.03em</div></div>
+  <div class="item"><div class="h2">Clientes que <span class="italic-accent">confían.</span></div><div class="spec">H2 · 400 · 44 · -0.02em</div></div>
+  <div class="item"><div class="h3">Catálogo activo</div><div class="spec">H3 · 500 · 36 · -0.02em</div></div>
+  <div class="item"><div class="h4">Porsche Cayenne Turbo GT</div><div class="spec">CARD · 500 · 20 · -0.01em</div></div>
+</div>
+</body></html>

@@ -1,0 +1,43 @@
+<!doctype html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);}
+  body{padding:20px;box-sizing:border-box;min-height:200px;}
+  .row{display:flex;gap:12px;align-items:center;}
+  .col{display:flex;flex-direction:column;gap:12px;}
+  
+  body{padding:0;}
+  .nav{height:64px;padding:0 32px;display:flex;align-items:center;justify-content:space-between;background:rgba(250,248,245,0.85);backdrop-filter:blur(20px);border-bottom:1px solid var(--line-2);}
+  .logo{font-family:var(--f-display);font-weight:700;font-size:18px;letter-spacing:-0.02em;display:flex;align-items:center;gap:8px;}
+  .logo::before{content:"";width:22px;height:22px;border:1.5px solid currentColor;border-radius:50%;background:linear-gradient(45deg,transparent 47%,currentColor 47%,currentColor 53%,transparent 53%),linear-gradient(-45deg,transparent 47%,currentColor 47%,currentColor 53%,transparent 53%);}
+  .nav-links{display:flex;gap:28px;font-size:13px;letter-spacing:0.02em;}
+  .nav-links button{padding:6px 0;position:relative;opacity:0.7;background:none;border:none;color:inherit;cursor:pointer;font-family:inherit;}
+  .nav-links button.active{opacity:1;}
+  .nav-links button.active::after{content:"";position:absolute;bottom:-22px;left:0;right:0;height:2px;background:var(--accent);}
+  .nav-right{display:flex;align-items:center;gap:20px;}
+  .mode-toggle{display:flex;border:1px solid var(--line);border-radius:999px;overflow:hidden;font-family:var(--f-mono);font-size:11px;letter-spacing:0.05em;}
+  .mode-toggle button{padding:6px 14px;text-transform:uppercase;opacity:0.5;background:none;border:none;cursor:pointer;font-family:inherit;color:inherit;}
+  .mode-toggle button.active{background:var(--ink);color:var(--bg);opacity:1;}
+  .lang{font-family:var(--f-mono);font-size:11px;letter-spacing:0.1em;text-transform:uppercase;opacity:0.6;background:none;border:none;color:inherit;cursor:pointer;}
+  .below{padding:24px 32px;font:var(--t-mono-xs);letter-spacing:var(--ls-mono-3);text-transform:uppercase;color:var(--muted);}
+
+</style></head><body>
+<div class="nav">
+  <div class="logo">AUTHENTIQ</div>
+  <div class="nav-links">
+    <button class="active">Modelos</button>
+    <button>Nuevos</button>
+    <button>Seminuevos</button>
+    <button>Concesionarios</button>
+    <button>Nosotros</button>
+  </div>
+  <div class="nav-right">
+    <div class="mode-toggle">
+      <button class="active">Comprador</button>
+      <button>Dealer</button>
+    </div>
+    <button class="lang">ES</button>
+  </div>
+</div>
+<div class="below">Fixed 64px · backdrop-blur 20px · hairline border · active link 2px accent underline</div>
+</body></html>

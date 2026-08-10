@@ -1,0 +1,25 @@
+<!doctype html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);}
+  body{padding:20px;box-sizing:border-box;min-height:220px;}
+  .row{display:flex;gap:12px;align-items:center;}
+  .col{display:flex;flex-direction:column;gap:12px;}
+  
+  .block{border:1px solid var(--line);padding:20px;background:var(--bg);max-width:340px;}
+  .head{font-family:var(--f-mono);font-size:11px;font-weight:400;letter-spacing:0.1em;text-transform:uppercase;color:var(--muted);margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--line-2);display:flex;justify-content:space-between;}
+  .head .idx{color:var(--accent);}
+  .spec-row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line-2);font-family:var(--f-mono);font-size:12px;}
+  .spec-row:last-child{border:none;}
+  .spec-row .k{color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;font-size:11px;}
+  .spec-row .v{color:var(--ink);font-weight:500;}
+
+</style></head><body>
+<div class="block">
+  <div class="head"><span>Especificaciones</span><span class="idx">01</span></div>
+  <div class="spec-row"><span class="k">Motor</span><span class="v">4.0L H6</span></div>
+  <div class="spec-row"><span class="k">Potencia</span><span class="v">502 hp</span></div>
+  <div class="spec-row"><span class="k">0-100 km/h</span><span class="v">3.2s</span></div>
+  <div class="spec-row"><span class="k">Vel. máx.</span><span class="v">318 km/h</span></div>
+</div>
+</body></html>

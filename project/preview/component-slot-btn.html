@@ -1,0 +1,27 @@
+<!doctype html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);}
+  body{padding:20px;box-sizing:border-box;min-height:180px;}
+  .row{display:flex;gap:12px;align-items:center;}
+  .col{display:flex;flex-direction:column;gap:12px;}
+  
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;max-width:420px;}
+  .slot-btn{padding:12px;border:1px solid var(--line);font-family:var(--f-mono);font-size:12px;text-align:center;background:var(--bg);cursor:pointer;color:var(--ink);}
+  .slot-btn.selected{background:var(--ink);color:var(--bg);border-color:var(--ink);}
+  .slot-btn.taken{opacity:0.35;cursor:not-allowed;text-decoration:line-through;}
+  .h{font:var(--t-mono-xs);letter-spacing:var(--ls-mono-3);color:var(--muted);text-transform:uppercase;margin-bottom:10px;}
+
+</style></head><body>
+<div class="h">TIME SLOTS — default · selected · taken</div>
+<div class="grid">
+  <button class="slot-btn">09:30</button>
+  <button class="slot-btn selected">10:15</button>
+  <button class="slot-btn taken">11:00</button>
+  <button class="slot-btn">12:00</button>
+  <button class="slot-btn">13:30</button>
+  <button class="slot-btn">14:15</button>
+  <button class="slot-btn taken">15:00</button>
+  <button class="slot-btn">16:30</button>
+</div>
+</body></html>

@@ -1,0 +1,27 @@
+<!doctype html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);}
+  body{padding:20px;box-sizing:border-box;min-height:320px;}
+  .row{display:flex;gap:12px;align-items:center;}
+  .col{display:flex;flex-direction:column;gap:12px;}
+  
+  .stack{display:flex;flex-direction:column;gap:10px;}
+  .item{display:grid;grid-template-columns:1fr auto;gap:20px;align-items:baseline;border-bottom:1px solid var(--line-2);padding-bottom:8px;}
+  .item:last-child{border:none;}
+  .spec{font:var(--t-mono-xs);letter-spacing:var(--ls-mono-2);color:var(--muted);text-transform:uppercase;}
+  .lg{font:var(--t-mono-lg);}
+  .m{font:var(--t-mono);}
+  .sm{font:var(--t-mono-sm);letter-spacing:var(--ls-mono-2);text-transform:uppercase;}
+  .xs{font:var(--t-mono-xs);letter-spacing:var(--ls-mono-3);text-transform:uppercase;}
+  .xxs{font:var(--t-mono-xxs);letter-spacing:var(--ls-mono-3);text-transform:uppercase;color:var(--muted);}
+
+</style></head><body>
+<div class="stack">
+  <div class="item"><span class="lg">$189,500 USD</span><span class="spec">MONO-LG · 500 · 13</span></div>
+  <div class="item"><span class="m">4.0L H6 · 502 hp · 3.2s</span><span class="spec">MONO · 400 · 12</span></div>
+  <div class="item"><span class="sm">PRECIO DE VENTA</span><span class="spec">MONO-SM · 11 · +0.08em</span></div>
+  <div class="item"><span class="xs">ED. 2026 — COLECCIÓN DE OTOÑO</span><span class="spec">MONO-XS · 10 · +0.1em</span></div>
+  <div class="item"><span class="xxs">№ 001 / 008</span><span class="spec">MONO-XXS · 9 · +0.1em</span></div>
+</div>
+</body></html>

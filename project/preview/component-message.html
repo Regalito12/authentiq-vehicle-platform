@@ -1,0 +1,23 @@
+<!doctype html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);}
+  body{padding:20px;box-sizing:border-box;min-height:220px;}
+  .row{display:flex;gap:12px;align-items:center;}
+  .col{display:flex;flex-direction:column;gap:12px;}
+  
+  .chat{background:var(--bg-alt);padding:18px;max-width:440px;display:flex;flex-direction:column;gap:10px;}
+  .msg{max-width:80%;padding:10px 14px;font-size:13px;line-height:1.4;}
+  .msg.agent{background:var(--bg);align-self:flex-start;}
+  .msg.user{background:var(--ink);color:var(--bg);align-self:flex-end;}
+  .msg .time{display:block;font-family:var(--f-mono);font-size:9px;letter-spacing:0.05em;text-transform:uppercase;margin-top:4px;opacity:0.6;}
+  .typing{display:inline-flex;gap:3px;padding:12px 14px;background:var(--bg);align-self:flex-start;}
+  .typing span{width:5px;height:5px;background:var(--muted);border-radius:50%;}
+
+</style></head><body>
+<div class="chat">
+  <div class="msg agent">Hola, soy Camila. ¿En qué puedo ayudarte con el 911 GT3?<span class="time">14:03</span></div>
+  <div class="msg user">Me interesa agendar un test drive esta semana.<span class="time">14:04</span></div>
+  <div class="typing"><span></span><span></span><span></span></div>
+</div>
+</body></html>

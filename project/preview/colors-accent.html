@@ -1,0 +1,26 @@
+<!doctype html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);}
+  body{padding:20px;box-sizing:border-box;min-height:200px;}
+  .row{display:flex;gap:12px;align-items:center;}
+  .col{display:flex;flex-direction:column;gap:12px;}
+  
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  .big{aspect-ratio:2/1;padding:16px;display:flex;flex-direction:column;justify-content:space-between;}
+  .n{font:var(--t-title);letter-spacing:var(--ls-tight4);}
+  .h{font:var(--t-mono-sm);letter-spacing:var(--ls-mono-2);color:currentColor;opacity:.7;}
+  .usage{font:var(--t-mono-xs);letter-spacing:var(--ls-mono-2);text-transform:uppercase;color:currentColor;opacity:.65;margin-top:6px;}
+
+</style></head><body>
+<div class="row2">
+  <div class="big" style="background:#c8a24b;color:#0a0a0a;">
+    <div><div class="n">accent</div><div class="usage">italic titles · pulse dot · hover fill</div></div>
+    <div class="h">#C8A24B</div>
+  </div>
+  <div class="big" style="background:#a4832e;color:#faf8f5;">
+    <div><div class="n">accent-deep</div><div class="usage">avatar gradient · offer below asking</div></div>
+    <div class="h">#A4832E</div>
+  </div>
+</div>
+</body></html>

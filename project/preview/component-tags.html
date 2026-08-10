@@ -1,0 +1,35 @@
+<!doctype html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);}
+  body{padding:20px;box-sizing:border-box;min-height:180px;}
+  .row{display:flex;gap:12px;align-items:center;}
+  .col{display:flex;flex-direction:column;gap:12px;}
+  
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
+  .card-tag{font-family:var(--f-mono);font-size:10px;letter-spacing:0.1em;text-transform:uppercase;padding:4px 8px;background:var(--bg);border:1px solid var(--line);color:var(--ink);}
+  .card-tag.new{background:var(--ink);color:var(--bg);border-color:var(--ink);}
+  .card-tag.used{background:var(--accent);color:var(--ink);border-color:var(--accent);}
+  .filter{padding:8px 14px;border:1px solid var(--line);color:var(--muted);font-family:var(--f-mono);font-size:11px;text-transform:uppercase;letter-spacing:0.08em;background:none;}
+  .filter.active{background:var(--ink);color:var(--bg);border-color:var(--ink);}
+  .live{display:inline-flex;align-items:center;gap:8px;padding:6px 12px;background:var(--bg-alt);border:1px solid var(--line-2);font-family:var(--f-mono);font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:var(--ink-soft);}
+  .live::before{content:"";width:6px;height:6px;background:var(--danger);border-radius:50%;}
+  .h{font:var(--t-mono-xs);letter-spacing:var(--ls-mono-3);color:var(--muted);text-transform:uppercase;margin:6px 0;}
+
+</style></head><body>
+<div class="h">CATALOG TAGS</div>
+<div class="row">
+  <span class="card-tag new">Nuevo</span>
+  <span class="card-tag used">Certificado</span>
+  <span class="card-tag">Seminuevo</span>
+</div>
+<div class="h" style="margin-top:16px;">FILTER PILLS</div>
+<div class="row">
+  <button class="filter active">Todos</button>
+  <button class="filter">Nuevos</button>
+  <button class="filter">Deportivos</button>
+  <button class="filter">SUV</button>
+</div>
+<div class="h" style="margin-top:16px;">LIVE COUNT</div>
+<div class="row"><div class="live">847 viendo ahora</div></div>
+</body></html>
