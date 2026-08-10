@@ -1,0 +1,107 @@
+# CI de AUTHENTIQ.
+#
+# NO se ejecuta todavía: GitHub Actions solo corre workflows en un repositorio
+# alojado en GitHub, y este proyecto no tiene remoto configurado (ver
+# AUDITORIA-2026-08-09.md, sección "Sin CI"). Este archivo queda listo para el
+# momento en que se decida crear un repositorio remoto y hacer push — no antes.
+#
+# Cubre lo mismo que `npm run verify` en local: sintaxis, componentes,
+# preflight, smoke, matriz de roles y E2E, contra una base de datos PostgreSQL
+# real levantada como servicio del propio runner (no una simulación).
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: authentiq
+          POSTGRES_PASSWORD: authentiq
+          POSTGRES_DB: authentiq_ci
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U authentiq"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://authentiq:authentiq@localhost:5432/authentiq_ci
+      JWT_SECRET: ci-only-secret-not-for-production-use-minimum-32-chars
+      PORT: 3001
+      SMOKE_EMAIL: admin@authentiq.local
+      SMOKE_PASSWORD: "12345678"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Instalar dependencias del frontend
+        working-directory: app
+        run: npm ci
+
+      - name: Build del frontend
+        working-directory: app
+        run: npm run build
+
+      - name: Instalar dependencias del API
+        working-directory: app/server
+        run: npm ci
+
+      - name: Aplicar migraciones estructurales
+        # NO se puede aplicar simplemente "todos los .sql en orden alfabético": se
+        # verificó en local que 012_seed_commercial_profile_demo.sql ordena antes que
+        # 012_vehicle_commercial_profile.sql pero depende de columnas que esa migración
+        # crea, y falla contra una base vacía. Los archivos de datos de demo (que no
+        # sigue todos el patrón _seed_ en el nombre — ver AUDITORIA-2026-08-09.md,
+        # sección 13.5) tampoco hacen falta para que `verify` pase: smoke/roles/E2E
+        # crean y limpian sus propios datos. Se excluyen explícitamente en vez de
+        # confiar en un patrón de nombre de archivo, que ya demostró ser inconsistente.
+        working-directory: app/database
+        run: |
+          DEMO_FILES="002_seed_demo.sql 006_seed_editorial_demo.sql 011_demo_showcase_data.sql 012_seed_commercial_profile_demo.sql"
+          for f in $(ls *.sql | sort); do
+            skip=false
+            for d in $DEMO_FILES; do [ "$f" = "$d" ] && skip=true; done
+            if [ "$skip" = true ]; then echo "Omitido (demo/QA): $f"; continue; fi
+            echo "Aplicando $f"
+            PGPASSWORD=authentiq psql -h localhost -U authentiq -d authentiq_ci -f "$f"
+          done
+
+      - name: Crear administrador de pruebas
+        # create-admin.js pide la contraseña de forma interactiva (node:readline);
+        # se provee por stdin en vez de un flag para no tocar el script pensado
+        # para uso manual por un operador.
+        working-directory: app/server
+        run: echo "$SMOKE_PASSWORD" | node scripts/create-admin.js --email="$SMOKE_EMAIL" --name="CI Admin"
+
+      - name: Levantar el API
+        working-directory: app/server
+        run: nohup node src/index.js > api.log 2>&1 &
+
+      - name: Esperar a que el API responda
+        run: |
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:3001/api/health && exit 0
+            sleep 1
+          done
+          echo "El API no respondió a tiempo"; exit 1
+
+      - name: Verificar (componentes + preflight + smoke + roles + E2E)
+        working-directory: app/server
+        run: npm run verify
+
+      - name: Mostrar log del API si algo falló
+        if: failure()
+        working-directory: app/server
+        run: cat api.log || true

@@ -1,0 +1,25 @@
+#!/bin/sh
+# Guardrail local de AUTHENTIQ. Se ejecuta antes de cada commit.
+#
+# Deliberadamente liviano y autosuficiente: no depende de que la API, Postgres
+# o Vite estén corriendo, para no producir falsos negativos que entrenen a
+# saltarse el hook con --no-verify. Cubre lo que SÍ se puede verificar sin
+# infraestructura viva:
+#   - sintaxis del servidor
+#   - que ningún componente JSX se use sin estar definido/importado
+#     (el bug que dejó Reportes en blanco en producción: ver AUDITORIA-2026-08-09.md)
+#
+# La suite completa (npm run verify + npm run test:browser) necesita el API,
+# PostgreSQL y Vite corriendo, y se ejecuta manualmente antes de cerrar una
+# ronda de cambios importante — no en cada commit.
+
+set -e
+cd "$(git rev-parse --show-toplevel)/app/server"
+
+echo "[pre-commit] Verificando sintaxis del servidor..."
+node --check src/index.js
+
+echo "[pre-commit] Verificando componentes JSX..."
+node scripts/check-components.js
+
+echo "[pre-commit] OK. Recuerda ejecutar 'npm run verify' y 'npm run test:browser' antes de publicar cambios importantes."

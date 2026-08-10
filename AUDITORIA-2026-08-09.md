@@ -226,11 +226,27 @@ Verificado: `admin@authentiq.local` / `12345678` vuelve a autenticar con `mustCh
 
 Se documenta con transparencia porque es la clase de error que un endpoint destructivo sin confirmación suficientemente específica puede producir, y porque demuestra que el propio sistema de auditoría que se construyó capturó el incidente correctamente.
 
+### 13.5 CI local + hallazgo real en el proceso de despliegue documentado
+
+Se inicializó git (a petición explícita, ver la conversación) y se añadió:
+
+- `.gitignore` en la raíz (nunca se versiona `.env`, `uploads/`, `dist/`, capturas de `browser-check/`).
+- Hook `pre-commit` (versionado en `scripts/git-hooks/`, instalable con `sh scripts/git-hooks/install.sh` tras un clon) que corre sintaxis + `check-components.js` — deliberadamente liviano y sin depender de servidores vivos, para no entrenar el hábito de `--no-verify`.
+- `.github/workflows/ci.yml`, listo pero **inactivo**: no hay remoto configurado, así que GitHub Actions no tiene dónde ejecutarse todavía.
+
+Antes de dar por bueno el workflow de CI, se probó localmente el camino completo que describe: base de datos PostgreSQL vacía → aplicar migraciones → crear admin → levantar API → `npm run verify`. Ese ejercicio encontró dos bugs reales en el propio proceso de despliegue documentado, no en la aplicación:
+
+1. **Orden de migraciones roto.** `012_seed_commercial_profile_demo.sql` ordena alfabéticamente antes que `012_vehicle_commercial_profile.sql`, pero depende de la columna `variant` que esa segunda migración crea. Aplicar los `.sql` con un `sort` simple —tal como indicaba literalmente `DEPLOYMENT-MANUAL.md`— falla contra una base vacía.
+2. **Convención de nombres de archivos de demo inconsistente.** `DEPLOYMENT-CHECKLIST.md` decía excluir `*_seed_*.sql` y `002_seed_demo.sql` en instalaciones reales. Pero `011_demo_showcase_data.sql` es 100% datos de demostración (11 inserciones, cero cambios estructurales) y no sigue el patrón `_seed_`: cualquier automatización que filtrara por ese patrón lo habría aplicado igual en producción.
+
+Ambos corregidos en `DEPLOYMENT-MANUAL.md`, `DEPLOYMENT-CHECKLIST.md` y `.github/workflows/ci.yml`, con la lista explícita y completa de los 4 archivos de demo (`002`, `006`, `011`, `012_seed_...`) en vez de depender de un patrón de nombre. Verificado de punta a punta: base de datos creada desde cero, 24 migraciones estructurales aplicadas sin error, administrador creado, API levantada, **58/58 pruebas en verde** contra esa base nueva — la misma secuencia que ejecutaría CI.
+
 ## 14. Riesgos pendientes
 
 - **Sin paginación.** `/api/vehicles` y `/api/admin/vehicles` devuelven el inventario completo. Con 8 vehículos es irrelevante; por encima de ~200 habrá que paginar.
 - **Sin recuperación de contraseña ni verificación de correo.**
-- **Sin CI — bloqueado, no solo pendiente.** El proyecto no tiene repositorio git (`git status` confirma "not a git repository"): sin control de versiones no hay dónde enganchar GitHub Actions ni ningún otro CI. Antes de automatizar `verify` + `test:browser` hace falta que decidas inicializar git y, si aplica, un remoto — es una decisión de proyecto que no tomo sin pedirla.
+- **CI en GitHub Actions: definido pero inactivo.** Ya hay repositorio git local (ver sección 13.5) y `.github/workflows/ci.yml` listo y verificado contra una base de datos real desde cero. Sigue sin ejecutarse porque no hay remoto en GitHub — falta que decidas crear el repositorio remoto y hacer el primer `git push`. Mientras tanto, el hook `pre-commit` local cubre sintaxis y componentes en cada commit, y `npm run verify` + `npm run test:browser` se ejecutan a mano.
+- **`app/dist/` no está en el commit.** El build de producción se regenera con `npm run build`; no se versiona (es output derivado). Confirmar que el proceso de despliegue real lo genera antes de publicar.
 - **Recuperación de contraseña autoservida por correo.** Pendiente de credenciales SMTP reales; ver sección 13.4 para lo que sí se implementó (reseteo mediado por administrador).
 
 ---

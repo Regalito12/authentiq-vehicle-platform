@@ -9,8 +9,8 @@
 ## Base de datos
 
 1. Configurar `DATABASE_URL` en `app/server/.env`.
-2. Aplicar en orden los archivos `app/database/001_*.sql` hasta el último número.
-3. Ejecutar los seeds demo solo en ambientes de demostración.
+2. Aplicar en orden numérico los archivos estructurales de `app/database/`, **excluyendo los de demo**: `002_seed_demo.sql`, `006_seed_editorial_demo.sql`, `011_demo_showcase_data.sql` y `012_seed_commercial_profile_demo.sql`. Un simple `sort` alfabético de *todos* los `.sql` falla: `012_seed_commercial_profile_demo.sql` ordena antes que `012_vehicle_commercial_profile.sql` pero depende de columnas que esa migración crea.
+3. Si el ambiente es de demostración, aplicar los 4 archivos de demo listados arriba **después** de todas las migraciones estructurales, en el orden numérico de su prefijo.
 4. Crear el administrador con `npm run create-admin -- --email=correo-real`.
 
 ## API y frontend

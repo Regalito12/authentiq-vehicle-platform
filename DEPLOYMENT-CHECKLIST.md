@@ -26,7 +26,7 @@ UPLOADS_DIR=/var/lib/authentiq/uploads
 
 1. Crear una base PostgreSQL vacía.
 2. Ejecutar las migraciones estructurales de `app/database` en orden.
-3. Ejecutar los archivos `*_seed_*.sql` y `002_seed_demo.sql` solo en entornos de demo o QA.
+3. Ejecutar los archivos de demo solo en entornos de demo o QA, y **después** de todas las migraciones estructurales — no todas siguen el patrón `*_seed_*.sql` (`011_demo_showcase_data.sql` no lo sigue) y el orden alfabético entre ellas y las estructurales no siempre coincide con el orden de dependencia real. Lista completa de archivos de demo: `002_seed_demo.sql`, `006_seed_editorial_demo.sql`, `011_demo_showcase_data.sql`, `012_seed_commercial_profile_demo.sql`.
 4. Crear el administrador con `npm.cmd run create-admin -- --email=...`.
 5. Confirmar `GET /api/health` antes de abrir el catálogo.
 
