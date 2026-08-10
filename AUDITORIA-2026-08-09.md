@@ -135,7 +135,7 @@ Migración añadida: **`026_media_integrity.sql`** (idempotente, con transacció
    `npm.cmd run create-admin -- --email=correo-real`. Es una credencial: no se toca sin autorización.
 2. ~~**41 cuentas QA desactivadas** en `admin_users`.~~ Resuelto en la sección 14.2: 72 cuentas inactivas eliminadas tras verificar integridad referencial.
 3. **URLs de medios absolutas** en base de datos. Rompen al cambiar de dominio. SQL de remediación en `DEPLOYMENT-CHECKLIST.md`.
-4. **Textos legales de privacidad y términos.** Siguen siendo marcadores; requieren aprobación legal del negocio antes de publicar.
+4. ~~**Textos legales de privacidad y términos.**~~ Resuelto en la sección 15.1: borrador real publicado, pendiente solo de revisión por un abogado (no de contenido).
 
 ## 10. Verificación en navegador real
 
@@ -254,11 +254,25 @@ Eliminadas **72 cuentas inactivas** (23 `content_editor`, 25 `seller`, 24 `edito
 ### 14.3 Repositorio remoto de GitHub — no creado, pendiente de tu confirmación
 `gh` está instalado y autenticado en esta máquina. Podría crear el repositorio y hacer el primer `push`, pero es una acción visible externamente que crea un recurso bajo tu cuenta de GitHub — no una limpieza local reversible como las dos anteriores. No se ejecuta sin que confirmes nombre y visibilidad (privado/público).
 
-## 15. Riesgos pendientes
+## 15. Sexta ronda: textos legales y repositorio remoto activado
+
+### 15.1 Textos legales — borrador real, no marcador
+`business_settings.privacy_text` y `terms_text` estaban en `NULL`: el sitio público mostraba "pendiente de aprobación antes del lanzamiento público" en Privacidad y Términos. Migración `028_legal_texts_draft.sql` (idempotente: solo escribe si el campo sigue vacío, nunca pisa una edición del negocio) con un borrador redactado a partir del comportamiento real y verificado de la aplicación — qué datos recopila cada formulario, qué se guarda de la cuenta de comprador, cómo se registra el consentimiento, qué cookies/localStorage usa, que no hay venta de datos a terceros ni procesamiento de pagos implementado.
+
+**No es un documento legal final.** El texto lo dice explícitamente en su primera línea. No se inventaron citas de leyes específicas, RNC, domicilio fiscal ni afirmaciones de cumplimiento normativo que no se pueden verificar — eso requiere un abogado real con los datos reales del negocio. Es editable en cualquier momento desde Backoffice → Configuración. Verificado en navegador real que el sitio público ya muestra este texto en vez del marcador.
+
+### 15.2 Repositorio remoto de GitHub creado y CI verificado en infraestructura real
+Repositorio privado creado (`gh repo create --private`) y confirmado `isPrivate: true`. Push de la rama `main` disparó el workflow de CI automáticamente — la primera vez que corrió en GitHub Actions, no solo en la simulación local de la ronda anterior.
+
+**Ese primer run falló, y encontró un bug real:** `three@^0.185.1` (versión que empecé a usar de verdad al implementar el visor 360 en la ronda 3) excede el rango de peer-dependency que exige `@google/model-viewer@4.3.1` (`^0.183.0`, que en semver de un paquete 0.x significa `>=0.183.0 <0.184.0`). `npm install` en local lo toleraba con una advertencia; `npm ci` —usado tanto en CI como en el propio `DEPLOYMENT-CHECKLIST.md`— es estricto y fallaba con `ERESOLVE`. Esto significa que **una instalación de producción siguiendo el manual al pie de la letra (`npm ci`) habría fallado** desde que se implementó el visor 360, y nadie lo había detectado porque el `node_modules` de desarrollo ya tenía la versión conflictiva instalada de antes.
+
+Corregido fijando `three` a `^0.183.2` (última versión compatible con el rango de `model-viewer`). Reinstalado con `npm ci` limpio (simulando exactamente el entorno de CI) y reverificado de punta a punta antes de confiar el fix: build limpio, visor 360 probado de nuevo en Chrome real con panorama de prueba (`PANORAMA LISTO`, canvas WebGL válido, cero errores), **58 pruebas de API + 97 de navegador, todas en verde**.
+
+## 16. Riesgos pendientes
 
 - **Sin paginación.** `/api/vehicles` y `/api/admin/vehicles` devuelven el inventario completo. Con 8 vehículos es irrelevante; por encima de ~200 habrá que paginar.
 - **Sin recuperación de contraseña ni verificación de correo.**
-- **CI en GitHub Actions: definido pero inactivo.** Ya hay repositorio git local (ver sección 13.5) y `.github/workflows/ci.yml` listo y verificado contra una base de datos real desde cero. Sigue sin ejecutarse porque no hay remoto en GitHub — falta que decidas crear el repositorio remoto y hacer el primer `git push`. Mientras tanto, el hook `pre-commit` local cubre sintaxis y componentes en cada commit, y `npm run verify` + `npm run test:browser` se ejecutan a mano.
+- ~~**CI en GitHub Actions: definido pero inactivo.**~~ Resuelto en la sección 15.2: repositorio privado creado, CI corriendo en GitHub Actions de verdad (no solo simulado en local), y un bug real de dependencias (`three` vs. el peer-range de `model-viewer`) que ese primer run encontró y que ya estaba corregido.
 - **`app/dist/` no está en el commit.** El build de producción se regenera con `npm run build`; no se versiona (es output derivado). Confirmar que el proceso de despliegue real lo genera antes de publicar.
 - **Recuperación de contraseña autoservida por correo.** Pendiente de credenciales SMTP reales; ver sección 13.4 para lo que sí se implementó (reseteo mediado por administrador).
 

@@ -16,7 +16,7 @@
     "react": "latest",
     "react-dom": "latest",
     "recharts": "^3.10.1",
-    "three": "^0.185.1",
+    "three": "^0.183.2",
     "vite": "latest"
   }
 }
