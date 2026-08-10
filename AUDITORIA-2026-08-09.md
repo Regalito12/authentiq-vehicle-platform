@@ -133,7 +133,7 @@ Migración añadida: **`026_media_integrity.sql`** (idempotente, con transacció
 
 1. **Contraseña del administrador (`12345678`).** Cambiarla antes de exponer el servidor:
    `npm.cmd run create-admin -- --email=correo-real`. Es una credencial: no se toca sin autorización.
-2. **41 cuentas QA desactivadas** en `admin_users`. No afectan a la seguridad (el login filtra `is_active`), pero conviene depurarlas. No se borran datos sin autorización explícita.
+2. ~~**41 cuentas QA desactivadas** en `admin_users`.~~ Resuelto en la sección 14.2: 72 cuentas inactivas eliminadas tras verificar integridad referencial.
 3. **URLs de medios absolutas** en base de datos. Rompen al cambiar de dominio. SQL de remediación en `DEPLOYMENT-CHECKLIST.md`.
 4. **Textos legales de privacidad y términos.** Siguen siendo marcadores; requieren aprobación legal del negocio antes de publicar.
 
@@ -241,7 +241,20 @@ Antes de dar por bueno el workflow de CI, se probó localmente el camino complet
 
 Ambos corregidos en `DEPLOYMENT-MANUAL.md`, `DEPLOYMENT-CHECKLIST.md` y `.github/workflows/ci.yml`, con la lista explícita y completa de los 4 archivos de demo (`002`, `006`, `011`, `012_seed_...`) en vez de depender de un patrón de nombre. Verificado de punta a punta: base de datos creada desde cero, 24 migraciones estructurales aplicadas sin error, administrador creado, API levantada, **58/58 pruebas en verde** contra esa base nueva — la misma secuencia que ejecutaría CI.
 
-## 14. Riesgos pendientes
+## 14. Quinta ronda: limpieza de datos, con verificación previa
+
+### 14.1 Medios huérfanos eliminados
+`POST /api/admin/maintenance/orphan-media` (dry-run primero, luego real): **6 elementos, 81.1 MB liberados** — los dos GLTF sueltos rotos que originaron el problema del 3D, un GLB de prueba sin referencia y 3 carpetas de paquete huérfanas. Confirmado antes de borrar que el paquete GLTF válido del Porsche 911 GT3 (al que se reconectó el modelo en la ronda 1) **no** aparece en la lista — la detección de referencias funciona. `uploads/` pasó de 105 MB a 23 MB. Verificado después: catálogo con 8 vehículos intacto, modelo 3D del GT3 sigue respondiendo 200.
+
+### 14.2 Cuentas QA eliminadas, tras comprobar integridad referencial
+Antes de borrar nada se revisaron las reglas `ON DELETE` de cada tabla que referencia `admin_users`: `offers.reviewed_by` es `NO ACTION` (habría bloqueado el borrado si alguna oferta revisada por una cuenta QA existiera — se comprobó que no había ninguna), el resto son `SET NULL` o `CASCADE`. Los únicos 2 registros de auditoría que perderían su atribución eran de las propias pruebas E2E de esta sesión, no auditoría de negocio real.
+
+Eliminadas **72 cuentas inactivas** (23 `content_editor`, 25 `seller`, 24 `editor`) dentro de una transacción con verificación de conteo antes/después. Quedan 4 cuentas: el administrador real y las 3 demo activas (`editor.demo`, `ventas.demo`, `contenido.demo`). Re-verificado: 58/58 en verde tras la limpieza.
+
+### 14.3 Repositorio remoto de GitHub — no creado, pendiente de tu confirmación
+`gh` está instalado y autenticado en esta máquina. Podría crear el repositorio y hacer el primer `push`, pero es una acción visible externamente que crea un recurso bajo tu cuenta de GitHub — no una limpieza local reversible como las dos anteriores. No se ejecuta sin que confirmes nombre y visibilidad (privado/público).
+
+## 15. Riesgos pendientes
 
 - **Sin paginación.** `/api/vehicles` y `/api/admin/vehicles` devuelven el inventario completo. Con 8 vehículos es irrelevante; por encima de ~200 habrá que paginar.
 - **Sin recuperación de contraseña ni verificación de correo.**
