@@ -16,11 +16,34 @@ const Backoffice = lazy(() => import("./admin/Backoffice.jsx"));
 
 const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:3001";
 
+function publicMediaUrl(url) {
+  if (!url) return url;
+  // Los datos locales heredados guardaban el host de desarrollo. En una URL
+  // pública el navegador del cliente no debe intentar cargar archivos desde
+  // su propio localhost: se resuelven contra la API configurada.
+  return String(url).replace(/^https?:\/\/(?:localhost|127\.0\.0\.1):3001(?=\/uploads\/)/i, apiUrl);
+}
+
 const analyticsSessionId = (() => { const key = "authentiq_analytics_session"; const current = localStorage.getItem(key); if (current) return current; const next = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`; localStorage.setItem(key, next); return next; })();
 function trackEvent(eventName, payload = {}) { fetch(`${apiUrl}/api/events`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventName, path: window.location.pathname, sessionId: analyticsSessionId, ...payload }) }).catch(() => {}); }
 
 function formatPrice(value) {
   return `$${Number(value).toLocaleString("en-US")} USD`;
+}
+
+function ensurePreload(url, as = "fetch") {
+  if (!url || String(url).startsWith("procedural://")) return;
+  let absoluteUrl;
+  try { absoluteUrl = new URL(url, window.location.href).href; } catch { return; }
+  const existing = [...document.head.querySelectorAll("link[data-authentiq-preload]")].find((link) => link.href === absoluteUrl && link.as === as);
+  if (existing) return;
+  const link = document.createElement("link");
+  link.rel = "preload";
+  link.as = as;
+  link.href = absoluteUrl;
+  link.dataset.authentiqPreload = as;
+  if (as === "fetch") link.crossOrigin = "anonymous";
+  document.head.appendChild(link);
 }
 
 function Reveal({ children, className = "" }) {
@@ -99,37 +122,113 @@ function QuoteModal({ vehicle, onClose }) {
 
 function Vehicle3DViewer({ vehicle, media }) {
   const viewerRef = useRef(null);
+  const stageRef = useRef(null);
   const [state, setState] = useState("loading");
+  const [progress, setProgress] = useState(0);
+  const [shouldLoad, setShouldLoad] = useState(false);
   const model = media.find((item) => item.type === "model_3d");
+  const modelUrl = publicMediaUrl(model?.url);
   // "procedural://" fue un marcador de una versión anterior; nunca representa un archivo real.
   const isProcedural = model?.url?.startsWith("procedural://");
+  const poster = publicMediaUrl(model?.posterUrl || vehicle.images?.[0]?.url);
   useEffect(() => {
-    if (!model || isProcedural) return undefined;
+    if (!modelUrl || isProcedural) return undefined;
+    setShouldLoad(false);
+    setState("loading");
+    const stage = stageRef.current;
+    if (!stage || typeof IntersectionObserver === "undefined") { setShouldLoad(true); return undefined; }
+    let idleTimer;
+    const activate = () => setShouldLoad(true);
+    if (typeof window.requestIdleCallback === "function") idleTimer = window.requestIdleCallback(activate, { timeout: 1200 });
+    else idleTimer = window.setTimeout(activate, 700);
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) { activate(); observer.disconnect(); }
+    }, { rootMargin: "320px 0px" });
+    observer.observe(stage);
+    return () => { observer.disconnect(); if (typeof window.cancelIdleCallback === "function" && typeof idleTimer === "number") window.cancelIdleCallback(idleTimer); else window.clearTimeout(idleTimer); };
+  }, [modelUrl, isProcedural]);
+  useEffect(() => {
+    if (!model || isProcedural || !shouldLoad) return undefined;
+    ensurePreload(modelUrl, "fetch");
+    if (poster) ensurePreload(poster, "image");
     let cleanup = () => {};
     let cancelled = false;
+    let frameTimer;
+    let jumpTimer;
+    let interactionResumeTimer;
+    setProgress(0);
     setState("loading");
-    import("@google/model-viewer").then(() => {
+    import("@google/model-viewer").then(({ ModelViewerElement }) => {
       if (cancelled) return;
+      ModelViewerElement.minimumRenderScale = .72;
+      ModelViewerElement.modelCacheSize = Math.max(ModelViewerElement.modelCacheSize || 5, 8);
       const viewer = viewerRef.current;
       if (!viewer) return;
-      const handleLoad = () => setState("ready");
+      const stopAutoRotate = () => {
+        window.clearTimeout(interactionResumeTimer);
+        viewer.removeAttribute("auto-rotate");
+      };
+      const resumeAutoRotate = () => {
+        window.clearTimeout(interactionResumeTimer);
+        interactionResumeTimer = window.setTimeout(() => {
+          if (!cancelled && viewer.getAttribute("auto-rotate") === null) viewer.setAttribute("auto-rotate", "");
+        }, 1400);
+      };
+      const frameViewer = async () => {
+        // Algunos GLTF grandes terminan de cargar con el framing automático fuera
+        // de cámara. Fijamos una toma inicial estable y luego dejamos los
+        // controles libres para que el comprador pueda explorar el vehículo.
+        viewer.removeAttribute("camera-orbit");
+        viewer.removeAttribute("camera-target");
+        await viewer.updateFraming?.();
+        if (cancelled) return;
+        jumpTimer = window.setTimeout(() => viewer.jumpCameraToGoal?.(), 80);
+        ModelViewerElement.minimumRenderScale = 1;
+        setProgress(100);
+        setState("ready");
+      };
+      const handleLoad = () => { frameTimer = window.setTimeout(() => { void frameViewer(); }, 80); };
+      const handleProgress = (event) => setProgress(Math.max(0, Math.min(100, Math.round(Number(event.detail?.totalProgress || 0) * 100))));
       const handleError = () => setState("error");
+      const handlePointerDown = () => stopAutoRotate();
+      const handlePointerUp = () => resumeAutoRotate();
+      const handleCameraChange = (event) => { if (event.detail?.source === "user-interaction") stopAutoRotate(); };
       // El elemento puede haber terminado de cargar antes de que se registren los listeners.
-      if (viewer.loaded) { setState("ready"); return; }
+      viewer.addEventListener("progress", handleProgress);
       viewer.addEventListener("load", handleLoad);
       viewer.addEventListener("error", handleError);
-      cleanup = () => { viewer.removeEventListener("load", handleLoad); viewer.removeEventListener("error", handleError); };
+      viewer.addEventListener("pointerdown", handlePointerDown);
+      viewer.addEventListener("pointerup", handlePointerUp);
+      viewer.addEventListener("pointercancel", handlePointerUp);
+      viewer.addEventListener("interact-stopped", handlePointerUp);
+      viewer.addEventListener("camera-change", handleCameraChange);
+      if (viewer.loaded === true || viewer.model) handleLoad();
+      cleanup = () => {
+        viewer.removeEventListener("progress", handleProgress);
+        viewer.removeEventListener("load", handleLoad);
+        viewer.removeEventListener("error", handleError);
+        viewer.removeEventListener("pointerdown", handlePointerDown);
+        viewer.removeEventListener("pointerup", handlePointerUp);
+        viewer.removeEventListener("pointercancel", handlePointerUp);
+        viewer.removeEventListener("interact-stopped", handlePointerUp);
+        viewer.removeEventListener("camera-change", handleCameraChange);
+        window.clearTimeout(frameTimer);
+        window.clearTimeout(jumpTimer);
+        window.clearTimeout(interactionResumeTimer);
+        ModelViewerElement.minimumRenderScale = 1;
+      };
     }).catch(() => setState("error"));
     // Si el archivo nunca responde, no dejamos al comprador en "cargando" para siempre.
     const timeout = window.setTimeout(() => setState((current) => current === "loading" ? "error" : current), 30000);
     return () => { cancelled = true; window.clearTimeout(timeout); cleanup(); };
-  }, [model?.url, isProcedural]);
+  }, [modelUrl, isProcedural, shouldLoad]);
   if (!model || isProcedural) return null;
   return <section id="vehicle-3d-viewer" className="vehicle-3d-viewer" aria-label={`Modelo 3D de ${vehicle.brand} ${vehicle.model}`}>
     <div className="vehicle-studio-heading"><div><span className="eyebrow">AUTHENTIQ / REAL 3D</span><h2>Explóralo en detalle.</h2></div><span className="vehicle-3d-status">{state === "ready" ? "MODELO LISTO" : state === "error" ? "NO DISPONIBLE" : "CARGANDO MODELO"}</span></div>
-    <div className="vehicle-3d-stage">
+    <div ref={stageRef} className={`vehicle-3d-stage ${state === "loading" ? "is-loading" : ""}`}>
       <div className="vehicle-3d-backdrop" />
-      <model-viewer ref={viewerRef} src={model.url} poster={model.posterUrl || vehicle.images?.[0]?.url} alt={model.altText || `${vehicle.brand} ${vehicle.model}, modelo 3D`} camera-controls auto-rotate shadow-intensity="1" exposure="1" loading="eager" reveal="auto" ar ar-modes="webxr scene-viewer quick-look" />
+      <model-viewer ref={viewerRef} src={shouldLoad ? modelUrl : undefined} poster={poster} alt={model.altText || `${vehicle.brand} ${vehicle.model}, modelo 3D`} camera-controls auto-rotate auto-rotate-delay="1600" rotation-per-second="10deg" shadow-intensity="1" shadow-softness=".72" exposure="1" tone-mapping="aces" touch-action="pan-y" loading="lazy" reveal="auto" ar ar-modes="webxr scene-viewer quick-look" />
+      {state === "loading" && <div className="vehicle-3d-loading" role="status" aria-live="polite"><div className="vehicle-3d-loader-mark" aria-hidden="true"><span /><i /><b /></div><span>{shouldLoad ? "Preparando la experiencia 3D" : "Preparando el estudio visual"}</span><div className="vehicle-3d-loading-track"><i style={{ transform: `scaleX(${Math.max(progress / 100, shouldLoad ? 0.08 : 0.02)})` }} /></div></div>}
       {state !== "error" && <div className="vehicle-3d-hint"><span>ROTAR</span><span>ZOOM</span><span>ARRASTRAR</span></div>}
       {state === "error" && <div className="vehicle-3d-fallback"><span className="eyebrow">VISTA 3D NO DISPONIBLE</span><p>Estamos preparando el modelo tridimensional de este vehículo. Mientras tanto, la galería y el estudio visual muestran cada detalle.</p><button className="secondary-action" type="button" onClick={() => document.getElementById("vehicle-studio")?.scrollIntoView({ behavior: "smooth", block: "start" })}>Ver el estudio visual ↓</button></div>}
     </div>
@@ -302,11 +401,27 @@ function VehicleStudio({ vehicle, images }) {
   </>;
 }
 
-function VehicleCard({ vehicle, onOpen, onToggleCompare, isCompared, isFavorite, onToggleFavorite }) {
+const brandLogoSlugs = { Acura: "acura", "Alfa Romeo": "alfaromeo", Audi: "https://cdn.freebiesupply.com/logos/large/2x/audi-14-logo-png-transparent.png", Bentley: "bentley", BMW: "https://cdn.freebiesupply.com/logos/large/2x/bmw-logo-png-transparent.png", Buick: "buick", BYD: "byd", Cadillac: "cadillac", Changan: "changan", Chevrolet: "chevrolet", Chrysler: "chrysler", Citroen: "citroen", Daihatsu: "daihatsu", Dodge: "dodge", Ferrari: "ferrari", Fiat: "fiat", Ford: "ford", GMC: "gmc", Porsche: "https://cdn.freebiesupply.com/logos/large/2x/porsche-logo-png-transparent.png", "Mercedes-AMG": "https://cdn.freebiesupply.com/logos/large/2x/mercedes-benz-logo-png-transparent.png", "Mercedes-Benz": "https://cdn.freebiesupply.com/logos/large/2x/mercedes-benz-logo-png-transparent.png" };
+
+const brandDirectory = ["Acura", "Alfa Romeo", "Audi", "Bentley", "BMW", "Buick", "BYD", "Cadillac", "Changan", "Chevrolet", "Chrysler", "Citroen", "Daihatsu", "Dodge", "Ferrari", "Fiat", "Ford", "GMC", "Mercedes-AMG", "Porsche"];
+
+function BrandLogo({ brand, logoUrl = "", size = "normal" }) {
+  const slug = brandLogoSlugs[brand];
+  const source = logoUrl || (slug?.startsWith("http") ? slug : slug ? `https://cdn.simpleicons.org/${slug}` : "");
+  const [failed, setFailed] = useState(!source);
+  return <span className={`brand-logo brand-logo-${size}`} aria-label={`Logo de ${brand}`}>{!failed && <img src={source} alt="" onError={() => setFailed(true)} />}{failed && <b>{brand?.slice(0, 2).toUpperCase()}</b>}</span>;
+}
+
+function VehicleCard({ vehicle, onOpen, onToggleCompare, isCompared, isFavorite, onToggleFavorite, imageLoading = "lazy" }) {
   const image = vehicle.images?.[0]?.url || "/assets/hero-highway.jpg";
   // La vista de ficha se registra al cambiar de ruta (cubre también los enlaces directos),
   // así que aquí no se emite un segundo vehicle_view para no duplicar la métrica.
   const open = () => onOpen(vehicle);
+  const preloadDetail = () => {
+    const model = vehicle.media?.find((item) => item.type === "model_3d");
+    if (model?.url) ensurePreload(publicMediaUrl(model.url), "fetch");
+    if (model?.posterUrl) ensurePreload(publicMediaUrl(model.posterUrl), "image");
+  };
 
   return (
     <motion.article
@@ -319,12 +434,13 @@ function VehicleCard({ vehicle, onOpen, onToggleCompare, isCompared, isFavorite,
       whileTap={{ scale: 0.99 }}
       transition={{ duration: 0.28, ease: [0.25, 1, 0.5, 1] }}
     >
-      <div className="vehicle-image-wrap">
+      <div className="vehicle-image-wrap" onPointerEnter={preloadDetail} onFocus={preloadDetail} onTouchStart={preloadDetail}>
         <button className="vehicle-card-image-button" type="button" onClick={open} aria-label={`Abrir ficha de ${vehicle.brand} ${vehicle.model}`}>
-          <img src={image} alt={`${vehicle.brand} ${vehicle.model}`} className="vehicle-image" loading="lazy" />
+          <img src={image} alt={`${vehicle.brand} ${vehicle.model}`} className="vehicle-image" loading={imageLoading} fetchPriority={imageLoading === "eager" ? "high" : "auto"} />
           <span className={`vehicle-tag ${vehicle.status === "reserved" ? "reserved" : vehicle.condition}`}>
             {vehicle.status === "reserved" ? "RESERVADO" : vehicle.condition === "new" ? "NUEVO" : "CERTIFICADO"}
           </span>
+          <BrandLogo brand={vehicle.brand} logoUrl={vehicle.brandLogoUrl} size="card" />
         </button>
         <button className={`favorite-toggle ${isFavorite ? "is-selected" : ""}`} type="button" aria-label={isFavorite ? "Quitar de favoritos" : "Guardar en favoritos"} onClick={() => onToggleFavorite(vehicle)}>{isFavorite ? "♥" : "♡"}</button>
         <button className={`compare-toggle ${isCompared ? "is-selected" : ""}`} type="button" role="checkbox" aria-checked={isCompared} onClick={() => onToggleCompare(vehicle)}>{isCompared ? "Comparando ✓" : "Comparar"}</button>
@@ -333,6 +449,7 @@ function VehicleCard({ vehicle, onOpen, onToggleCompare, isCompared, isFavorite,
         <div>
           <h3>{vehicle.brand} {vehicle.model}</h3>
           <span className="vehicle-meta">{vehicle.year} · {vehicle.variant || vehicle.fuelType || vehicle.power || "—"}</span>
+          <span className="vehicle-card-specs"><i>◉</i>{vehicle.fuelType || "Gasolina"}<i>⚙</i>{vehicle.transmission || "Automático"}<i>↗</i>{Number(vehicle.mileageKm || 0).toLocaleString("en-US")} km</span>
         </div>
         <strong>{formatPrice(vehicle.priceUsd)}</strong>
         <span className="vehicle-card-cta">Abrir ficha <span>↗</span></span>
@@ -357,6 +474,18 @@ function LeadForm({ vehicle, onClose, customerToken = "" }) {
     } catch (error) { setStatus({ loading: false, error: error.message, success: false }); }
   };
   return <motion.div className="lead-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}><motion.section className="lead-modal" role="dialog" aria-modal="true" aria-labelledby="lead-title" initial={{ y: 14, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ duration: .2, ease: "easeOut" }}><button className="modal-close" type="button" onClick={onClose} aria-label="Cerrar">×</button>{status.success ? <div className="lead-success"><span className="eyebrow">OFERTA RECIBIDA</span><h2>Tu oferta está en revisión.</h2><p>El equipo de AUTHENTIQ revisará los datos y se pondrá en contacto contigo.</p><button className="primary-action" type="button" onClick={onClose}>Cerrar</button></div> : <><span className="eyebrow">CONTACTO COMERCIAL</span><h2 id="lead-title">Hacer una oferta.</h2><p className="modal-vehicle">{vehicle.brand} {vehicle.model} · {formatPrice(vehicle.priceUsd)}</p><form className="lead-form" onSubmit={submit}><label>Nombre<input value={form.buyerName} onChange={(event) => change("buyerName", event.target.value)} required /></label><div className="lead-form-grid"><label>Correo<input type="email" value={form.buyerEmail} onChange={(event) => change("buyerEmail", event.target.value)} /></label><label>Teléfono<input value={form.buyerPhone} onChange={(event) => change("buyerPhone", event.target.value)} /></label></div><label>Monto de oferta USD<input type="number" min="1" step="0.01" value={form.amountUsd} onChange={(event) => change("amountUsd", event.target.value)} required /></label><label>Mensaje<textarea value={form.message} onChange={(event) => change("message", event.target.value)} placeholder="Cuéntanos algo sobre tu propuesta..." /></label><label className="consent-check"><input type="checkbox" checked={form.privacyConsent} onChange={(event) => change("privacyConsent", event.target.checked)} required /><span>Acepto la política de privacidad y autorizo el uso de mis datos para esta solicitud.</span></label>{status.error && <p className="state-message error">{status.error}</p>}<button className="primary-action" type="submit" disabled={status.loading}>{status.loading ? "Enviando..." : "Enviar oferta"}</button></form></>}</motion.section></motion.div>;
+}
+
+function TestDriveModal({ vehicle, onClose }) {
+  const [form, setForm] = useState({ name: "", email: "", phone: "", date: "", time: "", privacyConsent: false });
+  const [status, setStatus] = useState({ loading: false, error: "", success: false });
+  const change = (field, value) => setForm((current) => ({ ...current, [field]: value }));
+  const submit = async (event) => {
+    event.preventDefault(); setStatus({ loading: true, error: "", success: false });
+    const message = `Solicitud de prueba de manejo para ${vehicle.brand} ${vehicle.model}. Fecha preferida: ${form.date || "por definir"}. Horario: ${form.time || "por definir"}.`;
+    try { const response = await fetch(`${apiUrl}/api/leads`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: form.name, email: form.email, phone: form.phone, message, vehicleId: vehicle.id, privacyConsent: form.privacyConsent }) }); const payload = await response.json(); if (!response.ok) throw new Error(payload.error || "No se pudo registrar la solicitud"); trackEvent("contact_submitted", { vehicleId: vehicle.id, type: "test-drive" }); setStatus({ loading: false, error: "", success: true }); } catch (error) { setStatus({ loading: false, error: error.message, success: false }); }
+  };
+  return <motion.div className="lead-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}><motion.section className="lead-modal test-drive-modal" role="dialog" aria-modal="true" aria-labelledby="test-drive-title" initial={{ y: 14, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ duration: .2, ease: "easeOut" }}><button className="modal-close" type="button" onClick={onClose} aria-label="Cerrar">×</button>{status.success ? <div className="lead-success"><span className="eyebrow">SOLICITUD RECIBIDA</span><h2>Te ayudamos a probarlo.</h2><p>Un asesor confirmará la fecha y hora disponibles para tu visita.</p><button className="primary-action" type="button" onClick={onClose}>Cerrar</button></div> : <><span className="eyebrow">EXPERIENCIA AUTHENTIQ</span><h2 id="test-drive-title">Agenda una prueba.</h2><p className="modal-vehicle">{vehicle.brand} {vehicle.model} · {vehicle.year}</p><form className="lead-form" onSubmit={submit}><label>Nombre<input value={form.name} onChange={(event) => change("name", event.target.value)} autoComplete="name" required /></label><div className="lead-form-grid"><label>Correo<input type="email" value={form.email} onChange={(event) => change("email", event.target.value)} autoComplete="email" required /></label><label>Teléfono<input value={form.phone} onChange={(event) => change("phone", event.target.value)} autoComplete="tel" required /></label></div><div className="lead-form-grid"><label>Fecha preferida<input type="date" value={form.date} onChange={(event) => change("date", event.target.value)} /></label><label>Horario preferido<select value={form.time} onChange={(event) => change("time", event.target.value)}><option value="">Cualquier hora</option><option value="mañana">Mañana</option><option value="tarde">Tarde</option></select></label></div><label className="consent-check"><input type="checkbox" checked={form.privacyConsent} onChange={(event) => change("privacyConsent", event.target.checked)} required /><span>Acepto la política de privacidad y autorizo el uso de mis datos para coordinar la visita.</span></label>{status.error && <p className="state-message error">{status.error}</p>}<button className="primary-action" type="submit" disabled={status.loading}>{status.loading ? "Registrando…" : "Solicitar prueba"}</button></form></>}</motion.section></motion.div>;
 }
 
 function CustomerAccountModal({ customer, form, mode, status, favoriteCount, activity = { offers: [], quotes: [], notifications: [] }, onChange, onSubmit, onMode, onClose, onLogout, onReadNotifications }) {
@@ -471,6 +600,11 @@ function VehicleDetail({ vehicle, onBack, isFavorite = false, onToggleFavorite =
   const images = vehicle.images?.length ? vehicle.images : [{ url: "/assets/hero-highway.jpg" }];
   const image = images[activeImage]?.url || images[0].url;
   const structuredData = JSON.stringify({ "@context": "https://schema.org", "@type": "Vehicle", name: `${vehicle.brand} ${vehicle.model}`, model: vehicle.model, vehicleConfiguration: vehicle.variant || undefined, fuelType: vehicle.fuelType || undefined, color: vehicle.exteriorColor || undefined, brand: { "@type": "Brand", name: vehicle.brand }, vehicleModelDate: String(vehicle.year), image: images.map((item) => new URL(item.url, window.location.origin).href), mileageFromOdometer: { "@type": "QuantitativeValue", value: Number(vehicle.mileageKm), unitCode: "KMT" }, offers: { "@type": "Offer", priceCurrency: "USD", price: Number(vehicle.priceUsd), availability: vehicle.status === "published" ? "https://schema.org/InStock" : "https://schema.org/LimitedAvailability" } }).replace(/</g, "\\u003c");
+  useEffect(() => {
+    const model = vehicle.media?.find((item) => item.type === "model_3d");
+    if (model?.url) ensurePreload(publicMediaUrl(model.url), "fetch");
+    if (model?.posterUrl) ensurePreload(publicMediaUrl(model.posterUrl), "image");
+  }, [vehicle.id, vehicle.media]);
 
   return (
     <motion.main
@@ -506,7 +640,7 @@ function VehicleDetail({ vehicle, onBack, isFavorite = false, onToggleFavorite =
           </div>
         </div>
         <div className="detail-copy">
-          <span className="eyebrow">{vehicle.condition === "new" ? "NUEVO INVENTARIO" : "INVENTARIO CERTIFICADO"}</span>
+          <div className="detail-brand-line"><BrandLogo brand={vehicle.brand} logoUrl={vehicle.brandLogoUrl} /><span className="eyebrow">{vehicle.condition === "new" ? "NUEVO INVENTARIO" : "INVENTARIO CERTIFICADO"}</span></div>
           <h1>{vehicle.brand} <em>{vehicle.model}</em></h1>
           {vehicle.variant && <p className="detail-variant">{vehicle.variant}</p>}
           <p className="detail-price">{formatPrice(vehicle.priceUsd)}</p>
@@ -527,6 +661,7 @@ function VehicleDetail({ vehicle, onBack, isFavorite = false, onToggleFavorite =
             ].map(([label, value]) => <div className="spec-row" key={label}><span>{label}</span><strong>{value || "—"}</strong></div>)}
           </div>
           <FinanceCalculator price={vehicle.priceUsd} />
+          <button className="detail-utility-action test-drive-link" type="button" onClick={() => setLeadType("test-drive")}>Agendar prueba de manejo →</button>
           <button className="detail-utility-action studio-jump" type="button" onClick={() => document.getElementById(vehicle.media?.some((item) => item.type === "model_3d") ? "vehicle-3d-viewer" : "vehicle-studio")?.scrollIntoView({ behavior: "smooth", block: "start" })}>{vehicle.media?.some((item) => item.type === "model_3d") ? "Explorar modelo 3D ↓" : "Explorar Studio ↓"}</button>
           <div className="detail-actions">
             <button className="primary-action" type="button" onClick={() => setLeadType("offer")} disabled={vehicle.status === "reserved"}>{vehicle.status === "reserved" ? "Vehículo reservado" : "Hacer una oferta"}</button>
@@ -552,7 +687,8 @@ function VehicleDetail({ vehicle, onBack, isFavorite = false, onToggleFavorite =
           <button className="secondary-action" type="button" onClick={() => setQuoteOpen(true)}>Cotización</button>
         </div>
       </aside>
-      <AnimatePresence>{leadType && <LeadForm vehicle={vehicle} customerToken={customerToken} onClose={() => setLeadType(null)} />}</AnimatePresence>
+      <AnimatePresence>{leadType === "offer" && <LeadForm vehicle={vehicle} customerToken={customerToken} onClose={() => setLeadType(null)} />}</AnimatePresence>
+      <AnimatePresence>{leadType === "test-drive" && <TestDriveModal vehicle={vehicle} onClose={() => setLeadType(null)} />}</AnimatePresence>
       <AnimatePresence>{quoteOpen && <QuoteModal vehicle={vehicle} onClose={() => setQuoteOpen(false)} />}</AnimatePresence>
       <AnimatePresence>{lightboxOpen && <motion.div className="image-lightbox" role="dialog" aria-modal="true" aria-label="Galería ampliada" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onMouseDown={(event) => { if (event.target === event.currentTarget) setLightboxOpen(false); }}><button className="modal-close" type="button" onClick={() => setLightboxOpen(false)} aria-label="Cerrar imagen">×</button><img src={image} alt={`${vehicle.brand} ${vehicle.model}, imagen ${activeImage + 1}`} /></motion.div>}</AnimatePresence>
     </motion.main>
@@ -599,17 +735,78 @@ function InstitutionalPage({ type, settings = {}, onBack }) {
   </motion.main>;
 }
 
-function CompareDock({ vehicles, onRemove, onClear }) {
+function LegacyCompareDock({ vehicles, onRemove, onClear }) {
   if (!vehicles.length) return null;
   return <aside className="compare-dock" aria-label="Comparador de vehículos"><div className="compare-dock-head"><div><span className="eyebrow">SELECCIÓN INTELIGENTE</span><strong>Comparar vehículos <small>{vehicles.length}/3</small></strong></div><button className="text-button" type="button" onClick={onClear}>Limpiar</button></div><div className="compare-grid">{vehicles.map((vehicle) => <article key={vehicle.id} className="compare-item"><button type="button" className="compare-remove" onClick={() => onRemove(vehicle.id)} aria-label={`Quitar ${vehicle.model}`}>×</button><img src={vehicle.images?.[0]?.url || "/assets/hero-highway.jpg"} alt="" /><strong>{vehicle.brand} {vehicle.model}</strong><span>{formatPrice(vehicle.priceUsd)}</span></article>)}</div><div className="compare-summary"><span>{vehicles.length > 1 ? "Revisa precio, potencia y kilometraje de tus favoritos." : "Añade un modelo más para activar la comparación."}</span>{vehicles.length > 1 ? <a href="#compare-table">Ver comparación ↓</a> : <a href="#catalog">Seguir explorando ↓</a>}</div></aside>;
+}
+
+function CompareDock({ vehicles, onRemove, onClear }) {
+  const [collapsed, setCollapsed] = useState(false);
+  if (!vehicles.length) return null;
+  return <aside className={`compare-dock ${collapsed ? "is-collapsed" : ""}`} aria-label="Comparador de vehículos"><div className="compare-dock-head"><div><span className="eyebrow">SELECCIÓN INTELIGENTE</span><strong>Comparar vehículos <small>{vehicles.length}/3</small></strong></div><div className="compare-dock-actions"><button className="compare-collapse" type="button" onClick={() => setCollapsed((value) => !value)} aria-expanded={!collapsed} aria-label={collapsed ? "Desplegar comparador" : "Plegar comparador"}><NavIcon name={collapsed ? "chevronUp" : "chevronDown"} /></button><button className="text-button" type="button" onClick={onClear}>Limpiar</button></div></div>{!collapsed && <><div className="compare-grid">{vehicles.map((vehicle) => <article key={vehicle.id} className="compare-item"><button type="button" className="compare-remove" onClick={() => onRemove(vehicle.id)} aria-label={`Quitar ${vehicle.model}`}>×</button><img src={vehicle.images?.[0]?.url || "/assets/hero-highway.jpg"} alt="" /><strong>{vehicle.brand} {vehicle.model}</strong><span>{formatPrice(vehicle.priceUsd)}</span></article>)}</div><div className="compare-summary"><span>{vehicles.length > 1 ? "Revisa precio, potencia y kilometraje de tus favoritos." : "Añade un modelo más para activar la comparación."}</span>{vehicles.length > 1 ? <a href="#compare-table">Ver comparación ↓</a> : <a href="#catalog">Seguir explorando ↓</a>}</div></>}</aside>;
 }
 
 function CompareTable({ vehicles }) {
   if (vehicles.length < 2) return <section className="compare-table-section compare-table-empty" id="compare-table"><div className="compare-empty-mark">{vehicles.length ? "01" : "00"}</div><div><span className="eyebrow">COMPARACIÓN / {vehicles.length}/2 MÍNIMO</span><h2>{vehicles.length ? "Elige un modelo más." : "Compara antes de decidir."}</h2><p>{vehicles.length ? "Ya tienes un vehículo seleccionado. Añade otro desde cualquier tarjeta para ver precio, potencia, kilometraje y ficha técnica en paralelo." : "Selecciona hasta tres vehículos y revisa sus diferencias en una sola vista, sin perder tu selección."}</p><a className="detail-utility-action" href="#catalog">Explorar inventario ↓</a></div></section>;
   const rows = [["Precio", (vehicle) => formatPrice(vehicle.priceUsd)], ["Año", (vehicle) => vehicle.year], ["Versión", (vehicle) => vehicle.variant || "—"], ["Combustible", (vehicle) => vehicle.fuelType || "—"], ["Transmisión", (vehicle) => vehicle.transmission || "—"], ["Potencia", (vehicle) => vehicle.power || "—"], ["Kilometraje", (vehicle) => `${Number(vehicle.mileageKm || 0).toLocaleString("en-US")} km`], ["Tracción", (vehicle) => vehicle.drive || "—"], ["Ubicación", (vehicle) => vehicle.location || "—"]];
-  return <section className="compare-table-section" id="compare-table"><div className="section-head"><div><span className="eyebrow">COMPARACIÓN</span><h2>Decide con claridad.</h2></div><p>{vehicles.length} vehículos seleccionados</p></div><div className="compare-table" style={{ "--compare-columns": vehicles.length }}><div className="compare-table-labels"><span>Modelo</span>{rows.map(([label]) => <span key={label}>{label}</span>)}</div>{vehicles.map((vehicle) => <div className="compare-column" key={vehicle.id}><strong>{vehicle.brand} {vehicle.model}</strong>{rows.map(([_label, value]) => <span key={_label}>{value(vehicle)}</span>)}</div>)}</div></section>;
+  return <section className="compare-table-section" id="compare-table"><div className="section-head"><div><span className="eyebrow">COMPARACIÓN</span><h2>Decide con claridad.</h2></div><p>{vehicles.length} vehículos seleccionados</p></div><div className="compare-vehicle-rail" style={{ "--compare-columns": vehicles.length }} aria-label="Modelos seleccionados para comparar">{vehicles.map((vehicle, index) => <article className="compare-vehicle-card" key={vehicle.id}><img src={vehicle.images?.[0]?.url || "/assets/hero-highway.jpg"} alt={`${vehicle.brand} ${vehicle.model}`} /><div><span className="eyebrow">0{index + 1} · {vehicle.year} · {vehicle.condition === "new" ? "NUEVO" : "CERTIFICADO"}</span><h3>{vehicle.brand} {vehicle.model}</h3><strong>{formatPrice(vehicle.priceUsd)}</strong><p><b>{vehicle.power || "—"}</b><span>Potencia</span></p></div></article>)}</div><div className="compare-table" style={{ "--compare-columns": vehicles.length }}><div className="compare-table-labels"><span>Modelo</span>{rows.map(([label]) => <span key={label}>{label}</span>)}</div>{vehicles.map((vehicle) => <div className="compare-column" key={vehicle.id}><strong>{vehicle.brand} {vehicle.model}</strong>{rows.map(([_label, value]) => <span key={_label}>{value(vehicle)}</span>)}</div>)}</div></section>;
 }
 
+function BrandRail({ vehicles, brands, onChooseBrand }) {
+  if (!brands.length) return null;
+  return <section id="brands" className="brand-rail-section" aria-label="Explorar por marca"><div className="brand-rail-heading"><div><span className="eyebrow">MARCAS ACTIVAS</span><h2>Encuentra tu próxima firma.</h2></div><a href="#catalog">VER TODO ↗</a></div><div className="brand-rail">{brands.map((item, index) => { const count = vehicles.filter((vehicle) => vehicle.brand === item).length; const representative = vehicles.find((vehicle) => vehicle.brand === item); return <button key={item} type="button" className="brand-rail-item has-inventory" onClick={() => onChooseBrand(item)}><BrandLogo brand={item} logoUrl={representative?.brandLogoUrl} /><strong>{item}</strong><small>{`${count} ${count === 1 ? "modelo" : "modelos"}`} <b>→</b></small></button>; })}</div></section>;
+}
+
+function RecentSelection({ vehicles, compareVehicles, favoriteIds, onOpen, onToggleCompare, onToggleFavorite }) {
+  if (!vehicles.length) return null;
+  return <section className="recent-selection" aria-label="Vehículos recientes"><div className="section-head"><div><span className="eyebrow">NUEVAS LLEGADAS</span><h2>Recién incorporados.</h2></div><p>Los últimos vehículos que llegaron a la selección.</p></div><div className="recent-vehicle-grid">{vehicles.slice(0, 4).map((vehicle, index) => <VehicleCard key={vehicle.id} vehicle={vehicle} isCompared={compareVehicles.some((item) => item.id === vehicle.id)} isFavorite={favoriteIds.includes(vehicle.id)} onOpen={onOpen} onToggleCompare={onToggleCompare} onToggleFavorite={onToggleFavorite} imageLoading={index < 2 ? "eager" : "lazy"} />)}</div></section>;
+}
+
+
+function ModelLineRail({ vehicles, selectedBrand, onChooseLine }) {
+  const lines = useMemo(() => {
+    const source = selectedBrand === "all" ? vehicles : vehicles.filter((vehicle) => vehicle.brand === selectedBrand);
+    const seen = new Set();
+    return source.filter((vehicle) => {
+      const key = `${vehicle.brand}-${vehicle.model}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).slice(0, 8);
+  }, [vehicles, selectedBrand]);
+  if (!lines.length) return null;
+  return <section id="models" className="model-lines-section" aria-label="Explorar lineas y modelos"><div className="section-head"><div><span className="eyebrow">LINEAS DE MODELO</span><h2>Encuentra la version correcta.</h2></div><p>Explora por familia y llega directo al inventario disponible.</p></div><div className="model-line-rail">{lines.map((vehicle, index) => { const count = vehicles.filter((item) => item.brand === vehicle.brand && item.model === vehicle.model).length; return <button className="model-line-card" type="button" key={`${vehicle.brand}-${vehicle.model}`} onClick={() => onChooseLine(vehicle)}><span className="model-line-index">0{index + 1}</span><span className="model-line-copy"><strong>{vehicle.brand} {vehicle.model}</strong><small>{vehicle.category || "Vehiculo premium"} · {vehicle.year} · {count} disponible{count === 1 ? "" : "s"}</small></span><span className="model-line-arrow">→</span></button>; })}</div></section>;
+}
+
+function FinancingSpotlight({ vehicles, onExplore }) {
+  const [price, setPrice] = useState(() => Math.round(Number(vehicles[0]?.priceUsd || 0)));
+  const [downPayment, setDownPayment] = useState(20);
+  const [months, setMonths] = useState(60);
+  const rate = 0.12 / 12;
+  const principal = Math.max(price * (1 - downPayment / 100), 0);
+  const payment = principal && rate ? principal * (rate * (1 + rate) ** months) / ((1 + rate) ** months - 1) : 0;
+  if (!vehicles.length) return null;
+  return <section className="financing-spotlight" aria-label="Calculadora de financiamiento"><div className="financing-copy"><span className="eyebrow">COMPRA A TU RITMO</span><h2>Calcula una cuota orientativa.</h2><p>Hazte una idea del presupuesto mensual antes de hablar con un asesor. La aprobacion final depende de la entidad financiera.</p><button type="button" className="secondary-action" onClick={onExplore}>Ver vehiculos disponibles →</button></div><div className="financing-controls"><label>Precio del vehiculo<input type="number" min="0" value={price} onChange={(event) => setPrice(Number(event.target.value) || 0)} /></label><label>Inicial <output>{downPayment}%</output><input type="range" min="0" max="70" step="5" value={downPayment} onChange={(event) => setDownPayment(Number(event.target.value))} /></label><label>Plazo <output>{months} meses</output><input type="range" min="12" max="84" step="12" value={months} onChange={(event) => setMonths(Number(event.target.value))} /></label><div className="financing-result"><span>Cuota estimada</span><strong>{formatPrice(payment)}</strong><small>12% anual · sin seguros ni gastos adicionales</small></div></div></section>;
+}
+
+function NavIcon({ name }) {
+  const paths = { inventory: "M3 5h18M5 5v14h14V5M8 9h8M8 13h5", brands: "M4 6h16v12H4zM8 6v12M16 6v12", compare: "M5 5h5v14H5zM14 5h5v14h-5z", explore: "M12 3l2.8 5.7L21 10l-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 10l6.2-1.3z", menu: "M4 7h16M4 12h16M4 17h16", chevronUp: "m6 15 6-6 6 6", chevronDown: "m6 9 6 6 6-6", power: "M12 3v9m5.66-6.66a8 8 0 1 1-11.32 0" };
+  return <svg className="nav-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d={paths[name] || paths.inventory} /></svg>;
+}
+
+function ShowroomNav({ theme, setTheme, customer, onAccount, onBackoffice }) {
+  const [scrolled, setScrolled] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 36);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+  const links = [["inventory", "Inventario", "#catalog"], ["brands", "Marcas", "#brands"], ["explore", "Modelos", "#models"], ["compare", "Comparar", "#compare-table"]];
+  const closeMenu = () => setMenuOpen(false);
+  return <nav className={`top-nav showroom-nav ${scrolled ? "is-scrolled" : ""}`} aria-label="Navegación principal"><a className="brand-mark showroom-nav-brand" href="#top" onClick={closeMenu}>AUTHENTIQ<span>°</span></a><div className={`showroom-nav-links ${menuOpen ? "is-open" : ""}`}>{links.map(([icon, label, href]) => <a key={href} href={href} onClick={closeMenu}><NavIcon name={icon} /><span>{label}</span></a>)}<button className="nav-admin-link" type="button" onClick={() => { setTheme((current) => current === "dark" ? "light" : "dark"); closeMenu(); }}>{theme === "dark" ? "CLARO" : "OSCURO"}</button><button className="nav-admin-link account-launch" type="button" onClick={() => { onAccount(); closeMenu(); }}>{customer ? `CUENTA · ${customer.name.split(" ")[0].toUpperCase()}` : "MI CUENTA"}</button><button className="nav-admin-link nav-backoffice-link" type="button" onClick={() => { onBackoffice(); closeMenu(); }}>BACKOFFICE →</button></div><button className="showroom-nav-toggle" type="button" aria-label={menuOpen ? "Cerrar menú" : "Abrir menú"} aria-expanded={menuOpen} onClick={() => setMenuOpen((current) => !current)}><NavIcon name={menuOpen ? "explore" : "menu"} /></button></nav>;
+}
 
 function PresentationMode({ vehicles, loading, onExit, onOpenVehicle }) {
   const [activeIndex, setActiveIndex] = useState(0);
@@ -699,7 +896,7 @@ export default function App() {
 
   const refreshVehicles = async () => {
     try {
-      const response = await fetch(`${apiUrl}/api/vehicles`);
+      const response = await fetch(`${apiUrl}/api/vehicles`, { cache: "no-store" });
       if (!response.ok) throw new Error("No se pudo cargar el catálogo");
       const payload = await response.json();
       setVehicles(payload.data || []);
@@ -742,6 +939,7 @@ export default function App() {
   }, [activeVehicle?.id, pathname, loading]);
 
   const brands = useMemo(() => [...new Set(vehicles.map((vehicle) => vehicle.brand))].sort(), [vehicles]);
+  const recentVehicles = useMemo(() => [...vehicles].sort((left, right) => new Date(right.createdAt || 0) - new Date(left.createdAt || 0)), [vehicles]);
   const categories = useMemo(() => [...new Set(vehicles.map((vehicle) => vehicle.category).filter(Boolean))].sort(), [vehicles]);
   const conditions = useMemo(() => [...new Set(vehicles.map((vehicle) => vehicle.condition).filter(Boolean))].sort(), [vehicles]);
   const fuelTypes = useMemo(() => [...new Set(vehicles.map((vehicle) => vehicle.fuelType).filter(Boolean))].sort(), [vehicles]);
@@ -773,6 +971,15 @@ export default function App() {
   const clearFilters = () => {
     setSearch(""); setBrand("all"); setCategory("all"); setCondition("all"); setFuelType("all"); setTransmission("all");
     setMinPrice(""); setMaxPrice(""); setMinYear(""); setSort("newest"); setFavoritesOnly(false);
+  };
+  const chooseBrand = (selectedBrand) => {
+    setBrand(selectedBrand);
+    window.requestAnimationFrame(() => document.getElementById("catalog")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  };
+  const chooseModelLine = (vehicle) => {
+    setBrand(vehicle.brand);
+    setSearch(vehicle.model);
+    window.requestAnimationFrame(() => document.getElementById("catalog")?.scrollIntoView({ behavior: "smooth", block: "start" }));
   };
   const toggleCompare = (vehicle) => setCompareVehicles((current) => current.some((item) => item.id === vehicle.id) ? current.filter((item) => item.id !== vehicle.id) : current.length < 3 ? [...current, vehicle] : current);
   const changeAccountForm = (field, value) => setAccountForm((current) => ({ ...current, [field]: value }));
@@ -820,11 +1027,11 @@ export default function App() {
 
   const heroVideoUrl = String(import.meta.env.VITE_HERO_VIDEO_URL || "").trim();
   return (
-    <main>
+    <main id="top">
+      <ShowroomNav theme={theme} setTheme={setTheme} customer={customer} onAccount={() => { setAccountOpen(true); setAccountStatus({ loading: false, error: "" }); }} onBackoffice={() => setScreen("admin")} />
       <section className="hero">
         {heroVideoUrl ? <video className="hero-background hero-video" autoPlay muted loop playsInline preload="metadata" poster="/assets/authentiq-hero-v1.png" aria-label="Vehículo premium en movimiento"><source src={heroVideoUrl} /></video> : <img src="/assets/authentiq-hero-v1.png" alt="Coupé premium AUTHENTIQ recorriendo una carretera costera" className="hero-background" />}
         <div className="hero-overlay" />
-        <nav className="top-nav"><span className="brand-mark">AUTHENTIQ</span><div className="top-nav-actions"><span className="nav-status">SELECCIÓN PRIVADA · 2026</span><button className="nav-admin-link" onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")} aria-label="Cambiar tema">{theme === "dark" ? "MODO CLARO" : "MODO OSCURO"}</button><button className="nav-admin-link account-launch" onClick={() => { setAccountOpen(true); setAccountStatus({ loading: false, error: "" }); }} aria-label="Abrir mi cuenta">{customer ? `MI CUENTA · ${customer.name.split(" ")[0].toUpperCase()}` : "MI CUENTA →"}</button><button className="nav-admin-link nav-backoffice-link" onClick={() => setScreen("admin")}>BACKOFFICE →</button></div></nav>
         <div className="hero-content">
           <span className="eyebrow">AUTHENTIQ / CURATED MOTION</span>
           <h1>Elige lo que <em>te mueve.</em></h1>
@@ -837,9 +1044,15 @@ export default function App() {
       <Reveal className="showroom-signal"><div className="showroom-signal-inner"><span className="showroom-signal-label">AUTHENTIQ / PRIVATE SELECTION</span><p>No llenamos el catalogo. Seleccionamos lo que merece ser conducido.</p><a href="#catalog">Entrar a la seleccion <span>→</span></a></div></Reveal>
       <CompareDock vehicles={compareVehicles} onRemove={(id) => setCompareVehicles((current) => current.filter((item) => item.id !== id))} onClear={() => setCompareVehicles([])} />
 
+      <BrandRail vehicles={vehicles} brands={brands} onChooseBrand={chooseBrand} />
+      <ModelLineRail vehicles={vehicles} selectedBrand={brand} onChooseLine={chooseModelLine} />
+      <RecentSelection vehicles={recentVehicles} compareVehicles={compareVehicles} favoriteIds={favoriteIds} onOpen={(vehicle) => navigate(vehiclePath(vehicle))} onToggleCompare={toggleCompare} onToggleFavorite={toggleFavorite} />
+      <FinancingSpotlight vehicles={vehicles} onExplore={() => document.getElementById("catalog")?.scrollIntoView({ behavior: "smooth", block: "start" })} />
+
       <section className="catalog" id="catalog">
         <div className="section-head"><div><span className="eyebrow">INVENTARIO · {vehicles.length.toString().padStart(2, "0")} MODELOS</span><h2>Catálogo activo.</h2></div><p>Datos cargados desde PostgreSQL.</p></div>
          <div className="catalog-intro-note">Una seleccion breve, pensada para decidir mejor.</div>
+         <div className="filters-heading"><div><span className="eyebrow">BUSQUEDA AVANZADA</span><strong>Filtra por lo que importa.</strong></div><span>Marca, precio, año y especificaciones</span></div>
          <div className="filters">
           <input className="catalog-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar marca, modelo o año" aria-label="Buscar vehículos" />
           <select value={brand} onChange={(event) => setBrand(event.target.value)}><option value="all">Todas las marcas</option>{brands.map((item) => <option key={item} value={item}>{item}</option>)}</select>
@@ -856,7 +1069,7 @@ export default function App() {
          <div className="catalog-toolbar"><span>{loading ? "Consultando inventario" : `${filteredVehicles.length} de ${vehicles.length} vehiculos visibles`}</span><span className="catalog-toolbar-line" /><span>Desliza para explorar</span><button className={`favorites-filter ${favoritesOnly ? "is-active" : ""}`} type="button" onClick={() => setFavoritesOnly((current) => !current)} aria-pressed={favoritesOnly}>♡ Favoritos {favoriteIds.length ? `· ${favoriteIds.length}` : ""}</button></div>
         {loading && <p className="state-message">Cargando inventario…</p>}
         {error && <p className="state-message error">{error}. Verifica que la API esté corriendo en el puerto 3001.</p>}
-        {!loading && !error && (filteredVehicles.length ? <div className="vehicle-grid"><AnimatePresence mode="popLayout" initial={false}>{filteredVehicles.map((vehicle) => <VehicleCard key={vehicle.id} vehicle={vehicle} isCompared={compareVehicles.some((item) => item.id === vehicle.id)} isFavorite={favoriteIds.includes(vehicle.id)} onToggleFavorite={toggleFavorite} onToggleCompare={toggleCompare} onOpen={(item) => navigate(vehiclePath(item))} />)}</AnimatePresence></div> : <div className="catalog-empty"><h3>No encontramos vehículos con esos criterios.</h3><p>Prueba limpiando la búsqueda o seleccionando otros filtros.</p><button className="secondary-action" onClick={clearFilters}>Limpiar filtros</button></div>)}
+        {!loading && !error && (filteredVehicles.length ? <div className="vehicle-grid"><AnimatePresence mode="popLayout" initial={false}>{filteredVehicles.map((vehicle, index) => <VehicleCard key={vehicle.id} vehicle={vehicle} isCompared={compareVehicles.some((item) => item.id === vehicle.id)} isFavorite={favoriteIds.includes(vehicle.id)} onToggleFavorite={toggleFavorite} onToggleCompare={toggleCompare} onOpen={(item) => navigate(vehiclePath(item))} imageLoading={index < 12 ? "eager" : "lazy"} />)}</AnimatePresence></div> : <div className="catalog-empty"><h3>No encontramos vehículos con esos criterios.</h3><p>Prueba limpiando la búsqueda o seleccionando otros filtros.</p><button className="secondary-action" onClick={clearFilters}>Limpiar filtros</button></div>)}
         <CompareTable vehicles={compareVehicles} />
         <ContactForm />
         <BlogSection posts={posts} />

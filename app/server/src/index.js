@@ -166,11 +166,21 @@ app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
 app.use(cors({ origin: process.env.FRONTEND_ORIGIN ? process.env.FRONTEND_ORIGIN.split(",").map((value) => value.trim()) : true }));
 app.use(express.json({ limit: "1mb" }));
 app.use("/uploads", express.static(uploadsDir, {
+  maxAge: "1y",
+  immutable: true,
+  etag: true,
+  lastModified: true,
   setHeaders: (response, filePath) => {
     if (filePath.endsWith(".gltf")) response.setHeader("Content-Type", "model/gltf+json");
     if (filePath.endsWith(".glb")) response.setHeader("Content-Type", "model/gltf-binary");
   },
 }));
+// Los listados y operaciones del negocio son dinámicos: nunca deben quedar congelados
+// por una caché intermedia después de guardar cambios en el backoffice.
+app.use("/api", (_req, res, next) => {
+  res.setHeader("Cache-Control", "no-store");
+  next();
+});
 app.use("/api/customer/auth/login", rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Demasiados intentos. Intenta nuevamente mas tarde." } }));
 app.use("/api/customer/auth/register", rateLimit({ windowMs: 60 * 60 * 1000, limit: 10, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Demasiados registros. Intenta nuevamente mas tarde." } }));
 app.use("/api/auth/login", rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Demasiados intentos. Intenta nuevamente más tarde." } }));
@@ -310,6 +320,7 @@ function vehiclePayload(body) {
   })).filter((item) => item.type && item.url && !item.url.startsWith("procedural://")).slice(0, 12) : [];
   return {
     brand: String(body.brand || "").trim(),
+    brandLogoUrl: String(body.brandLogoUrl || "").trim().slice(0, 2000) || null,
     category: String(body.category || "").trim() || null,
     model: String(body.model || "").trim(),
     variant: String(body.variant || "").trim() || null,
@@ -463,11 +474,14 @@ function createQuoteNumber() {
   return `AUTH-${new Date().getFullYear()}-${Date.now()}`;
 }
 
-async function upsertTaxonomy(client, table, name) {
+async function upsertTaxonomy(client, table, name, logoUrl = null) {
   if (!name) return null;
+  const isBrandTable = table === "vehicle_brands";
   const result = await client.query(
-    `INSERT INTO ${table} (name) VALUES ($1) ON CONFLICT (name) DO UPDATE SET is_active = TRUE RETURNING id`,
-    [name],
+    isBrandTable
+      ? `INSERT INTO ${table} (name, logo_url) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET is_active = TRUE, logo_url = COALESCE(EXCLUDED.logo_url, ${table}.logo_url) RETURNING id`
+      : `INSERT INTO ${table} (name) VALUES ($1) ON CONFLICT (name) DO UPDATE SET is_active = TRUE RETURNING id`,
+    isBrandTable ? [name, logoUrl] : [name],
   );
   return result.rows[0].id;
 }
@@ -806,7 +820,7 @@ app.post("/api/admin/vehicles", authenticate, requireRoles("admin", "editor"), a
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const brandId = await upsertTaxonomy(client, "vehicle_brands", vehicle.brand);
+    const brandId = await upsertTaxonomy(client, "vehicle_brands", vehicle.brand, vehicle.brandLogoUrl);
     const categoryId = await upsertTaxonomy(client, "vehicle_categories", vehicle.category);
     const inserted = await client.query(
       `INSERT INTO vehicles (brand_id, category_id, model, variant, year, condition, price_usd, engine, power, transmission, drive, fuel_type, exterior_color, interior_color, doors, seats, location, stock_number, warranty, features, mileage_km, description, seo_title, seo_description, stock, status, max_discount_percent)
@@ -860,7 +874,7 @@ app.put("/api/admin/vehicles/:id", authenticate, requireRoles("admin", "editor")
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const brandId = await upsertTaxonomy(client, "vehicle_brands", vehicle.brand);
+    const brandId = await upsertTaxonomy(client, "vehicle_brands", vehicle.brand, vehicle.brandLogoUrl);
     const categoryId = await upsertTaxonomy(client, "vehicle_categories", vehicle.category);
     const updated = await client.query(
       `UPDATE vehicles SET brand_id=$1, category_id=$2, model=$3, variant=$4, year=$5, condition=$6, price_usd=$7, engine=$8, power=$9, transmission=$10, drive=$11, fuel_type=$12, exterior_color=$13, interior_color=$14, doors=$15, seats=$16, location=$17, stock_number=$18, warranty=$19, features=$20, mileage_km=$21, description=$22, seo_title=$23, seo_description=$24, stock=$25, status=$26, max_discount_percent=$27, updated_at=NOW() WHERE id=$28 RETURNING id`,

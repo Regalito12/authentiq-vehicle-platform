@@ -15,6 +15,7 @@
     "motion": "^12.43.0",
     "react": "latest",
     "react-dom": "latest",
+    "read-excel-file": "^9.3.10",
     "recharts": "^3.10.1",
     "three": "^0.183.2",
     "vite": "latest"
