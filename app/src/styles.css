@@ -1527,3 +1527,84 @@ html[data-theme="dark"] .inventory-overview-stats article { background: var(--au
 .import-row-error { color: #a33b2b !important; }
 html[data-theme="dark"] .import-row-ready { color: #9bc5a2 !important; }
 @media (max-width: 620px) { .inventory-import-modal { padding: 20px; } .import-summary { align-items: flex-start; flex-direction: column; gap: 6px; } }
+
+/* Motion polish: small, purposeful feedback shared by the catalog and backoffice. */
+:where(button, a, input, select, textarea):focus-visible {
+  outline: 2px solid var(--auth-gold);
+  outline-offset: 3px;
+}
+
+:where(button, a) { -webkit-tap-highlight-color: transparent; }
+:where(button):disabled { cursor: not-allowed; opacity: .58; }
+
+.primary-action, .secondary-action, .inventory-new-button, .wizard-close, .compare-toggle, .favorite-toggle,
+.admin-action, .showroom-nav-toggle, .nav-admin-link {
+  will-change: transform;
+  transition-timing-function: var(--ease-out-quart);
+}
+
+.primary-action, .inventory-new-button {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+.primary-action::after, .inventory-new-button::after {
+  position: absolute;
+  z-index: 0;
+  inset: 0 auto 0 -42%;
+  width: 28%;
+  content: "";
+  background: linear-gradient(105deg, transparent, rgba(255,255,255,.22), transparent);
+  transform: skewX(-18deg) translateX(-180%);
+  transition: transform 560ms var(--ease-out-expo);
+  pointer-events: none;
+}
+.primary-action:hover::after, .primary-action:focus-visible::after, .inventory-new-button:hover::after { transform: skewX(-18deg) translateX(560%); }
+.primary-action:active, .inventory-new-button:active, .secondary-action:active { transform: translateY(1px) scale(.985); }
+
+.wizard-steps button { position: relative; overflow: hidden; }
+.wizard-steps button::after {
+  position: absolute;
+  right: 10px;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  content: "";
+  background: var(--auth-gold);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 360ms var(--ease-out-expo);
+}
+.wizard-steps button.active::after { transform: scaleX(1); }
+.wizard-steps button.is-done span::after { margin-left: 5px; content: "✓"; font-size: 11px; }
+
+.vehicle-3d-loading {
+  animation: loading-rise 360ms var(--ease-out-expo) both;
+}
+.vehicle-3d-loading .vehicle-3d-loading-track {
+  position: relative;
+  overflow: hidden;
+}
+.vehicle-3d-loading .vehicle-3d-loading-track::after {
+  position: absolute;
+  inset: 0 auto 0 -35%;
+  width: 30%;
+  content: "";
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.42), transparent);
+  animation: progress-sheen 1.25s var(--ease-out-quart) infinite;
+  pointer-events: none;
+}
+@keyframes loading-rise { from { opacity: 0; } to { opacity: 1; } }
+@keyframes progress-sheen { to { transform: translateX(480%); } }
+
+.brand-picker-grid > button, .brand-rail-item, .vehicle-card, .inventory-overview-stats article {
+  backface-visibility: hidden;
+}
+.brand-picker-grid > button:active, .brand-rail-item:active, .vehicle-card:active { transform: translateY(-1px) scale(.995); }
+.brand-picker-grid > button.is-selected { box-shadow: 0 0 0 2px var(--auth-gold), 0 14px 30px rgba(0,0,0,.14); }
+
+@media (prefers-reduced-motion: reduce) {
+  .primary-action::after, .inventory-new-button::after, .wizard-steps button::after,
+  .vehicle-3d-loading, .vehicle-3d-loading .vehicle-3d-loading-track::after { animation: none; transition: none; }
+  .primary-action:hover::after, .primary-action:focus-visible::after, .inventory-new-button:hover::after { transform: none; }
+}
