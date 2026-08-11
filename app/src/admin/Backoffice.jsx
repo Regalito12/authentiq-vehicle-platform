@@ -54,11 +54,20 @@ function InventoryImportModal({ open, onClose }) {
       }
       parsed = parsed.filter((row) => Object.values(row).some(Boolean));
       if (!parsed.length) throw new Error("El archivo no tiene filas con datos.");
+      const importKeys = parsed.map((row) => [row.brand, row.model, row.variant, row.year].map((value) => String(value || "").trim().toLowerCase()).join("|"));
+      const duplicateCount = importKeys.length - new Set(importKeys).size;
+      if (duplicateCount > 0) setError(`${duplicateCount} fila${duplicateCount === 1 ? " duplicada" : "s duplicadas"} detectada${duplicateCount === 1 ? "" : "s"}. Se excluirán al importar.`);
       setRows(parsed);
     } catch (parseError) { setError(parseError.message || "No se pudo leer el archivo."); }
   };
   const rowError = (row) => !String(row.brand || "").trim() ? "Falta marca" : !String(row.model || "").trim() ? "Falta modelo" : !(Number(row.year) > 1900) ? "Año inválido" : !(Number(row.priceUsd) > 0) ? "Precio inválido" : "";
-  const validRows = rows.filter((row) => !rowError(row));
+  const duplicateImportError = (row) => {
+    const key = [row.brand, row.model, row.variant, row.year].map((value) => String(value || "").trim().toLowerCase()).join("|");
+    if (!key.replaceAll("|", "")) return "";
+    const occurrences = rows.filter((candidate) => [candidate.brand, candidate.model, candidate.variant, candidate.year].map((value) => String(value || "").trim().toLowerCase()).join("|") === key);
+    return occurrences.length > 1 ? "Duplicado en el archivo" : "";
+  };
+  const validRows = rows.filter((row) => !rowError(row) && !duplicateImportError(row));
   const submit = async () => {
     if (!validRows.length) { setError("Corrige las filas inválidas antes de importar."); return; }
     setBusy(true); setError(""); setStatus("Importando vehículos como borradores…");
