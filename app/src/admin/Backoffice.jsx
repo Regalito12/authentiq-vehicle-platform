@@ -15,6 +15,16 @@ function formatDate(value) {
   return new Date(value).toLocaleDateString("es-DO", { day: "2-digit", month: "short", year: "numeric" });
 }
 
+function slugify(value) {
+  return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
+function publicVehiclePath(vehicle) {
+  const base = slugify(`${vehicle.brand}-${vehicle.model}${vehicle.variant ? `-${vehicle.variant}` : ""}`);
+  const suffix = String(vehicle.id || "").replace(/-/g, "").slice(0, 8);
+  return `/vehiculos/${suffix ? `${base}-${suffix}` : base}`;
+}
+
 function navItemsForRole(role) {
   const salesItem = ["quotes", "Cotizaciones"];
   if (role === "admin") return [["dashboard", "Resumen"], ["inventory", "Inventario"], ["leads", "Leads"], salesItem, ["blog", "Blog"], ["offers", "Ofertas"], ["reports", "Reportes"], ["audit", "Actividad"], ["users", "Usuarios"], ["settings", "Configuración"]];
@@ -380,7 +390,7 @@ function InventoryTableModule({ vehicles, form, editingId, loading, message, onC
         <td><div className="inventory-badges"><span className={vehicle.images?.length ? "media-badge is-ready" : "media-badge is-missing"} title={`${vehicle.images?.length || 0} imágenes`}>{vehicle.images?.length || 0} ◫</span><span className={`media-badge is-${model3d.code}`} title={model3d.title}>{model3d.label}</span><span className={hasVideo ? "media-badge is-ready" : "media-badge"} title={hasVideo ? "Video conectado" : "Sin video"}>▶</span></div></td>
         <td><span className={seoReady ? "media-badge is-ready" : "media-badge is-warn"} title={seoReady ? "Título y descripción SEO definidos" : "Faltan metadatos SEO"}>{seoReady ? "SEO ✓" : "SEO !"}</span></td>
         <td>{formatPrice(vehicle.priceUsd)}</td>
-        <td><div className="table-actions"><button className="text-button" type="button" onClick={() => onEdit(vehicle)}>Editar</button><button className="text-button" type="button" onClick={() => onDuplicate(vehicle.id)}>Duplicar</button>{vehicle.status === "pending_review" && <><button className="text-button review-action" type="button" onClick={() => onReview(vehicle.id, "approve")}>Aprobar</button><button className="text-button danger-text" type="button" onClick={() => onReview(vehicle.id, "reject")}>Devolver</button></>}<select className="status-quick-action" value="" onChange={(event) => { if (event.target.value) onStatusChange(vehicle.id, event.target.value); event.target.value = ""; }} aria-label={`Cambiar estado de ${vehicle.brand} ${vehicle.model}`}><option value="">Estado…</option>{["draft", "published", "reserved", "sold", "inactive"].filter((option) => option !== vehicle.status).map((option) => <option key={option} value={option}>{vehicleStatusLabels[option]}</option>)}</select></div></td>
+        <td><div className="table-actions">{isPublic && <PublicVehicleActions vehicle={vehicle} />}<button className="text-button" type="button" onClick={() => onEdit(vehicle)}>Editar</button><button className="text-button" type="button" onClick={() => onDuplicate(vehicle.id)}>Duplicar</button>{vehicle.status === "pending_review" && <><button className="text-button review-action" type="button" onClick={() => onReview(vehicle.id, "approve")}>Aprobar</button><button className="text-button danger-text" type="button" onClick={() => onReview(vehicle.id, "reject")}>Devolver</button></>}<select className="status-quick-action" value="" onChange={(event) => { if (event.target.value) onStatusChange(vehicle.id, event.target.value); event.target.value = ""; }} aria-label={`Cambiar estado de ${vehicle.brand} ${vehicle.model}`}><option value="">Estado…</option>{["draft", "published", "reserved", "sold", "inactive"].filter((option) => option !== vehicle.status).map((option) => <option key={option} value={option}>{vehicleStatusLabels[option]}</option>)}</select></div></td>
       </tr>;
     })}</tbody></table>{!filteredVehicles.length && <p className="empty-state">No hay vehículos que coincidan.</p>}</div>}</section></div></div>;
 }
@@ -457,6 +467,12 @@ function CopyAction({ value, label }) {
   if (!value) return null;
   const copy = async () => { try { await navigator.clipboard.writeText(value); setCopied(true); window.setTimeout(() => setCopied(false), 1400); } catch { setCopied(false); } };
   return <button className="copy-action" type="button" onClick={copy} aria-label={`Copiar ${label}`}>{copied ? "Copiado" : `Copiar ${label}`}</button>;
+}
+
+function PublicVehicleActions({ vehicle }) {
+  const path = publicVehiclePath(vehicle);
+  const url = `${window.location.origin}${path}`;
+  return <div className="public-vehicle-actions"><a className="text-button" href={path} target="_blank" rel="noreferrer">Abrir ficha</a><CopyAction value={url} label="URL pública" /></div>;
 }
 
 function LeadContactActions({ lead, onLoadHistory }) {

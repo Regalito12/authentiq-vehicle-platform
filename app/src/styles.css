@@ -1608,3 +1608,6 @@ html[data-theme="dark"] .import-row-ready { color: #9bc5a2 !important; }
   .vehicle-3d-loading, .vehicle-3d-loading .vehicle-3d-loading-track::after { animation: none; transition: none; }
   .primary-action:hover::after, .primary-action:focus-visible::after, .inventory-new-button:hover::after { transform: none; }
 }
+
+.public-vehicle-actions { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px; padding-right: 4px; border-right: 1px solid var(--auth-line); }
+.public-vehicle-actions .text-button { color: var(--auth-gold); }
