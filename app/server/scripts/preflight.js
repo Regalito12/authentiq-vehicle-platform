@@ -14,6 +14,22 @@ if (process.env.NODE_ENV === "production" && String(process.env.JWT_SECRET || ""
   process.exit(1);
 }
 
+if (process.env.NODE_ENV === "production") {
+  const publicSettings = ["FRONTEND_ORIGIN", "PUBLIC_API_URL", "PUBLIC_SITE_URL", "UPLOADS_DIR"];
+  const missingPublicSettings = publicSettings.filter((key) => !String(process.env[key] || "").trim());
+  if (missingPublicSettings.length) {
+    console.error(`PREFLIGHT FAIL · faltan variables de producción: ${missingPublicSettings.join(", ")}`);
+    process.exit(1);
+  }
+
+  const localUrl = /https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?(?:\/|$)/i;
+  const localUrls = ["FRONTEND_ORIGIN", "PUBLIC_API_URL", "PUBLIC_SITE_URL"].filter((key) => localUrl.test(String(process.env[key] || "")));
+  if (localUrls.length) {
+    console.error(`PREFLIGHT FAIL · las URLs de producción no pueden apuntar a localhost: ${localUrls.join(", ")}`);
+    process.exit(1);
+  }
+}
+
 try {
   const response = await fetch(`${baseUrl}/api/health`);
   const payload = await response.json();

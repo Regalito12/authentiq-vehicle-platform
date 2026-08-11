@@ -128,6 +128,15 @@ async function main() {
     check("El total de la cotización descuenta correctamente", Number(quote.body.data.totalUsd) === 120000, `total ${quote.body.data.totalUsd}`);
     const sent = await api(`/api/admin/quotes/${quote.body.data.id}/status`, { token, method: "PATCH", body: JSON.stringify({ status: "sent" }) });
     check("Se cambia el estado de la cotización", sent.ok && sent.body?.data?.status === "sent", `status ${sent.status}`);
+    const shared = await api(`/api/admin/quotes/${quote.body.data.id}/share`, { token, method: "POST" });
+    check("Se genera un enlace público firmado", shared.ok && shared.body?.data?.url?.includes("/cotizaciones/"), `status ${shared.status}`);
+    const publicToken = shared.body?.data?.url?.split("/cotizaciones/")[1];
+    const publicQuote = publicToken ? await api(`/api/public/quotes/${publicToken}`) : { status: 0, body: null };
+    check("El enlace público abre la cotización", publicQuote.ok && publicQuote.body?.data?.quoteNumber === quote.body.data.quoteNumber, `status ${publicQuote.status}`);
+    const changes = publicToken ? await api(`/api/public/quotes/${publicToken}/decision`, { method: "POST", body: JSON.stringify({ decision: "changes", message: `${marker} revisar forma de pago` }) }) : { status: 0, body: null };
+    check("El cliente puede solicitar cambios", changes.ok && changes.body?.data?.status === "sent", `status ${changes.status}`);
+    const accepted = publicToken ? await api(`/api/public/quotes/${publicToken}/decision`, { method: "POST", body: JSON.stringify({ decision: "accepted", message: `${marker} confirmado` }) }) : { status: 0, body: null };
+    check("El cliente puede aceptar la cotización", accepted.ok && accepted.body?.data?.status === "accepted", `status ${accepted.status}`);
   }
 
   const badDiscount = await api("/api/admin/quotes", { token, method: "POST", body: JSON.stringify({ customerName: "X", basePriceUsd: 1000, discountUsd: 5000 }) });

@@ -8,6 +8,7 @@
     "local": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-local.ps1",
     "backup:db": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/backup-db.ps1",
     "build": "vite build",
+    "check:production": "node scripts/check-production-env.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

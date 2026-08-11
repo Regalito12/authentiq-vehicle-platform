@@ -13,7 +13,8 @@
     "check:components": "node scripts/check-components.js",
     "test:browser": "node scripts/browser-check.js",
     "verify": "node scripts/check-components.js && node scripts/preflight.js && node scripts/smoke-test.js && node scripts/role-matrix-test.js && node scripts/e2e-test.js",
-    "preflight": "node scripts/preflight.js"
+    "preflight": "node scripts/preflight.js",
+    "check:migrations": "node scripts/check-migrations.js"
   },
   "dependencies": {
     "bcryptjs": "latest",

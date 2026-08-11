@@ -1,7 +1,9 @@
 import "dotenv/config";
+import "dotenv/config";
 import bcrypt from "bcryptjs";
 import cors from "cors";
 import crypto from "node:crypto";
+import dotenv from "dotenv";
 import express from "express";
 import fs from "node:fs/promises";
 import rateLimit from "express-rate-limit";
@@ -15,12 +17,13 @@ import { fileURLToPath } from "node:url";
 
 const { Pool } = pg;
 const app = express();
+const serverDir = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.resolve(serverDir, "../.env") });
 const port = Number(process.env.PORT || 3001);
 const privacyPolicyVersion = process.env.PRIVACY_POLICY_VERSION || "2026-08-09";
 const jwtSecret = process.env.JWT_SECRET || "local-dev-secret-change-before-deploy";
 if (process.env.NODE_ENV === "production" && !process.env.JWT_SECRET) throw new Error("JWT_SECRET es obligatorio en producción");
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-const serverDir = path.dirname(fileURLToPath(import.meta.url));
 const uploadsDir = path.resolve(serverDir, process.env.UPLOADS_DIR || "../uploads");
 const publicApiUrl = String(process.env.PUBLIC_API_URL || "").replace(/\/+$/, "");
 app.set("trust proxy", 1);
@@ -179,6 +182,20 @@ async function optimizeUploadedImage(file) {
   }
 }
 
+async function isValidImageUpload(file) {
+  if (!file) return false;
+  const extension = path.extname(file.originalname || "").toLowerCase();
+  const imageLike = file.mimetype?.startsWith("image/") || [".jpg", ".jpeg", ".png", ".webp", ".avif"].includes(extension);
+  if (!imageLike) return true;
+  try {
+    await sharp(file.path).metadata();
+    return true;
+  } catch {
+    await fs.unlink(file.path).catch(() => {});
+    return false;
+  }
+}
+
 async function removeMediaPackage(packageId) {
   if (packageId && /^[a-z0-9-]+$/i.test(packageId)) await fs.rm(path.join(uploadsDir, "packages", packageId), { recursive: true, force: true });
 }
@@ -209,6 +226,7 @@ app.use("/api/leads", rateLimit({ windowMs: 10 * 60 * 1000, limit: 30, standardH
 app.use("/api/offers", rateLimit({ windowMs: 10 * 60 * 1000, limit: 20, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Demasiadas ofertas enviadas. Intenta nuevamente más tarde." } }));
 // La analítica escribe en base de datos sin autenticación: se limita para que no pueda inundarse.
 app.use("/api/events", rateLimit({ windowMs: 60 * 1000, limit: 120, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Demasiados eventos." } }));
+app.use("/api/public/quotes", rateLimit({ windowMs: 10 * 60 * 1000, limit: 30, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Demasiadas solicitudes para esta cotización." } }));
 
 const vehicleSelect = `
   SELECT
@@ -530,6 +548,53 @@ async function createLead({ leadType, vehicleId = null, name, email = null, phon
   return result.rows[0];
 }
 
+function isIsoDate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) return false;
+  const parsed = new Date(`${value}T00:00:00`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+function timeToMinutes(value) {
+  const match = /^(\d{2}):(\d{2})$/.exec(String(value || ""));
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  return hours <= 23 && minutes <= 59 ? (hours * 60) + minutes : null;
+}
+
+function minutesToTime(value) {
+  return `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
+}
+
+async function appointmentAvailability(date) {
+  const settingsResult = await pool.query(`SELECT appointment_timezone AS timezone, appointment_start AS "start", appointment_end AS "end", appointment_duration_minutes AS "durationMinutes", appointment_min_notice_hours AS "minNoticeHours", appointment_max_days_ahead AS "maxDaysAhead", appointment_days AS "days", appointment_capacity AS "capacity" FROM business_settings WHERE id=1`);
+  const settings = settingsResult.rows[0] || { start: "09:00", end: "18:00", durationMinutes: 60, minNoticeHours: 2, maxDaysAhead: 30, days: [1, 2, 3, 4, 5, 6], capacity: 1 };
+  const requestedDate = new Date(`${date}T00:00:00`);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const daysAhead = Math.round((requestedDate - today) / 86400000);
+  const dayOfWeek = requestedDate.getDay() || 7;
+  const start = timeToMinutes(String(settings.start).slice(0, 5));
+  const end = timeToMinutes(String(settings.end).slice(0, 5));
+  const duration = Number(settings.durationMinutes) || 60;
+  if (!isIsoDate(date) || daysAhead < 0 || daysAhead > Number(settings.maxDaysAhead) || !settings.days.includes(dayOfWeek) || start === null || end === null || end <= start) {
+    return { date, timezone: settings.timezone || "America/Santo_Domingo", slots: [], capacity: Number(settings.capacity) || 1 };
+  }
+  const bookedResult = await pool.query(`SELECT requested_time AS "time", COUNT(*)::int AS count FROM test_drive_requests WHERE requested_date=$1 AND status IN ('pending','confirmed') GROUP BY requested_time`, [date]);
+  const booked = new Map(bookedResult.rows.map((row) => [String(row.time).slice(0, 5), Number(row.count)]));
+  const blocksResult = await pool.query(`SELECT start_time AS "start", end_time AS "end" FROM appointment_blocks WHERE block_date=$1::date`, [date]);
+  const blocks = blocksResult.rows.map((block) => ({ start: block.start ? timeToMinutes(String(block.start).slice(0, 5)) : start, end: block.end ? timeToMinutes(String(block.end).slice(0, 5)) : end }));
+  const slots = [];
+  for (let minute = start; minute + duration <= end; minute += duration) {
+    const time = minutesToTime(minute);
+    const slotDate = new Date(`${date}T${time}:00`);
+    const availableByNotice = slotDate.getTime() - Date.now() >= Number(settings.minNoticeHours || 0) * 3600000;
+    const blocked = blocks.some((block) => minute < block.end && minute + duration > block.start);
+    slots.push({ time, available: availableByNotice && !blocked && (booked.get(time) || 0) < Number(settings.capacity || 1), booked: booked.get(time) || 0, blocked, capacity: Number(settings.capacity || 1) });
+  }
+  return { date, timezone: settings.timezone || "America/Santo_Domingo", durationMinutes: duration, slots, capacity: Number(settings.capacity || 1) };
+}
+
 async function notifyAdmins({ type = "lead", title, body, entityType = "lead", entityId = null }) {
   await pool.query(
     `INSERT INTO notifications (user_id, notification_type, title, body, entity_type, entity_id)
@@ -548,6 +613,31 @@ async function notifyCustomer({ customerId, type = "activity", title, body, enti
     "INSERT INTO customer_notifications (customer_id, notification_type, title, body, entity_type, entity_id) VALUES ($1,$2,$3,$4,$5,$6)",
     [customerId, type, title, body, entityType, entityId],
   );
+}
+
+async function dispatchAppointmentReminders() {
+  const webhookUrl = String(process.env.APPOINTMENT_REMINDER_WEBHOOK_URL || "").trim();
+  if (!webhookUrl) return;
+  const result = await pool.query(`
+    SELECT t.id, t.customer_name AS "customerName", t.customer_email AS "customerEmail", t.customer_phone AS "customerPhone", t.requested_date AS "date", t.requested_time AS "time", t.reminder_24h_sent_at AS "reminder24hSentAt", t.reminder_2h_sent_at AS "reminder2hSentAt", b.name AS brand, v.model
+    FROM test_drive_requests t
+    JOIN vehicles v ON v.id=t.vehicle_id
+    JOIN vehicle_brands b ON b.id=v.brand_id
+    WHERE t.status IN ('pending','confirmed') AND (t.customer_email IS NOT NULL OR t.customer_phone IS NOT NULL)
+      AND (t.requested_date + t.requested_time) BETWEEN NOW() + INTERVAL '1 hour 45 minutes' AND NOW() + INTERVAL '25 hours'`);
+  for (const appointment of result.rows) {
+    const appointmentAt = new Date(`${String(appointment.date).slice(0, 10)}T${String(appointment.time).slice(0, 5)}:00`);
+    const hoursUntil = (appointmentAt.getTime() - Date.now()) / 3600000;
+    const reminderType = hoursUntil >= 20 ? "24h" : hoursUntil <= 4 ? "2h" : null;
+    const sentColumn = reminderType === "24h" ? "reminder_24h_sent_at" : reminderType === "2h" ? "reminder_2h_sent_at" : null;
+    if (!sentColumn || appointment[reminderType === "24h" ? "reminder24hSentAt" : "reminder2hSentAt"]) continue;
+    const body = { type: "appointment_reminder", reminder: reminderType, appointmentId: appointment.id, customer: { name: appointment.customerName, email: appointment.customerEmail, phone: appointment.customerPhone }, vehicle: `${appointment.brand} ${appointment.model}`, date: appointment.date, time: String(appointment.time).slice(0, 5) };
+    try {
+      const response = await fetch(webhookUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      if (!response.ok) throw new Error(`Webhook respondió ${response.status}`);
+      await pool.query(`UPDATE test_drive_requests SET ${sentColumn}=NOW() WHERE id=$1 AND ${sentColumn} IS NULL`, [appointment.id]);
+    } catch (error) { console.error(`Appointment ${reminderType} reminder failed`, error); }
+  }
 }
 
 app.get("/api/health", async (_req, res) => {
@@ -737,6 +827,68 @@ app.post("/api/offers", async (req, res) => {
   }
 });
 
+app.get("/api/appointments/availability", async (req, res) => {
+  const date = String(req.query.date || "").trim();
+  if (!isIsoDate(date)) return res.status(400).json({ error: "La fecha debe tener formato YYYY-MM-DD" });
+  try {
+    res.json({ data: await appointmentAvailability(date) });
+  } catch (error) {
+    console.error("Appointment availability failed", error);
+    res.status(500).json({ error: "No se pudo consultar la disponibilidad" });
+  }
+});
+
+app.post("/api/appointments", async (req, res) => {
+  const vehicleId = String(req.body.vehicleId || "").trim() || null;
+  const name = String(req.body.name || "").trim();
+  const email = String(req.body.email || "").trim() || null;
+  const phone = String(req.body.phone || "").trim() || null;
+  const date = String(req.body.date || "").trim();
+  const time = String(req.body.time || "").trim();
+  const notes = String(req.body.notes || "").trim() || null;
+  const privacyConsent = req.body.privacyConsent === true;
+  if (!vehicleId || !name || (!email && !phone) || !isIsoDate(date) || timeToMinutes(time) === null || !privacyConsent) return res.status(400).json({ error: "Vehículo, nombre, correo o teléfono, fecha, horario y consentimiento son obligatorios" });
+  try {
+    const availability = await appointmentAvailability(date);
+    const slot = availability.slots.find((item) => item.time === time);
+    if (!slot || !slot.available) return res.status(409).json({ error: "Ese horario ya no está disponible. Selecciona otro." });
+    const client = await pool.connect();
+    let appointment;
+    let lead;
+    try {
+      await client.query("BEGIN");
+      const vehicle = await client.query("SELECT id FROM vehicles WHERE id=$1 AND status IN ('published','reserved')", [vehicleId]);
+      if (!vehicle.rowCount) { await client.query("ROLLBACK"); return res.status(404).json({ error: "Vehículo no disponible" }); }
+      const settings = await client.query("SELECT appointment_capacity AS capacity FROM business_settings WHERE id=1 FOR UPDATE");
+      const capacity = Number(settings.rows[0]?.capacity || 1);
+      const booked = await client.query("SELECT COUNT(*)::int AS count FROM test_drive_requests WHERE requested_date=$1::date AND requested_time=$2::time AND status IN ('pending','confirmed')", [date, time]);
+      if (Number(booked.rows[0].count) >= capacity) { await client.query("ROLLBACK"); return res.status(409).json({ error: "Ese horario acaba de completarse. Selecciona otro." }); }
+      const leadResult = await client.query(
+        `INSERT INTO leads (lead_type, vehicle_id, name, email, phone, message, source, privacy_consent, privacy_consent_at, privacy_policy_version, consent_source)
+         VALUES ('test-drive',$1,$2,$3,$4,$5,'appointment',$6,CASE WHEN $6 THEN NOW() ELSE NULL END,$7,'appointment')
+         RETURNING id, status, created_at AS "createdAt"`,
+        [vehicleId, name, email, phone, notes, privacyConsent, privacyPolicyVersion],
+      );
+      lead = leadResult.rows[0];
+      const appointmentResult = await client.query(
+        `INSERT INTO test_drive_requests (vehicle_id, lead_id, customer_name, customer_email, customer_phone, requested_date, requested_time, status, notes)
+         VALUES ($1,$2,$3,$4,$5,$6::date,$7::time,'pending',$8)
+         RETURNING id, vehicle_id AS "vehicleId", requested_date AS "date", requested_time AS "time", status, created_at AS "createdAt"`,
+        [vehicleId, lead.id, name, email, phone, date, time, notes],
+      );
+      appointment = appointmentResult.rows[0];
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally { client.release(); }
+    await notifyAdmins({ title: "Nueva cita solicitada", body: `${name} solicitó una cita para ${date} a las ${time}.`, entityType: "appointment", entityId: appointment.id });
+    res.status(201).json({ data: { ...appointment, leadId: lead.id } });
+  } catch (error) {
+    console.error("Appointment creation failed", error);
+    res.status(500).json({ error: "No se pudo registrar la cita" });
+  }
+});
 
 app.post("/api/leads", async (req, res) => {
   const name = String(req.body.name || "").trim();
@@ -767,6 +919,7 @@ app.post("/api/admin/uploads", authenticate, requireRoles("admin", "editor"), (r
     if (error instanceof multer.MulterError && error.code === "LIMIT_FILE_SIZE") return res.status(400).json({ error: "La imagen no puede superar 8 MB" });
     if (error) return res.status(400).json({ error: "Solo se permiten imágenes JPG, PNG, WebP o AVIF" });
     if (!req.file) return res.status(400).json({ error: "Debes seleccionar una imagen" });
+    if (!(await isValidImageUpload(req.file))) return res.status(400).json({ error: "La imagen está corrupta o no coincide con su formato" });
     req.file = await optimizeUploadedImage(req.file);
     const mediaOrigin = publicApiUrl || `${req.protocol}://${req.get("host")}`;
     const url = `${mediaOrigin}/uploads/${req.file.filename}`;
@@ -780,6 +933,7 @@ app.post("/api/admin/media-upload", authenticate, requireRoles("admin", "editor"
     if (error instanceof multer.MulterError && error.code === "LIMIT_FILE_SIZE") return res.status(400).json({ error: "El archivo no puede superar 120 MB" });
     if (error) return res.status(400).json({ error: "Tipo de archivo no compatible. Usa JPG, PNG, WebP, MP4, WebM, GLB o GLTF" });
     if (!req.file) return res.status(400).json({ error: "Debes seleccionar un archivo" });
+    if (!(await isValidImageUpload(req.file))) return res.status(400).json({ error: "La imagen está corrupta o no coincide con su formato" });
     req.file = await optimizeUploadedImage(req.file);
     if (path.extname(req.file.originalname).toLowerCase() === ".gltf") {
       try {
@@ -964,11 +1118,13 @@ app.get("/api/admin/leads", authenticate, requireRoles("admin", "editor", "selle
     const result = await pool.query(`
       SELECT l.id, l.lead_type AS "leadType", l.name, l.email, l.phone, l.message, l.source, l.status, l.notes, l.priority, l.next_action AS "nextAction", l.next_action_at AS "nextActionAt", l.lost_reason AS "lostReason", l.closed_at AS "closedAt",
              l.created_at AS "createdAt", l.updated_at AS "updatedAt", l.last_contacted_at AS "lastContactedAt",
-             v.model, v.year, b.name AS brand, l.assigned_to AS "assignedToId", au.full_name AS "assignedTo"
+             v.model, v.year, b.name AS brand, l.assigned_to AS "assignedToId", au.full_name AS "assignedTo",
+             appointment.id AS "appointmentId", appointment.requested_date AS "appointmentDate", appointment.requested_time AS "appointmentTime", appointment.status AS "appointmentStatus"
       FROM leads l
       LEFT JOIN vehicles v ON v.id = l.vehicle_id
       LEFT JOIN vehicle_brands b ON b.id = v.brand_id
       LEFT JOIN admin_users au ON au.id = l.assigned_to
+      LEFT JOIN LATERAL (SELECT id, requested_date, requested_time, status FROM test_drive_requests WHERE lead_id=l.id ORDER BY created_at DESC LIMIT 1) appointment ON TRUE
       ORDER BY l.created_at DESC
     `);
     res.json({ data: result.rows });
@@ -976,6 +1132,64 @@ app.get("/api/admin/leads", authenticate, requireRoles("admin", "editor", "selle
     console.error("Leads query failed", error);
     res.status(500).json({ error: "No se pudieron cargar los leads" });
   }
+});
+
+app.get("/api/admin/appointments", authenticate, requireRoles("admin", "editor", "seller"), async (req, res) => {
+  const from = isIsoDate(String(req.query.from || "")) ? String(req.query.from) : null;
+  const to = isIsoDate(String(req.query.to || "")) ? String(req.query.to) : null;
+  try {
+    const result = await pool.query(`
+      SELECT t.id, t.vehicle_id AS "vehicleId", t.lead_id AS "leadId", t.customer_name AS "customerName", t.customer_email AS "customerEmail", t.customer_phone AS "customerPhone", t.requested_date AS "date", t.requested_time AS "time", t.status, t.notes, t.created_at AS "createdAt", v.model, v.year, b.name AS brand
+      FROM test_drive_requests t
+      LEFT JOIN vehicles v ON v.id=t.vehicle_id
+      LEFT JOIN vehicle_brands b ON b.id=v.brand_id
+      WHERE ($1::date IS NULL OR t.requested_date >= $1::date) AND ($2::date IS NULL OR t.requested_date <= $2::date)
+      ORDER BY t.requested_date ASC, t.requested_time ASC, t.created_at DESC`, [from, to]);
+    res.json({ data: result.rows });
+  } catch (error) { console.error("Appointments query failed", error); res.status(500).json({ error: "No se pudieron cargar las citas" }); }
+});
+
+app.patch("/api/admin/appointments/:id", authenticate, requireRoles("admin", "editor", "seller"), async (req, res) => {
+  const status = String(req.body.status || "pending");
+  const notes = String(req.body.notes || "").trim() || null;
+  if (!["pending", "confirmed", "cancelled"].includes(status)) return res.status(400).json({ error: "Estado de cita no válido" });
+  try {
+    const result = await pool.query(`UPDATE test_drive_requests SET status=$1, notes=$2 WHERE id=$3 RETURNING id, status, notes, requested_date AS "date", requested_time AS "time"`, [status, notes, req.params.id]);
+    if (!result.rowCount) return res.status(404).json({ error: "Cita no encontrada" });
+    await writeAudit(req, "appointment.update", "appointment", req.params.id, { status });
+    res.json({ data: result.rows[0] });
+  } catch (error) { console.error("Appointment update failed", error); res.status(500).json({ error: "No se pudo actualizar la cita" }); }
+});
+
+app.get("/api/admin/appointment-blocks", authenticate, requireRoles("admin", "editor"), async (req, res) => {
+  const from = isIsoDate(String(req.query.from || "")) ? String(req.query.from) : null;
+  const to = isIsoDate(String(req.query.to || "")) ? String(req.query.to) : null;
+  try {
+    const result = await pool.query(`SELECT id, block_date AS "date", start_time AS "start", end_time AS "end", reason, created_at AS "createdAt" FROM appointment_blocks WHERE ($1::date IS NULL OR block_date >= $1::date) AND ($2::date IS NULL OR block_date <= $2::date) ORDER BY block_date ASC, start_time ASC NULLS FIRST`, [from, to]);
+    res.json({ data: result.rows });
+  } catch (error) { console.error("Appointment blocks query failed", error); res.status(500).json({ error: "No se pudieron cargar los bloqueos" }); }
+});
+
+app.post("/api/admin/appointment-blocks", authenticate, requireRoles("admin", "editor"), async (req, res) => {
+  const date = String(req.body.date || "").trim();
+  const start = String(req.body.start || "").trim() || null;
+  const end = String(req.body.end || "").trim() || null;
+  const reason = String(req.body.reason || "").trim();
+  if (!isIsoDate(date) || !reason || (start && timeToMinutes(start) === null) || (end && timeToMinutes(end) === null) || (!!start !== !!end) || (start && end && timeToMinutes(end) <= timeToMinutes(start))) return res.status(400).json({ error: "Fecha, motivo y un rango de horas válido son obligatorios" });
+  try {
+    const result = await pool.query(`INSERT INTO appointment_blocks (block_date, start_time, end_time, reason, created_by) VALUES ($1::date,$2::time,$3::time,$4,$5) RETURNING id, block_date AS "date", start_time AS "start", end_time AS "end", reason, created_at AS "createdAt"`, [date, start, end, reason, req.admin.id]);
+    await writeAudit(req, "appointment_block.create", "appointment_block", result.rows[0].id, { date, start, end, reason });
+    res.status(201).json({ data: result.rows[0] });
+  } catch (error) { console.error("Appointment block creation failed", error); res.status(500).json({ error: "No se pudo crear el bloqueo" }); }
+});
+
+app.delete("/api/admin/appointment-blocks/:id", authenticate, requireRoles("admin", "editor"), async (req, res) => {
+  try {
+    const result = await pool.query("DELETE FROM appointment_blocks WHERE id=$1 RETURNING id", [req.params.id]);
+    if (!result.rowCount) return res.status(404).json({ error: "Bloqueo no encontrado" });
+    await writeAudit(req, "appointment_block.delete", "appointment_block", req.params.id);
+    res.status(204).end();
+  } catch (error) { console.error("Appointment block deletion failed", error); res.status(500).json({ error: "No se pudo eliminar el bloqueo" }); }
 });
 
 app.patch("/api/admin/leads/:id", authenticate, requireRoles("admin", "editor", "seller"), async (req, res) => {
@@ -1122,7 +1336,7 @@ app.patch("/api/admin/users/:id", authenticate, requireRoles("admin"), async (re
 
 app.get("/api/admin/settings", authenticate, requireRoles("admin", "editor", "content_editor"), async (_req, res) => {
   try {
-    const result = await pool.query('SELECT id, business_name AS "businessName", logo_url AS "logoUrl", phone, whatsapp, email, address, hours, instagram_url AS "instagramUrl", facebook_url AS "facebookUrl", currency, privacy_text AS "privacyText", terms_text AS "termsText", updated_at AS "updatedAt" FROM business_settings WHERE id=1');
+    const result = await pool.query('SELECT id, business_name AS "businessName", logo_url AS "logoUrl", phone, whatsapp, email, address, hours, instagram_url AS "instagramUrl", facebook_url AS "facebookUrl", currency, privacy_text AS "privacyText", terms_text AS "termsText", appointment_timezone AS "appointmentTimezone", appointment_start AS "appointmentStart", appointment_end AS "appointmentEnd", appointment_duration_minutes AS "appointmentDurationMinutes", appointment_min_notice_hours AS "appointmentMinNoticeHours", appointment_max_days_ahead AS "appointmentMaxDaysAhead", appointment_days AS "appointmentDays", appointment_capacity AS "appointmentCapacity", updated_at AS "updatedAt" FROM business_settings WHERE id=1');
     res.json({ data: result.rows[0] || null });
   } catch (error) { console.error("Business settings query failed", error); res.status(500).json({ error: "No se pudo cargar la configuración" }); }
 });
@@ -1135,14 +1349,45 @@ app.patch("/api/admin/settings", authenticate, requireRoles("admin"), async (req
     hours: String(req.body.hours || "").trim() || null, instagramUrl: String(req.body.instagramUrl || "").trim() || null,
     facebookUrl: String(req.body.facebookUrl || "").trim() || null, currency: String(req.body.currency || "USD").trim().toUpperCase(),
     privacyText: String(req.body.privacyText || "").trim() || null, termsText: String(req.body.termsText || "").trim() || null,
+    appointmentTimezone: String(req.body.appointmentTimezone || "America/Santo_Domingo").trim(), appointmentStart: String(req.body.appointmentStart || "09:00").trim(), appointmentEnd: String(req.body.appointmentEnd || "18:00").trim(), appointmentDurationMinutes: Number(req.body.appointmentDurationMinutes || 60), appointmentMinNoticeHours: Number(req.body.appointmentMinNoticeHours || 2), appointmentMaxDaysAhead: Number(req.body.appointmentMaxDaysAhead || 30), appointmentDays: Array.isArray(req.body.appointmentDays) ? req.body.appointmentDays.map(Number).filter((day) => day >= 1 && day <= 7) : [1, 2, 3, 4, 5, 6], appointmentCapacity: Number(req.body.appointmentCapacity || 1),
   };
   if (!settings.businessName) return res.status(400).json({ error: "El nombre del negocio es obligatorio" });
   try {
-    const values = [settings.businessName, settings.logoUrl, settings.phone, settings.whatsapp, settings.email, settings.address, settings.hours, settings.instagramUrl, settings.facebookUrl, settings.currency, settings.privacyText, settings.termsText];
-    const result = await pool.query('UPDATE business_settings SET business_name=$1, logo_url=$2, phone=$3, whatsapp=$4, email=$5, address=$6, hours=$7, instagram_url=$8, facebook_url=$9, currency=$10, privacy_text=$11, terms_text=$12, updated_at=NOW() WHERE id=1 RETURNING id, business_name AS "businessName", logo_url AS "logoUrl", phone, whatsapp, email, address, hours, instagram_url AS "instagramUrl", facebook_url AS "facebookUrl", currency, privacy_text AS "privacyText", terms_text AS "termsText", updated_at AS "updatedAt"', values);
+    if (settings.appointmentDurationMinutes < 15 || settings.appointmentDurationMinutes > 240 || settings.appointmentMinNoticeHours < 0 || settings.appointmentMaxDaysAhead < 1 || settings.appointmentMaxDaysAhead > 365 || settings.appointmentCapacity < 1 || settings.appointmentCapacity > 20 || timeToMinutes(settings.appointmentStart) === null || timeToMinutes(settings.appointmentEnd) === null || timeToMinutes(settings.appointmentEnd) <= timeToMinutes(settings.appointmentStart)) return res.status(400).json({ error: "La configuración de citas no es válida" });
+    const values = [settings.businessName, settings.logoUrl, settings.phone, settings.whatsapp, settings.email, settings.address, settings.hours, settings.instagramUrl, settings.facebookUrl, settings.currency, settings.privacyText, settings.termsText, settings.appointmentTimezone, settings.appointmentStart, settings.appointmentEnd, settings.appointmentDurationMinutes, settings.appointmentMinNoticeHours, settings.appointmentMaxDaysAhead, settings.appointmentDays, settings.appointmentCapacity];
+    const result = await pool.query('UPDATE business_settings SET business_name=$1, logo_url=$2, phone=$3, whatsapp=$4, email=$5, address=$6, hours=$7, instagram_url=$8, facebook_url=$9, currency=$10, privacy_text=$11, terms_text=$12, appointment_timezone=$13, appointment_start=$14, appointment_end=$15, appointment_duration_minutes=$16, appointment_min_notice_hours=$17, appointment_max_days_ahead=$18, appointment_days=$19, appointment_capacity=$20, updated_at=NOW() WHERE id=1 RETURNING id, business_name AS "businessName", logo_url AS "logoUrl", phone, whatsapp, email, address, hours, instagram_url AS "instagramUrl", facebook_url AS "facebookUrl", currency, privacy_text AS "privacyText", terms_text AS "termsText", appointment_timezone AS "appointmentTimezone", appointment_start AS "appointmentStart", appointment_end AS "appointmentEnd", appointment_duration_minutes AS "appointmentDurationMinutes", appointment_min_notice_hours AS "appointmentMinNoticeHours", appointment_max_days_ahead AS "appointmentMaxDaysAhead", appointment_days AS "appointmentDays", appointment_capacity AS "appointmentCapacity", updated_at AS "updatedAt"', values);
     await writeAudit(req, "settings.update", "business_settings", null, { businessName: settings.businessName });
     res.json({ data: result.rows[0] });
   } catch (error) { console.error("Business settings update failed", error); res.status(500).json({ error: "No se pudo guardar la configuración" }); }
+});
+
+app.get("/api/admin/organization", authenticate, requireRoles("admin"), async (req, res) => {
+  try {
+    const result = await pool.query(`SELECT o.id, o.slug, o.name, o.logo_url AS "logoUrl", o.is_active AS "isActive", o.updated_at AS "updatedAt" FROM organizations o JOIN admin_users au ON au.organization_id=o.id WHERE au.id=$1`, [req.admin.id]);
+    res.json({ data: result.rows[0] || null });
+  } catch (error) { console.error("Organization query failed", error); res.status(500).json({ error: "No se pudo cargar el perfil del concesionario" }); }
+});
+
+app.patch("/api/admin/organization", authenticate, requireRoles("admin"), async (req, res) => {
+  const name = String(req.body.name || "").trim();
+  const slug = String(req.body.slug || "").trim().toLowerCase();
+  const logoUrl = String(req.body.logoUrl || "").trim() || null;
+  if (!name || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) return res.status(400).json({ error: "Nombre y slug válido son obligatorios" });
+  try {
+    const organization = await pool.query("SELECT o.id FROM organizations o JOIN admin_users au ON au.organization_id=o.id WHERE au.id=$1", [req.admin.id]);
+    if (!organization.rowCount) return res.status(404).json({ error: "Organización no encontrada" });
+    const duplicate = await pool.query("SELECT id FROM organizations WHERE slug=$1 AND id<>$2", [slug, organization.rows[0].id]);
+    if (duplicate.rowCount) return res.status(409).json({ error: "Ese slug ya está en uso" });
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await client.query(`UPDATE organizations SET name=$1, slug=$2, logo_url=$3, updated_at=NOW() WHERE id=$4 RETURNING id, slug, name, logo_url AS "logoUrl", is_active AS "isActive", updated_at AS "updatedAt"`, [name, slug, logoUrl, organization.rows[0].id]);
+      await client.query("UPDATE business_settings SET business_name=$1, logo_url=$2, updated_at=NOW() WHERE organization_id=$3", [name, logoUrl, organization.rows[0].id]);
+      await client.query("COMMIT");
+      await writeAudit(req, "organization.update", "organization", organization.rows[0].id, { name, slug });
+      res.json({ data: result.rows[0] });
+    } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
+  } catch (error) { console.error("Organization update failed", error); res.status(500).json({ error: "No se pudo guardar el perfil del concesionario" }); }
 });
 
 app.get("/api/admin/blog", authenticate, requireRoles("admin", "editor", "content_editor"), async (_req, res) => {
@@ -1288,6 +1533,82 @@ app.get("/api/admin/quotes", authenticate, requireRoles("admin", "editor", "sell
   }
 });
 
+app.post("/api/admin/quotes/:id/share", authenticate, requireRoles("admin", "editor", "seller"), async (req, res) => {
+  try {
+    const result = await pool.query("SELECT id, status, valid_until AS \"validUntil\" FROM quotes WHERE id=$1", [req.params.id]);
+    if (!result.rowCount) return res.status(404).json({ error: "Cotización no encontrada" });
+    const quote = result.rows[0];
+    if (["cancelled", "expired"].includes(quote.status)) return res.status(400).json({ error: "Esta cotización ya no se puede compartir" });
+    if (quote.validUntil && new Date(quote.validUntil) < new Date(new Date().toISOString().slice(0, 10))) return res.status(400).json({ error: "La cotización está vencida" });
+    if (quote.status === "draft") await pool.query("UPDATE quotes SET status='sent', updated_at=NOW() WHERE id=$1", [req.params.id]);
+    const token = jwt.sign({ kind: "public_quote", quoteId: quote.id }, jwtSecret, { expiresIn: "30d" });
+    const baseUrl = String(process.env.PUBLIC_SITE_URL || "http://localhost:5173").replace(/\/$/, "");
+    const url = `${baseUrl}/cotizaciones/${token}`;
+    await writeAudit(req, "quote.share", "quote", quote.id, { status: quote.status, expiresIn: "30d" });
+    res.json({ data: { url, status: quote.status === "draft" ? "sent" : quote.status, expiresInDays: 30 } });
+  } catch (error) {
+    console.error("Quote share failed", error);
+    res.status(500).json({ error: "No se pudo generar el enlace de la cotización" });
+  }
+});
+
+app.get("/api/public/quotes/:token", async (req, res) => {
+  try {
+    const payload = jwt.verify(req.params.token, jwtSecret);
+    if (payload.kind !== "public_quote" || !payload.quoteId) return res.status(401).json({ error: "Enlace de cotización inválido" });
+    const result = await pool.query(`
+      SELECT q.quote_number AS "quoteNumber", q.customer_name AS "customerName", q.base_price_usd AS "basePriceUsd",
+             q.discount_usd AS "discountUsd", q.total_usd AS "totalUsd", q.currency, q.valid_until AS "validUntil",
+             q.notes, q.status, q.created_at AS "createdAt", b.name AS brand, v.model, v.variant, v.year,
+             v.engine, v.power, v.transmission,
+             (SELECT image_url FROM vehicle_images WHERE vehicle_id=v.id ORDER BY sort_order ASC LIMIT 1) AS "imageUrl"
+      FROM quotes q LEFT JOIN vehicles v ON v.id=q.vehicle_id LEFT JOIN vehicle_brands b ON b.id=v.brand_id
+      WHERE q.id=$1 AND q.status IN ('sent','accepted')
+    `, [payload.quoteId]);
+    if (!result.rowCount) return res.status(404).json({ error: "La cotización no está disponible" });
+    const quote = result.rows[0];
+    if (quote.validUntil && new Date(quote.validUntil) < new Date(new Date().toISOString().slice(0, 10))) return res.status(410).json({ error: "La cotización ha vencido" });
+    res.json({ data: quote });
+  } catch {
+    res.status(401).json({ error: "El enlace de cotización es inválido o expiró" });
+  }
+});
+
+app.post("/api/public/quotes/:token/decision", async (req, res) => {
+  try {
+    const payload = jwt.verify(req.params.token, jwtSecret);
+    if (payload.kind !== "public_quote" || !payload.quoteId) return res.status(401).json({ error: "Enlace de cotización inválido" });
+    const decision = String(req.body?.decision || "").trim().toLowerCase();
+    const message = String(req.body?.message || "").trim().slice(0, 500);
+    if (!["accepted", "changes"].includes(decision)) return res.status(400).json({ error: "Decisión no válida" });
+
+    const result = await pool.query(`
+      SELECT q.id, q.status, q.lead_id AS "leadId", q.quote_number AS "quoteNumber",
+             q.customer_name AS "customerName", q.valid_until AS "validUntil",
+             b.name AS brand, v.model
+      FROM quotes q
+      LEFT JOIN vehicles v ON v.id = q.vehicle_id
+      LEFT JOIN vehicle_brands b ON b.id = v.brand_id
+      WHERE q.id=$1
+    `, [payload.quoteId]);
+    if (!result.rowCount) return res.status(404).json({ error: "La cotización no está disponible" });
+    const quote = result.rows[0];
+    if (["cancelled", "expired"].includes(quote.status)) return res.status(410).json({ error: "La cotización ya no está disponible" });
+    if (quote.validUntil && new Date(quote.validUntil) < new Date(new Date().toISOString().slice(0, 10))) return res.status(410).json({ error: "La cotización ha vencido" });
+    if (quote.status !== "sent") return res.status(409).json({ error: quote.status === "accepted" ? "Esta cotización ya fue aceptada" : "Esta cotización no admite decisiones" });
+
+    const note = `${decision === "accepted" ? "Cliente aceptó" : "Cliente solicitó cambios"} la cotización ${quote.quoteNumber}${message ? `: ${message}` : "."}`;
+    if (decision === "accepted") await pool.query("UPDATE quotes SET status='accepted', updated_at=NOW() WHERE id=$1 AND status='sent'", [quote.id]);
+    if (quote.leadId) await pool.query("INSERT INTO lead_events (lead_id, actor_id, event_type, note) VALUES ($1, NULL, $2, $3)", [quote.leadId, decision === "accepted" ? "quote_accepted" : "quote_changes_requested", note]);
+    await notifyAdmins({ type: "quote", title: decision === "accepted" ? "Cotización aceptada" : "Cambios solicitados en cotización", body: `${quote.customerName || "El cliente"} ${decision === "accepted" ? "aceptó" : "solicitó cambios en"} ${quote.quoteNumber}.`, entityType: "quote", entityId: quote.id });
+    res.json({ data: { decision, status: decision === "accepted" ? "accepted" : "sent", quoteNumber: quote.quoteNumber } });
+  } catch (error) {
+    if (error?.name === "JsonWebTokenError" || error?.name === "TokenExpiredError") return res.status(401).json({ error: "El enlace de cotización es inválido o expiró" });
+    console.error("Public quote decision failed", error);
+    res.status(500).json({ error: "No se pudo registrar la decisión" });
+  }
+});
+
 app.post("/api/admin/quotes", authenticate, requireRoles("admin", "editor", "seller"), async (req, res) => {
   const quote = quotePayload(req.body);
   const validationError = validateQuote(quote);
@@ -1416,9 +1737,14 @@ app.use((error, _req, res, _next) => {
 process.on("unhandledRejection", (reason) => console.error("Unhandled promise rejection", reason));
 process.on("uncaughtException", (error) => console.error("Uncaught exception", error));
 
-const server = app.listen(port, () => console.log(`AUTHENTIQ API running on http://localhost:${port}`));
+const isVercelRuntime = Boolean(process.env.VERCEL);
+const server = isVercelRuntime ? null : app.listen(port, () => console.log(`AUTHENTIQ API running on http://localhost:${port}`));
+const reminderTimer = isVercelRuntime ? null : setInterval(() => dispatchAppointmentReminders().catch((error) => console.error("Appointment reminders failed", error)), 5 * 60 * 1000);
+if (!isVercelRuntime) dispatchAppointmentReminders().catch((error) => console.error("Initial appointment reminders failed", error));
 const shutdown = (signal) => {
   console.log(`AUTHENTIQ API shutting down (${signal})`);
+  if (reminderTimer) clearInterval(reminderTimer);
+  if (!server) return;
   server.close(async () => {
     await pool.end();
     process.exit(0);
@@ -1426,3 +1752,5 @@ const shutdown = (signal) => {
 };
 process.once("SIGTERM", () => shutdown("SIGTERM"));
 process.once("SIGINT", () => shutdown("SIGINT"));
+
+export default app;
