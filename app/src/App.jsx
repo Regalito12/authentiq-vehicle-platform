@@ -187,7 +187,7 @@ function Vehicle3DViewer({ vehicle, media }) {
         setProgress(100);
         setState("ready");
       };
-      const handleLoad = () => { frameTimer = window.setTimeout(() => { void frameViewer(); }, 80); };
+      const handleLoad = () => { setProgress(100); setState("ready"); frameTimer = window.setTimeout(() => { void frameViewer(); }, 80); };
       const handleProgress = (event) => setProgress(Math.max(0, Math.min(100, Math.round(Number(event.detail?.totalProgress || 0) * 100))));
       const handleError = () => setState("error");
       const handlePointerDown = () => stopAutoRotate();
@@ -227,7 +227,7 @@ function Vehicle3DViewer({ vehicle, media }) {
     <div className="vehicle-studio-heading"><div><span className="eyebrow">AUTHENTIQ / REAL 3D</span><h2>Explóralo en detalle.</h2></div><span className="vehicle-3d-status">{state === "ready" ? "MODELO LISTO" : state === "error" ? "NO DISPONIBLE" : "CARGANDO MODELO"}</span></div>
     <div ref={stageRef} className={`vehicle-3d-stage ${state === "loading" ? "is-loading" : ""}`}>
       <div className="vehicle-3d-backdrop" />
-      <model-viewer ref={viewerRef} src={shouldLoad ? modelUrl : undefined} poster={poster} alt={model.altText || `${vehicle.brand} ${vehicle.model}, modelo 3D`} camera-controls auto-rotate auto-rotate-delay="1600" rotation-per-second="10deg" shadow-intensity="1" shadow-softness=".72" exposure="1" tone-mapping="aces" touch-action="pan-y" loading="lazy" reveal="auto" ar ar-modes="webxr scene-viewer quick-look" />
+      <model-viewer ref={viewerRef} src={shouldLoad ? modelUrl : undefined} poster={poster} alt={model.altText || `${vehicle.brand} ${vehicle.model}, modelo 3D`} camera-controls auto-rotate auto-rotate-delay="1600" rotation-per-second="10deg" shadow-intensity="1" shadow-softness=".72" exposure="1" tone-mapping="aces" touch-action="pan-y" loading="eager" reveal="auto" ar ar-modes="webxr scene-viewer quick-look" />
       {state === "loading" && <div className="vehicle-3d-loading" role="status" aria-live="polite"><div className="vehicle-3d-loader-mark" aria-hidden="true"><span /><i /><b /></div><span>{shouldLoad ? "Preparando la experiencia 3D" : "Preparando el estudio visual"}</span><div className="vehicle-3d-loading-track"><i style={{ transform: `scaleX(${Math.max(progress / 100, shouldLoad ? 0.08 : 0.02)})` }} /></div></div>}
       {state !== "error" && <div className="vehicle-3d-hint"><span>ROTAR</span><span>ZOOM</span><span>ARRASTRAR</span></div>}
       {state === "error" && <div className="vehicle-3d-fallback"><span className="eyebrow">VISTA 3D NO DISPONIBLE</span><p>Estamos preparando el modelo tridimensional de este vehículo. Mientras tanto, la galería y el estudio visual muestran cada detalle.</p><button className="secondary-action" type="button" onClick={() => document.getElementById("vehicle-studio")?.scrollIntoView({ behavior: "smooth", block: "start" })}>Ver el estudio visual ↓</button></div>}
