@@ -1611,3 +1611,6 @@ html[data-theme="dark"] .import-row-ready { color: #9bc5a2 !important; }
 
 .public-vehicle-actions { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px; padding-right: 4px; border-right: 1px solid var(--auth-line); }
 .public-vehicle-actions .text-button { color: var(--auth-gold); }
+.wizard-footer-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 10px; }
+.wizard-preview-action { border-color: var(--auth-gold); color: var(--auth-gold); }
+@media (max-width: 560px) { .wizard-footer-actions { width: 100%; } .wizard-footer-actions > * { flex: 1 1 0; min-width: 0 !important; } }
