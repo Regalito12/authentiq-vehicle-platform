@@ -827,6 +827,19 @@ app.post("/api/offers", async (req, res) => {
   }
 });
 
+app.get("/api/internal/appointment-reminders", async (req, res) => {
+  const secret = String(process.env.CRON_SECRET || "").trim();
+  const authorization = String(req.headers.authorization || "");
+  if (!secret || authorization !== `Bearer ${secret}`) return res.status(401).json({ error: "No autorizado" });
+  try {
+    await dispatchAppointmentReminders();
+    res.json({ ok: true });
+  } catch (error) {
+    console.error("Scheduled appointment reminders failed", error);
+    res.status(500).json({ error: "No se pudieron procesar los recordatorios" });
+  }
+});
+
 app.get("/api/appointments/availability", async (req, res) => {
   const date = String(req.query.date || "").trim();
   if (!isIsoDate(date)) return res.status(400).json({ error: "La fecha debe tener formato YYYY-MM-DD" });

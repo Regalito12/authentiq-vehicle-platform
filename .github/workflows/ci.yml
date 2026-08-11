@@ -1,9 +1,6 @@
 # CI de AUTHENTIQ.
 #
-# NO se ejecuta todavía: GitHub Actions solo corre workflows en un repositorio
-# alojado en GitHub, y este proyecto no tiene remoto configurado (ver
-# AUDITORIA-2026-08-09.md, sección "Sin CI"). Este archivo queda listo para el
-# momento en que se decida crear un repositorio remoto y hacer push — no antes.
+# Este workflow valida cada push a main y cada Pull Request contra main.
 #
 # Cubre lo mismo que `npm run verify` en local: sintaxis, componentes,
 # preflight, smoke, matriz de roles y E2E, contra una base de datos PostgreSQL
@@ -54,6 +51,12 @@ jobs:
         working-directory: app
         run: npm run build
 
+      - name: Validar variables del frontend para producción
+        working-directory: app
+        env:
+          VITE_API_URL: https://api.authentiq-ci.example.com
+        run: npm run check:production
+
       - name: Instalar dependencias del API
         working-directory: app/server
         run: npm ci
@@ -77,6 +80,10 @@ jobs:
             echo "Aplicando $f"
             PGPASSWORD=authentiq psql -h localhost -U authentiq -d authentiq_ci -f "$f"
           done
+
+      - name: Verificar migraciones aplicadas
+        working-directory: app/server
+        run: npm run check:migrations
 
       - name: Crear administrador de pruebas
         # create-admin.js pide la contraseña de forma interactiva (node:readline);
