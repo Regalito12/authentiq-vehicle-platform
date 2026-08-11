@@ -1441,7 +1441,7 @@ html[data-theme="dark"] .site-footer { border-color: var(--auth-line); }
 .brand-rail-item small { grid-column: auto; width: 100%; color: var(--auth-muted); font-size: 10px; }
 .brand-rail-item small b { float: none; margin-left: 8px; }
 .wizard-backdrop { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 24px; background: rgba(9,10,10,.68); backdrop-filter: blur(12px); animation: wizard-fade-in 180ms ease-out both; }
-.inventory-wizard { width: min(100%, 980px); max-height: min(92vh, 900px); overflow: auto; border: 1px solid rgba(200,162,75,.58); padding: 0; background: var(--auth-bg); color: var(--auth-ink); box-shadow: 0 32px 90px rgba(0,0,0,.3); animation: wizard-pop-in 260ms cubic-bezier(.23,1,.32,1) both; }
+.inventory-wizard { width: min(100%, 980px); max-height: min(92vh, 900px); overflow: auto; border: 1px solid rgba(200,162,75,.58); padding: 0; background: var(--auth-bg); color: var(--auth-ink); box-shadow: 0 32px 90px rgba(0,0,0,.3); animation: wizard-pop-in 260ms cubic-bezier(.23,1,.32,1); }
 .wizard-header { display: flex; justify-content: space-between; gap: 22px; padding: 28px 32px 22px; border-bottom: 1px solid var(--auth-line); }
 .wizard-header h2 { margin: 9px 0 4px; font-size: clamp(30px, 4vw, 48px); font-weight: 400; letter-spacing: -.05em; }
 .wizard-header p { margin: 0; color: var(--auth-muted); font-size: 14px; }
@@ -1471,21 +1471,23 @@ html[data-theme="dark"] .site-footer { border-color: var(--auth-line); }
 .brand-picker-head p, .brand-picker-selected small { margin: 0; color: var(--auth-muted); font-size: 13px; }
 .brand-picker-selected { display: flex; align-items: center; gap: 14px; padding-top: 16px; border-top: 1px solid var(--auth-line); }
 .brand-picker-selected div { display: grid; gap: 5px; }
-.brand-picker-dialog { position: absolute; z-index: 3; inset: 10px; display: grid; gap: 16px; padding: 22px; overflow: auto; border: 1px solid var(--auth-gold); background: var(--auth-bg); box-shadow: 0 20px 55px rgba(0,0,0,.25); animation: wizard-pop-in 220ms cubic-bezier(.23,1,.32,1) both; }
+.brand-picker-dialog { position: fixed; z-index: 120; top: 50%; left: 50%; display: grid; gap: 16px; width: min(860px, calc(100vw - 48px)); max-height: min(760px, calc(100vh - 48px)); padding: 22px; overflow: auto; border: 1px solid var(--auth-gold); background: var(--auth-bg); box-shadow: 0 28px 90px rgba(0,0,0,.42); transform: translate(-50%, -50%); animation: brand-picker-pop 220ms cubic-bezier(.23,1,.32,1) both; }
 .brand-picker-dialog-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .brand-picker-dialog-head h3 { margin: 0; font-size: 25px; font-weight: 400; }
 .brand-picker-dialog > input { min-height: 46px; border: 1px solid var(--auth-line); background: var(--auth-soft); color: var(--auth-ink); padding: 0 14px; font-size: 16px; }
 .brand-picker-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
-.brand-picker-grid > button { display: grid; justify-items: center; gap: 8px; min-height: 142px; border: 1px solid var(--auth-line); background: var(--auth-surface); color: var(--auth-ink); cursor: pointer; transition: transform 180ms cubic-bezier(.23,1,.32,1), border-color 160ms ease-out, box-shadow 160ms ease-out; }
+.brand-picker-grid > button { display: grid; align-content: center; justify-items: center; gap: 8px; min-height: 142px; padding: 14px 10px; border: 1px solid var(--auth-line); background: var(--auth-surface); color: var(--auth-ink); cursor: pointer; transition: transform 180ms cubic-bezier(.23,1,.32,1), border-color 160ms ease-out, box-shadow 160ms ease-out; }
 .brand-picker-grid > button:hover, .brand-picker-grid > button.is-selected { border-color: var(--auth-gold); box-shadow: 0 10px 24px rgba(0,0,0,.12); transform: translateY(-3px); }
 .brand-picker-grid strong { font-size: 14px; font-weight: 500; }
 .brand-picker-grid small { color: var(--auth-muted); font: 10px "IBM Plex Mono", monospace; }
 .admin-brand-logo { display: inline-grid; place-items: center; width: 58px; height: 58px; border-radius: 50%; background: #fff; overflow: hidden; }
-.admin-brand-logo img { width: 44px; height: 44px; object-fit: contain; }
+.admin-brand-logo img { display: block; width: 46px; height: 46px; object-fit: contain; }
 .admin-brand-logo b { display: none; color: #17191a; font: 600 16px "IBM Plex Mono", monospace; }
+.admin-brand-logo.has-fallback b { display: block; }
 .admin-brand-logo.wizard { width: 64px; height: 64px; }
 .admin-brand-logo.picker { width: 64px; height: 64px; }
-@media (max-width: 720px) { .brand-picker-head { align-items: flex-start; flex-direction: column; } .brand-picker-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@keyframes brand-picker-pop { from { opacity: 0; transform: translate(-50%, -46%) scale(.97); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
+@media (max-width: 720px) { .brand-picker-head { align-items: flex-start; flex-direction: column; } .brand-picker-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .brand-picker-dialog { width: min(calc(100vw - 24px), 620px); max-height: calc(100vh - 24px); padding: 18px; } }
 
 .inventory-hub { padding-top: 32px; }
 .inventory-overview-head { display: flex; align-items: end; justify-content: space-between; gap: 28px; margin-bottom: 24px; }
