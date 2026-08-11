@@ -1,0 +1,7 @@
+backups/
+dist/
+server/.env
+server/.env.*
+!.env.example
+!server/.env.example
+3d/*.png
