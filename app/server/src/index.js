@@ -10,6 +10,7 @@ import multer from "multer";
 import path from "node:path";
 import pg from "pg";
 import helmet from "helmet";
+import sharp from "sharp";
 import { fileURLToPath } from "node:url";
 
 const { Pool } = pg;
@@ -156,6 +157,26 @@ async function directorySize(directory) {
     total += entry.isDirectory() ? await directorySize(full) : (await fs.stat(full)).size;
   }
   return total;
+}
+
+async function optimizeUploadedImage(file) {
+  if (!file?.mimetype?.startsWith("image/")) return file;
+  const optimizedFilename = `${path.basename(file.filename, path.extname(file.filename))}-optimized.webp`;
+  const optimizedPath = path.join(path.dirname(file.path), optimizedFilename);
+  try {
+    await sharp(file.path)
+      .rotate()
+      .resize({ width: 2400, height: 2400, fit: "inside", withoutEnlargement: true })
+      .webp({ quality: 82, effort: 4 })
+      .toFile(optimizedPath);
+    await fs.unlink(file.path).catch(() => {});
+    const stats = await fs.stat(optimizedPath);
+    return { ...file, filename: optimizedFilename, path: optimizedPath, size: stats.size, mimetype: "image/webp" };
+  } catch (error) {
+    await fs.unlink(optimizedPath).catch(() => {});
+    console.error("Image optimization failed; keeping original", error);
+    return file;
+  }
 }
 
 async function removeMediaPackage(packageId) {
@@ -746,6 +767,7 @@ app.post("/api/admin/uploads", authenticate, requireRoles("admin", "editor"), (r
     if (error instanceof multer.MulterError && error.code === "LIMIT_FILE_SIZE") return res.status(400).json({ error: "La imagen no puede superar 8 MB" });
     if (error) return res.status(400).json({ error: "Solo se permiten imágenes JPG, PNG, WebP o AVIF" });
     if (!req.file) return res.status(400).json({ error: "Debes seleccionar una imagen" });
+    req.file = await optimizeUploadedImage(req.file);
     const mediaOrigin = publicApiUrl || `${req.protocol}://${req.get("host")}`;
     const url = `${mediaOrigin}/uploads/${req.file.filename}`;
     await writeAudit(req, "image.upload", "image", null, { filename: req.file.filename, size: req.file.size, mimeType: req.file.mimetype });
@@ -758,6 +780,7 @@ app.post("/api/admin/media-upload", authenticate, requireRoles("admin", "editor"
     if (error instanceof multer.MulterError && error.code === "LIMIT_FILE_SIZE") return res.status(400).json({ error: "El archivo no puede superar 120 MB" });
     if (error) return res.status(400).json({ error: "Tipo de archivo no compatible. Usa JPG, PNG, WebP, MP4, WebM, GLB o GLTF" });
     if (!req.file) return res.status(400).json({ error: "Debes seleccionar un archivo" });
+    req.file = await optimizeUploadedImage(req.file);
     if (path.extname(req.file.originalname).toLowerCase() === ".gltf") {
       try {
         const entryPath = sanitizeMediaRelativePath(req.file.filename);
