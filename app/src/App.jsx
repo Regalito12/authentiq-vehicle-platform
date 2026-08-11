@@ -1,5 +1,5 @@
 import { Component, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { AnimatePresence, motion, useInView } from "motion/react";
+import { AnimatePresence, motion, useInView, useReducedMotion } from "motion/react";
 
 class SectionBoundary extends Component {
   constructor(props) { super(props); this.state = { failed: false }; }
@@ -263,7 +263,7 @@ function VehiclePanorama360({ vehicle, media }) {
       if (disposed || !container) return;
 
       const renderer = new THREE.WebGLRenderer({ antialias: true });
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
       renderer.setSize(container.clientWidth, container.clientHeight);
       container.appendChild(renderer.domElement);
 
@@ -319,19 +319,28 @@ function VehiclePanorama360({ vehicle, media }) {
       window.addEventListener("resize", onResize);
 
       let frame = 0;
+      let isVisible = true;
       const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+      const lookTarget = new THREE.Vector3();
       const render = () => {
+        if (!isVisible) { frame = 0; return; }
         frame = requestAnimationFrame(render);
         if (!dragging && !reducedMotion) longitude += 0.03; // deriva lenta mientras nadie interactúa
         const phi = THREE.MathUtils.degToRad(90 - latitude);
         const theta = THREE.MathUtils.degToRad(longitude);
-        camera.lookAt(new THREE.Vector3(
+        lookTarget.set(
           50 * Math.sin(phi) * Math.cos(theta),
           50 * Math.cos(phi),
           50 * Math.sin(phi) * Math.sin(theta),
-        ));
+        );
         renderer.render(scene, camera);
       };
+      const visibilityObserver = new IntersectionObserver(([entry]) => {
+        isVisible = entry.isIntersecting;
+        if (isVisible && !frame) render();
+        if (!isVisible && frame) { cancelAnimationFrame(frame); frame = 0; }
+      }, { rootMargin: "160px 0px" });
+      visibilityObserver.observe(container);
       render();
 
       cleanup = () => {
@@ -342,6 +351,7 @@ function VehiclePanorama360({ vehicle, media }) {
         container.removeEventListener("pointercancel", onUp);
         container.removeEventListener("keydown", onKey);
         window.removeEventListener("resize", onResize);
+        visibilityObserver.disconnect();
         texture.dispose();
         geometry.dispose();
         sphere.material.dispose();
@@ -365,7 +375,10 @@ function VehicleStudio({ vehicle, images }) {
   const [activeFrame, setActiveFrame] = useState(0);
   const [tilt, setTilt] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
+  const reduceMotion = useReducedMotion();
   const dragStart = useRef(0);
+  const tiltFrame = useRef(0);
+  const pendingTilt = useRef({ x: 0, y: 0 });
   const image = images[activeFrame]?.url || images[0]?.url;
   const frameCount = images.length;
   const changeFrame = (direction) => setActiveFrame((current) => (current + direction + frameCount) % frameCount);
@@ -373,7 +386,9 @@ function VehicleStudio({ vehicle, images }) {
     const bounds = event.currentTarget.getBoundingClientRect();
     const x = event.clientX - bounds.left;
     const y = event.clientY - bounds.top;
-    setTilt({ x: (0.5 - y / bounds.height) * 8, y: (x / bounds.width - 0.5) * 12 });
+    if (reduceMotion) return;
+    pendingTilt.current = { x: (0.5 - y / bounds.height) * 8, y: (x / bounds.width - 0.5) * 12 };
+    if (!tiltFrame.current) tiltFrame.current = requestAnimationFrame(() => { setTilt(pendingTilt.current); tiltFrame.current = 0; });
     if (dragging && frameCount > 1 && Math.abs(event.clientX - dragStart.current) > 28) {
       changeFrame(event.clientX > dragStart.current ? -1 : 1);
       dragStart.current = event.clientX;
@@ -390,7 +405,7 @@ function VehicleStudio({ vehicle, images }) {
     <div className="vehicle-studio-stage" style={{ "--studio-rotate-x": `${tilt.x}deg`, "--studio-rotate-y": `${tilt.y}deg` }} onPointerDown={(event) => { setDragging(true); dragStart.current = event.clientX; event.currentTarget.setPointerCapture?.(event.pointerId); }} onPointerMove={handleMove} onPointerUp={() => setDragging(false)} onPointerCancel={() => setDragging(false)} onPointerLeave={resetTilt}>
       <div className="vehicle-studio-glow" />
       <div className="vehicle-studio-floor" />
-      <motion.div className="vehicle-studio-object" animate={{ rotateX: tilt.x, rotateY: tilt.y }} transition={{ type: "spring", stiffness: 170, damping: 22 }}>
+      <motion.div className="vehicle-studio-object" animate={{ transform: reduceMotion ? "none" : `rotateX(${tilt.x}deg) rotateY(${tilt.y}deg)` }} transition={reduceMotion ? { duration: 0 } : { type: "spring", stiffness: 170, damping: 22 }}>
         <div className="vehicle-studio-image-frame"><AnimatePresence mode="wait" initial={false}><motion.img key={image} src={image} alt={`${vehicle.brand} ${vehicle.model}, vista de estudio`} initial={{ opacity: 0, scale: .98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 1.02 }} transition={{ duration: .24 }} /></AnimatePresence></div>
         <div className="vehicle-studio-reflection" />
       </motion.div>
@@ -426,12 +441,11 @@ function VehicleCard({ vehicle, onOpen, onToggleCompare, isCompared, isFavorite,
   return (
     <motion.article
       className="vehicle-card"
-      layout
       initial={{ opacity: 0, scale: .96 }}
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: .98 }}
-      whileHover={{ y: -4 }}
-      whileTap={{ scale: 0.99 }}
+      whileHover={{ transform: "translateY(-4px)" }}
+      whileTap={{ transform: "scale(.99)" }}
       transition={{ duration: 0.28, ease: [0.25, 1, 0.5, 1] }}
     >
       <div className="vehicle-image-wrap" onPointerEnter={preloadDetail} onFocus={preloadDetail} onTouchStart={preloadDetail}>
