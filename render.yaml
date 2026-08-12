@@ -6,7 +6,7 @@ services:
     buildCommand: npm ci && npm run build && npm --prefix server ci
     startCommand: npm --prefix server start
     healthCheckPath: /api/health
-    autoDeployTrigger: checksPass
+    autoDeployTrigger: commit
     plan: free
     envVars:
       - key: NODE_ENV
