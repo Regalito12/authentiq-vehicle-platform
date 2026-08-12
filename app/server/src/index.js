@@ -1863,6 +1863,10 @@ app.get("/robots.txt", (_req, res) => {
 
 const frontendDist = path.resolve(serverDir, "../../dist");
 const frontendIndex = path.join(frontendDist, "index.html");
+app.get(["/", "/index.html"], (_req, res) => {
+  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  res.sendFile(frontendIndex);
+});
 app.use(express.static(frontendDist, {
   maxAge: "1h",
   setHeaders: (response, filePath) => {
