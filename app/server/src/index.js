@@ -1863,7 +1863,14 @@ app.get("/robots.txt", (_req, res) => {
 
 const frontendDist = path.resolve(serverDir, "../../dist");
 const frontendIndex = path.join(frontendDist, "index.html");
-app.use(express.static(frontendDist, { maxAge: "1h" }));
+app.use(express.static(frontendDist, {
+  maxAge: "1h",
+  setHeaders: (response, filePath) => {
+    // El HTML debe descubrir siempre los chunks hash del último deploy;
+    // los assets versionados mantienen la caché larga sin mezclar releases.
+    if (path.basename(filePath) === "index.html") response.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  },
+}));
 app.use("/api", (_req, res) => res.status(404).json({ error: "Recurso no encontrado" }));
 app.use((req, res, next) => {
   if (req.method !== "GET" || req.path.startsWith("/uploads/") || req.path.startsWith("/api")) return next();
