@@ -852,7 +852,14 @@ function VehicleDetail({ vehicle, vehicles = [], onBack, isFavorite = false, onT
           </div>
           <div className="thumbs">
             {images.map((item, index) => (
-              <button key={item.id || item.url} className={index === activeImage ? "thumb active" : "thumb"} onClick={() => setActiveImage(index)}>
+              <button
+                key={item.id || item.url}
+                className={index === activeImage ? "thumb active" : "thumb"}
+                type="button"
+                onClick={() => setActiveImage(index)}
+                aria-label={`Ver imagen ${index + 1} de ${vehicle.brand} ${vehicle.model}`}
+                aria-pressed={index === activeImage}
+              >
                 <img src={item.url} alt="" />
               </button>
             ))}
