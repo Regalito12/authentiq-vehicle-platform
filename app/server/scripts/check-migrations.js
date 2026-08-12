@@ -12,9 +12,11 @@ const expectedFiles = [
   "030_appointment_blocks.sql",
   "031_appointment_reminders.sql",
   "032_multitenancy_foundation.sql",
+  "034_white_label_domain.sql",
 ];
 const expectedTables = ["appointment_blocks", "organizations", "organization_members"];
 const expectedColumns = [
+  ["organizations", "custom_domain"],
   ["business_settings", "appointment_capacity"],
   ["test_drive_requests", "lead_id"],
   ["test_drive_requests", "reminder_24h_sent_at"],

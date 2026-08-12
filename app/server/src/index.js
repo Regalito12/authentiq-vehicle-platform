@@ -1426,7 +1426,7 @@ app.post("/api/admin/users", authenticate, requireRoles("admin"), async (req, re
   if (!name || !email || password.length < 8) return res.status(400).json({ error: "Nombre, correo y una contraseña de al menos 8 caracteres son obligatorios" });
   try {
     const passwordHash = await bcrypt.hash(password, 12);
-    const result = await pool.query('INSERT INTO admin_users (full_name, email, password_hash, role) VALUES ($1,$2,$3,$4) RETURNING id, full_name AS "name", email, role, is_active AS "isActive", created_at AS "createdAt"', [name, email, passwordHash, role]);
+    const result = await pool.query('INSERT INTO admin_users (full_name, email, password_hash, role, organization_id) SELECT $1,$2,$3,$4,organization_id FROM admin_users WHERE id=$5 RETURNING id, full_name AS "name", email, role, is_active AS "isActive", created_at AS "createdAt"', [name, email, passwordHash, role, req.admin.id]);
     await writeAudit(req, "user.create", "admin_user", result.rows[0].id, { email, role });
     res.status(201).json({ data: result.rows[0] });
   } catch (error) { console.error("Admin user creation failed", error); res.status(error.code === "23505" ? 409 : 500).json({ error: error.code === "23505" ? "Ese correo ya está registrado" : "No se pudo crear el usuario" }); }
@@ -1495,7 +1495,7 @@ app.patch("/api/admin/settings", authenticate, requireRoles("admin"), async (req
 
 app.get("/api/admin/organization", authenticate, requireRoles("admin"), async (req, res) => {
   try {
-    const result = await pool.query(`SELECT o.id, o.slug, o.name, o.logo_url AS "logoUrl", o.is_active AS "isActive", o.updated_at AS "updatedAt" FROM organizations o JOIN admin_users au ON au.organization_id=o.id WHERE au.id=$1`, [req.admin.id]);
+    const result = await pool.query(`SELECT o.id, o.slug, o.name, o.logo_url AS "logoUrl", o.custom_domain AS "customDomain", o.is_active AS "isActive", o.updated_at AS "updatedAt" FROM organizations o JOIN admin_users au ON au.organization_id=o.id WHERE au.id=$1`, [req.admin.id]);
     res.json({ data: result.rows[0] || null });
   } catch (error) { console.error("Organization query failed", error); res.status(500).json({ error: "No se pudo cargar el perfil del concesionario" }); }
 });
@@ -1504,7 +1504,9 @@ app.patch("/api/admin/organization", authenticate, requireRoles("admin"), async 
   const name = String(req.body.name || "").trim();
   const slug = String(req.body.slug || "").trim().toLowerCase();
   const logoUrl = String(req.body.logoUrl || "").trim() || null;
+  const customDomain = String(req.body.customDomain || "").trim().toLowerCase() || null;
   if (!name || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) return res.status(400).json({ error: "Nombre y slug válido son obligatorios" });
+  if (customDomain && (!/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(customDomain) || customDomain === "localhost")) return res.status(400).json({ error: "El dominio personalizado no es válido" });
   try {
     const organization = await pool.query("SELECT o.id FROM organizations o JOIN admin_users au ON au.organization_id=o.id WHERE au.id=$1", [req.admin.id]);
     if (!organization.rowCount) return res.status(404).json({ error: "Organización no encontrada" });
@@ -1513,7 +1515,7 @@ app.patch("/api/admin/organization", authenticate, requireRoles("admin"), async 
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
-      const result = await client.query(`UPDATE organizations SET name=$1, slug=$2, logo_url=$3, updated_at=NOW() WHERE id=$4 RETURNING id, slug, name, logo_url AS "logoUrl", is_active AS "isActive", updated_at AS "updatedAt"`, [name, slug, logoUrl, organization.rows[0].id]);
+      const result = await client.query(`UPDATE organizations SET name=$1, slug=$2, logo_url=$3, custom_domain=$4, updated_at=NOW() WHERE id=$5 RETURNING id, slug, name, logo_url AS "logoUrl", custom_domain AS "customDomain", is_active AS "isActive", updated_at AS "updatedAt"`, [name, slug, logoUrl, customDomain, organization.rows[0].id]);
       await client.query("UPDATE business_settings SET business_name=$1, logo_url=$2, updated_at=NOW() WHERE organization_id=$3", [name, logoUrl, organization.rows[0].id]);
       await client.query("COMMIT");
       await writeAudit(req, "organization.update", "organization", organization.rows[0].id, { name, slug });
@@ -1815,7 +1817,7 @@ app.get("/api/admin/audit-logs", authenticate, requireRoles("admin"), async (req
 });
 
 app.post("/api/events", async (req, res) => {
-  const allowedEvents = new Set(["page_view", "catalog_view", "vehicle_view", "vehicle_share", "filter_used", "compare_used", "whatsapp_click", "offer_submitted", "contact_submitted"]);
+  const allowedEvents = new Set(["page_view", "catalog_view", "vehicle_view", "vehicle_share", "filter_used", "compare_used", "whatsapp_click", "offer_submitted", "contact_submitted", "appointment_submitted"]);
   const eventName = String(req.body.eventName || "").trim();
   const eventPath = String(req.body.path || "/").slice(0, 240);
   const vehicleId = String(req.body.vehicleId || "").trim() || null;
