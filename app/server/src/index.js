@@ -305,6 +305,7 @@ const vehicleSelect = `
     v.max_discount_percent AS "maxDiscountPercent",
     v.created_at AS "createdAt",
     b.name AS brand,
+    b.logo_url AS "brandLogoUrl",
     c.name AS category,
     COALESCE(
       json_agg(
