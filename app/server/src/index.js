@@ -1736,7 +1736,14 @@ app.get("/robots.txt", (_req, res) => {
   res.type("text/plain").send(`User-agent: *\nAllow: /\nDisallow: /preview\nSitemap: ${baseUrl}/sitemap.xml\n`);
 });
 
+const frontendDist = path.resolve(serverDir, "../../dist");
+const frontendIndex = path.join(frontendDist, "index.html");
+app.use(express.static(frontendDist, { maxAge: "1h" }));
 app.use("/api", (_req, res) => res.status(404).json({ error: "Recurso no encontrado" }));
+app.use((req, res, next) => {
+  if (req.method !== "GET" || req.path.startsWith("/uploads/") || req.path.startsWith("/api")) return next();
+  res.sendFile(frontendIndex, (error) => { if (error && !res.headersSent) next(error); });
+});
 
 // Último recurso: cualquier error no controlado responde JSON consistente y sin filtrar detalles internos.
 app.use((error, _req, res, _next) => {
