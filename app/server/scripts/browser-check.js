@@ -201,6 +201,26 @@ async function main() {
     }
 
     // ---- Ficha de vehículo con modelo 3D ---------------------------------
+    // ---- Presentación guiada ----------------------------------------------
+    console.log("\n== PRESENTACIÓN GUIADA ==");
+    await setViewport(viewports[3]);
+    await navigate(`${siteUrl}/presentacion`);
+    const presentation = await cdp.evaluate(`(() => ({
+      root: (document.getElementById('root')?.innerHTML || '').length,
+      stage: Boolean(document.querySelector('.presentation-stage')),
+      story: document.querySelector('.presentation-story')?.textContent || '',
+      controls: document.querySelectorAll('.presentation-control, .presentation-vehicle').length,
+      overflow: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - window.innerWidth,
+    }))()`);
+    check("La presentación guiada monta contenido real", presentation.root > 1800, `${presentation.root} bytes en #root`);
+    check("La presentación tiene escenario visual", presentation.stage);
+    check("La presentación explica el recorrido comercial", /Descubre.*Compara.*Decide/s.test(presentation.story));
+    check("La presentación ofrece controles", presentation.controls > 1, `${presentation.controls} controles`);
+    check("Presentación sin desbordamiento horizontal", presentation.overflow <= 1, `sobresale ${presentation.overflow}px`);
+    check("Presentación sin errores de consola", consoleErrors.length === 0, consoleErrors.slice(0, 2).join(" || "));
+    check("Presentación sin peticiones fallidas", failedRequests.length === 0, failedRequests.slice(0, 2).join(" || "));
+    await shoot("presentacion-desktop-1440x900");
+
     console.log("\n== FICHA DE VEHÍCULO (con 3D real) ==");
     await setViewport(viewports[3]);
     const apiUrl = process.env.API_BASE_URL || "http://127.0.0.1:3001";
@@ -236,7 +256,9 @@ async function main() {
 
     // El modelo 3D es pesado: se le da tiempo real de descarga.
     console.log("      esperando la carga del modelo 3D…");
-    await wait(12000);
+    // Las escenas GLTF incluyen binarios y texturas; el componente público
+    // conserva el estado de carga hasta 30 s antes de mostrar fallback.
+    await wait(30000);
     const viewer = await cdp.evaluate(`(() => {
       const el = document.querySelector('model-viewer');
       return el ? { present: true, loaded: Boolean(el.loaded), src: el.getAttribute('src') || '', status: document.querySelector('.vehicle-3d-status')?.textContent || '', fallback: Boolean(document.querySelector('.vehicle-3d-fallback')) } : { present: false };
