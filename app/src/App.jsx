@@ -14,7 +14,7 @@ class SectionBoundary extends Component {
 
 const Backoffice = lazy(() => import("./admin/Backoffice.jsx"));
 
-const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:3001";
+const apiUrl = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "http://localhost:3001" : window.location.origin);
 
 function publicMediaUrl(url) {
   if (!url) return url;
@@ -582,7 +582,7 @@ function VehicleCard({ vehicle, onOpen, onToggleCompare, isCompared, isFavorite,
           <BrandLogo brand={vehicle.brand} logoUrl={vehicle.brandLogoUrl} size="card" />
         </button>
         <button className={`favorite-toggle ${isFavorite ? "is-selected" : ""}`} type="button" aria-label={isFavorite ? "Quitar de favoritos" : "Guardar en favoritos"} onClick={() => onToggleFavorite(vehicle)}>{isFavorite ? "♥" : "♡"}</button>
-        <button className={`compare-toggle ${isCompared ? "is-selected" : ""}`} type="button" role="checkbox" aria-checked={isCompared} onClick={() => onToggleCompare(vehicle)}>{isCompared ? "Comparando ✓" : "Comparar"}</button>
+        <button className={`compare-toggle ${isCompared ? "is-selected" : ""}`} type="button" role="checkbox" aria-checked={isCompared} aria-label={`${isCompared ? "Quitar" : "Añadir"} ${vehicle.brand} ${vehicle.model} ${isCompared ? "de la comparación" : "a comparación"}`} onClick={() => onToggleCompare(vehicle)}>{isCompared ? "Comparando ✓" : "Comparar"}</button>
       </div>
       <button className="vehicle-card-body vehicle-card-open" type="button" onClick={open}>
         <div>
@@ -783,7 +783,7 @@ function SimilarVehicles({ vehicle, vehicles, compareVehicles, favoriteIds, onOp
     .slice(0, 4)
     .map((item) => item.vehicle), [vehicle, vehicles]);
   if (!similar.length) return null;
-  return <section className="similar-vehicles" aria-label="Vehiculos similares"><div className="section-head"><div><span className="eyebrow">SIGUE EXPLORANDO</span><h2>Si te gusta este, mira estos.</h2></div><p>Alternativas seleccionadas desde el inventario actual.</p></div><div className="similar-vehicle-grid">{similar.map((candidate, index) => <div className="similar-vehicle-item" key={candidate.id}><span className="similar-vehicle-reason">{similarityReason(vehicle, candidate)}</span><VehicleCard vehicle={candidate} isCompared={compareVehicles.some((item) => item.id === candidate.id)} isFavorite={favoriteIds.includes(candidate.id)} onOpen={onOpen} onToggleCompare={onToggleCompare} onToggleFavorite={onToggleFavorite} imageLoading={index < 2 ? "eager" : "lazy"} /></div>)}</div></section>;
+  return <section className="similar-vehicles" aria-label="Vehículos similares"><div className="section-head"><div><span className="eyebrow">SIGUE EXPLORANDO</span><h2>Si te gusta este, mira estos.</h2></div><p>Alternativas seleccionadas desde el inventario actual.</p></div><div className="similar-vehicle-grid">{similar.map((candidate, index) => <div className="similar-vehicle-item" key={candidate.id}><span className="similar-vehicle-reason">{similarityReason(vehicle, candidate)}</span><VehicleCard vehicle={candidate} isCompared={compareVehicles.some((item) => item.id === candidate.id)} isFavorite={favoriteIds.includes(candidate.id)} onOpen={onOpen} onToggleCompare={onToggleCompare} onToggleFavorite={onToggleFavorite} imageLoading={index < 2 ? "eager" : "lazy"} /></div>)}</div></section>;
 }
 
 function VehicleDecisionSummary({ vehicle }) {
@@ -830,7 +830,7 @@ function VehicleDetail({ vehicle, vehicles = [], onBack, isFavorite = false, onT
       transition={{ duration: 0.24, ease: "easeOut" }}
     >
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: structuredData }} />
-      <button className="back-button" onClick={onBack}>← Volver al catálogo</button>
+      <div className="detail-topbar"><button className="back-button" onClick={onBack}>Volver al catálogo</button><span className="detail-topbar-context">{vehicle.brand} · {vehicle.model}</span><a href="#similar-vehicles" className="detail-topbar-link">Ver similares ↓</a></div>
       <section className="detail-grid">
         <div>
           <div className="detail-image-wrap" role="button" tabIndex="0" aria-label="Ampliar imagen" onClick={() => setLightboxOpen(true)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") setLightboxOpen(true); }}>
@@ -897,7 +897,7 @@ function VehicleDetail({ vehicle, vehicles = [], onBack, isFavorite = false, onT
       </section>
       <SectionBoundary name="estudio visual" message="El visor multimedia no pudo mostrarse. Los datos y la galería del vehículo siguen disponibles."><VehicleStudio vehicle={vehicle} images={images} /></SectionBoundary>
       <DetailTrustStrip />
-      <SimilarVehicles vehicle={vehicle} vehicles={vehicles} compareVehicles={compareVehicles} favoriteIds={favoriteIds} onOpen={onOpenVehicle} onToggleCompare={onToggleCompare} onToggleFavorite={onToggleFavorite} />
+      <div id="similar-vehicles"><SimilarVehicles vehicle={vehicle} vehicles={vehicles} compareVehicles={compareVehicles} favoriteIds={favoriteIds} onOpen={onOpenVehicle} onToggleCompare={onToggleCompare} onToggleFavorite={onToggleFavorite} /></div>
       <aside className="detail-decision-bar" aria-label="Acciones principales del vehículo">
         <div>
           <span className="eyebrow">SIGUIENTE PASO</span>
@@ -910,6 +910,11 @@ function VehicleDetail({ vehicle, vehicles = [], onBack, isFavorite = false, onT
           <button className="secondary-action" type="button" onClick={() => setQuoteOpen(true)}>Cotización</button>
         </div>
       </aside>
+      <div className="detail-mobile-actions" aria-label="Acciones rápidas del vehículo">
+        <button className="primary-action" type="button" onClick={() => setLeadType("offer")} disabled={vehicle.status === "reserved"}>{vehicle.status === "reserved" ? "Reservado" : "Hacer una oferta"}</button>
+        <button className="secondary-action" type="button" onClick={() => setLeadType("test-drive")}>Agendar cita</button>
+        <a className="detail-mobile-whatsapp" href={`https://wa.me/?text=${encodeURIComponent(`Mira este ${vehicle.brand} ${vehicle.model} en AUTHENTIQ: ${window.location.origin}${vehiclePath(vehicle)}`)}`} target="_blank" rel="noreferrer" aria-label="Enviar vehículo por WhatsApp">WhatsApp</a>
+      </div>
       <AnimatePresence>{leadType === "offer" && <LeadForm vehicle={vehicle} customerToken={customerToken} onClose={() => setLeadType(null)} />}</AnimatePresence>
       <AnimatePresence>{leadType === "test-drive" && <TestDriveModal vehicle={vehicle} onClose={() => setLeadType(null)} />}</AnimatePresence>
       <AnimatePresence>{quoteOpen && <QuoteModal vehicle={vehicle} onClose={() => setQuoteOpen(false)} />}</AnimatePresence>
@@ -1024,14 +1029,19 @@ function ModelLineRail({ vehicles, selectedBrand, onChooseLine }) {
 }
 
 function FinancingSpotlight({ vehicles, onExplore }) {
-  const [price, setPrice] = useState(() => Math.round(Number(vehicles[0]?.priceUsd || 0)));
+  const [price, setPrice] = useState(null);
   const [downPayment, setDownPayment] = useState(20);
   const [months, setMonths] = useState(60);
+  useEffect(() => {
+    if (price === null && vehicles[0]?.priceUsd) setPrice(Math.round(Number(vehicles[0].priceUsd)));
+  }, [price, vehicles]);
   const rate = 0.12 / 12;
-  const principal = Math.max(price * (1 - downPayment / 100), 0);
+  const numericPrice = Number(price) || 0;
+  const principal = Math.max(numericPrice * (1 - downPayment / 100), 0);
   const payment = principal && rate ? principal * (rate * (1 + rate) ** months) / ((1 + rate) ** months - 1) : 0;
+  const paymentLabel = numericPrice > 0 ? formatPrice(payment) : "Introduce un precio";
   if (!vehicles.length) return null;
-  return <section className="financing-spotlight" aria-label="Calculadora de financiamiento"><div className="financing-copy"><span className="eyebrow">COMPRA A TU RITMO</span><h2>Calcula una cuota orientativa.</h2><p>Hazte una idea del presupuesto mensual antes de hablar con un asesor. La aprobacion final depende de la entidad financiera.</p><button type="button" className="secondary-action" onClick={onExplore}>Ver vehiculos disponibles →</button></div><div className="financing-controls"><label>Precio del vehiculo<input type="number" min="0" value={price} onChange={(event) => setPrice(Number(event.target.value) || 0)} /></label><label>Inicial <output>{downPayment}%</output><input type="range" min="0" max="70" step="5" value={downPayment} onChange={(event) => setDownPayment(Number(event.target.value))} /></label><label>Plazo <output>{months} meses</output><input type="range" min="12" max="84" step="12" value={months} onChange={(event) => setMonths(Number(event.target.value))} /></label><div className="financing-result"><span>Cuota estimada</span><strong>{formatPrice(payment)}</strong><small>12% anual · sin seguros ni gastos adicionales</small></div></div></section>;
+  return <section className="financing-spotlight" aria-label="Calculadora de financiamiento"><div className="financing-copy"><span className="eyebrow">COMPRA A TU RITMO</span><h2>Calcula una cuota orientativa.</h2><p>Hazte una idea del presupuesto mensual antes de hablar con un asesor. La aprobación final depende de la entidad financiera.</p><button type="button" className="secondary-action" onClick={onExplore}>Ver vehículos disponibles →</button></div><div className="financing-controls"><label>Precio del vehículo<input type="number" min="0" value={price ?? ""} aria-label="Precio del vehículo" onChange={(event) => setPrice(event.target.value === "" ? null : Number(event.target.value))} /></label><label>Inicial <output>{downPayment}%</output><input type="range" min="0" max="70" step="5" value={downPayment} aria-label="Porcentaje de inicial" onChange={(event) => setDownPayment(Number(event.target.value))} /></label><label>Plazo <output>{months} meses</output><input type="range" min="12" max="84" step="12" value={months} aria-label="Plazo de financiamiento en meses" onChange={(event) => setMonths(Number(event.target.value))} /></label><div className={`financing-result${numericPrice > 0 ? "" : " is-empty"}`}><span>Cuota estimada</span>{numericPrice > 0 ? <><strong>{paymentLabel}</strong><small>12% anual · sin seguros ni gastos adicionales</small></> : <p>Introduce un precio para calcular.</p>}</div></div></section>;
 }
 
 function NavIcon({ name }) {
@@ -1321,7 +1331,7 @@ export default function App() {
       <CompareDock vehicles={compareVehicles} onRemove={(id) => setCompareVehicles((current) => current.filter((item) => item.id !== id))} onClear={() => setCompareVehicles([])} />
 
       <section className="catalog" id="catalog" aria-busy={loading}>
-        <div className="section-head"><div><span className="eyebrow">INVENTARIO · {vehicles.length.toString().padStart(2, "0")} MODELOS</span><h2>Catálogo activo.</h2></div><p>Datos cargados desde PostgreSQL.</p></div>
+        <div className="section-head"><div><span className="eyebrow">INVENTARIO · {vehicles.length.toString().padStart(2, "0")} MODELOS</span><h2>Catálogo activo.</h2></div><p>Inventario actualizado para ayudarte a decidir mejor.</p></div>
          <div className="catalog-intro-note">Una seleccion breve, pensada para decidir mejor.</div>
          <div className="filters-heading"><div><span className="eyebrow">BUSQUEDA AVANZADA</span><strong>Filtra por lo que importa.</strong></div><span>Marca, precio, año y especificaciones</span><button className="filters-toggle" type="button" onClick={() => setFiltersOpen((current) => !current)} aria-expanded={filtersOpen}>{filtersOpen ? "Ocultar filtros" : "Más filtros"} <span>{filtersOpen ? "↑" : "↓"}</span></button></div>
          <div className={`filters ${filtersOpen ? "filters-expanded" : ""}`}>
@@ -1352,7 +1362,7 @@ export default function App() {
         <ContactForm />
         <BlogSection posts={posts} />
         <footer className="site-footer">
-          {(businessSettings.phone || businessSettings.whatsapp || businessSettings.email) && <div className="site-footer-contact">{businessSettings.phone && <a href={`tel:${businessSettings.phone}`}>{businessSettings.phone}</a>}{businessSettings.whatsapp && <a href={`https://wa.me/${businessSettings.whatsapp.replace(/\D/g, "")}`} target="_blank" rel="noreferrer">WhatsApp</a>}{businessSettings.email && <a href={`mailto:${businessSettings.email}`}>{businessSettings.email}</a>}</div>}
+          {(businessSettings.phone || businessSettings.whatsapp || businessSettings.email || businessSettings.instagramUrl || businessSettings.facebookUrl) && <div className="site-footer-contact">{businessSettings.phone && <a href={`tel:${businessSettings.phone}`}>{businessSettings.phone}</a>}{businessSettings.whatsapp && <a href={`https://wa.me/${businessSettings.whatsapp.replace(/\D/g, "")}`} target="_blank" rel="noreferrer">WhatsApp</a>}{businessSettings.email && <a href={`mailto:${businessSettings.email}`}>{businessSettings.email}</a>}{businessSettings.instagramUrl && <a href={businessSettings.instagramUrl} target="_blank" rel="noreferrer">Instagram ↗</a>}{businessSettings.facebookUrl && <a href={businessSettings.facebookUrl} target="_blank" rel="noreferrer">Facebook ↗</a>}</div>}
           <div><span className="brand-mark">{businessSettings.businessName || "AUTHENTIQ"}</span><p>Vehículos premium · inventario verificado.</p></div>
           <nav aria-label="Enlaces institucionales">
             <button onClick={() => setScreen("contact")}>Contacto</button>

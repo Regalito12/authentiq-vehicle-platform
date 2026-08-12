@@ -26,6 +26,10 @@ if (process.env.NODE_ENV === "production" && !process.env.JWT_SECRET) throw new 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const uploadsDir = path.resolve(serverDir, process.env.UPLOADS_DIR || "../uploads");
 const publicApiUrl = String(process.env.PUBLIC_API_URL || "").replace(/\/+$/, "");
+const supabaseUrl = String(process.env.SUPABASE_URL || "").replace(/\/+$/, "");
+const supabaseServiceRoleKey = String(process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
+const supabaseStorageBucket = String(process.env.SUPABASE_STORAGE_BUCKET || "vehicle-media").trim();
+const remoteStorageEnabled = Boolean(supabaseUrl && supabaseServiceRoleKey && supabaseStorageBucket);
 app.set("trust proxy", 1);
 await fs.mkdir(uploadsDir, { recursive: true });
 
@@ -198,6 +202,49 @@ async function isValidImageUpload(file) {
 
 async function removeMediaPackage(packageId) {
   if (packageId && /^[a-z0-9-]+$/i.test(packageId)) await fs.rm(path.join(uploadsDir, "packages", packageId), { recursive: true, force: true });
+}
+
+function storageObjectPath(value) {
+  return String(value || "").split("/").map((part) => encodeURIComponent(part)).join("/");
+}
+
+function storagePublicUrl(objectPath) {
+  if (!remoteStorageEnabled) return "";
+  return `${supabaseUrl}/storage/v1/object/public/${encodeURIComponent(supabaseStorageBucket)}/${storageObjectPath(objectPath)}`;
+}
+
+async function uploadBufferToSupabase(buffer, objectPath, contentType) {
+  const endpoint = `${supabaseUrl}/storage/v1/object/${encodeURIComponent(supabaseStorageBucket)}/${storageObjectPath(objectPath)}`;
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${supabaseServiceRoleKey}`,
+      apikey: supabaseServiceRoleKey,
+      "Content-Type": contentType || "application/octet-stream",
+      "x-upsert": "true",
+    },
+    body: buffer,
+  });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(`Supabase Storage respondió ${response.status}${detail ? `: ${detail.slice(0, 180)}` : ""}`);
+  }
+  return storagePublicUrl(objectPath);
+}
+
+async function uploadFileToConfiguredStorage(file, objectPath) {
+  if (!remoteStorageEnabled) {
+    const mediaOrigin = publicApiUrl || "";
+    return `${mediaOrigin}/uploads/${objectPath.replace(/^uploads\//, "")}`;
+  }
+  const buffer = await fs.readFile(file.path);
+  return uploadBufferToSupabase(buffer, objectPath, file.mimetype);
+}
+
+async function removeSupabaseObject(objectPath) {
+  if (!remoteStorageEnabled || !objectPath) return;
+  const endpoint = `${supabaseUrl}/storage/v1/object/${encodeURIComponent(supabaseStorageBucket)}/${storageObjectPath(objectPath)}`;
+  await fetch(endpoint, { method: "DELETE", headers: { Authorization: `Bearer ${supabaseServiceRoleKey}`, apikey: supabaseServiceRoleKey } }).catch(() => {});
 }
 
 app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
@@ -644,7 +691,7 @@ app.get("/api/health", async (_req, res) => {
   try {
     const result = await pool.query("SELECT NOW() AS server_time");
     await fs.access(uploadsDir);
-    res.json({ ok: true, database: "connected", storage: "available", publicApiConfigured: Boolean(publicApiUrl), serverTime: result.rows[0].server_time });
+    res.json({ ok: true, database: "connected", storage: remoteStorageEnabled ? "supabase" : "available", storageProvider: remoteStorageEnabled ? "supabase" : "local-temporary", publicApiConfigured: Boolean(publicApiUrl), serverTime: result.rows[0].server_time });
   } catch (error) {
     console.error("Health check failed", error);
     res.status(503).json({ ok: false, database: "unavailable", storage: "unavailable" });
@@ -934,8 +981,9 @@ app.post("/api/admin/uploads", authenticate, requireRoles("admin", "editor"), (r
     if (!req.file) return res.status(400).json({ error: "Debes seleccionar una imagen" });
     if (!(await isValidImageUpload(req.file))) return res.status(400).json({ error: "La imagen está corrupta o no coincide con su formato" });
     req.file = await optimizeUploadedImage(req.file);
-    const mediaOrigin = publicApiUrl || `${req.protocol}://${req.get("host")}`;
-    const url = `${mediaOrigin}/uploads/${req.file.filename}`;
+    const objectPath = `uploads/${req.file.filename}`;
+    const url = remoteStorageEnabled ? await uploadFileToConfiguredStorage(req.file, objectPath) : `${publicApiUrl || `${req.protocol}://${req.get("host")}`}/uploads/${req.file.filename}`;
+    if (remoteStorageEnabled) await fs.unlink(req.file.path).catch(() => {});
     await writeAudit(req, "image.upload", "image", null, { filename: req.file.filename, size: req.file.size, mimeType: req.file.mimetype });
     res.status(201).json({ data: { url, filename: req.file.filename, size: req.file.size } });
   });
@@ -961,8 +1009,9 @@ app.post("/api/admin/media-upload", authenticate, requireRoles("admin", "editor"
         return res.status(400).json({ error: "El archivo GLTF no contiene un manifiesto válido" });
       }
     }
-    const mediaOrigin = publicApiUrl || `${req.protocol}://${req.get("host")}`;
-    const url = `${mediaOrigin}/uploads/${req.file.filename}`;
+    const objectPath = `uploads/${req.file.filename}`;
+    const url = remoteStorageEnabled ? await uploadFileToConfiguredStorage(req.file, objectPath) : `${publicApiUrl || `${req.protocol}://${req.get("host")}`}/uploads/${req.file.filename}`;
+    if (remoteStorageEnabled) await fs.unlink(req.file.path).catch(() => {});
     await writeAudit(req, "media.upload", "media", null, { filename: req.file.filename, size: req.file.size, mimeType: req.file.mimetype });
     res.status(201).json({ data: { url, filename: req.file.filename, size: req.file.size, mimeType: req.file.mimetype } });
   });
@@ -984,8 +1033,21 @@ app.post("/api/admin/media-package-upload", authenticate, requireRoles("admin", 
         await removeMediaPackage(req.mediaPackageId);
         return res.status(400).json({ error: `El GLTF todavía tiene ${manifest.missing.length} dependencia${manifest.missing.length === 1 ? "" : "s"} faltante${manifest.missing.length === 1 ? "" : "s"}. Revisa que seleccionaste la carpeta raíz del modelo.`, code: "GLTF_DEPENDENCIES_MISSING", missing: manifest.missing.slice(0, 12), missingCount: manifest.missing.length });
       }
-      const mediaOrigin = publicApiUrl || `${req.protocol}://${req.get("host")}`;
-      const url = `${mediaOrigin}/uploads/packages/${req.mediaPackageId}/${entryPath.split("/").map(encodeURIComponent).join("/")}`;
+      const uploadedObjects = [];
+      let url = "";
+      if (remoteStorageEnabled) {
+        for (const file of files) {
+          const relativePath = sanitizeMediaRelativePath(file.originalname);
+          const objectPath = `uploads/packages/${req.mediaPackageId}/${relativePath}`;
+          await uploadFileToConfiguredStorage(file, objectPath);
+          uploadedObjects.push(objectPath);
+        }
+        url = storagePublicUrl(`uploads/packages/${req.mediaPackageId}/${entryPath}`);
+        await Promise.all(files.map((file) => fs.unlink(file.path).catch(() => {})));
+      } else {
+        const mediaOrigin = publicApiUrl || `${req.protocol}://${req.get("host")}`;
+        url = `${mediaOrigin}/uploads/packages/${req.mediaPackageId}/${entryPath.split("/").map(encodeURIComponent).join("/")}`;
+      }
       await writeAudit(req, "media.package_upload", "media", null, { packageId: req.mediaPackageId, entryPath, fileCount: files.length, referenceCount: manifest.references.length });
       return res.status(201).json({ data: { url, packageId: req.mediaPackageId, entryPath, fileCount: files.length, referenceCount: manifest.references.length } });
     } catch {
@@ -1131,7 +1193,7 @@ app.get("/api/admin/leads", authenticate, requireRoles("admin", "editor", "selle
     const result = await pool.query(`
       SELECT l.id, l.lead_type AS "leadType", l.name, l.email, l.phone, l.message, l.source, l.status, l.notes, l.priority, l.next_action AS "nextAction", l.next_action_at AS "nextActionAt", l.lost_reason AS "lostReason", l.closed_at AS "closedAt",
              l.created_at AS "createdAt", l.updated_at AS "updatedAt", l.last_contacted_at AS "lastContactedAt",
-             v.model, v.year, b.name AS brand, l.assigned_to AS "assignedToId", au.full_name AS "assignedTo",
+             v.id AS "vehicleId", v.model, v.year, b.name AS brand, l.assigned_to AS "assignedToId", au.full_name AS "assignedTo",
              appointment.id AS "appointmentId", appointment.requested_date AS "appointmentDate", appointment.requested_time AS "appointmentTime", appointment.status AS "appointmentStatus"
       FROM leads l
       LEFT JOIN vehicles v ON v.id = l.vehicle_id
@@ -1160,6 +1222,53 @@ app.get("/api/admin/appointments", authenticate, requireRoles("admin", "editor",
       ORDER BY t.requested_date ASC, t.requested_time ASC, t.created_at DESC`, [from, to]);
     res.json({ data: result.rows });
   } catch (error) { console.error("Appointments query failed", error); res.status(500).json({ error: "No se pudieron cargar las citas" }); }
+});
+
+app.post("/api/admin/appointments", authenticate, requireRoles("admin", "editor", "seller"), async (req, res) => {
+  const leadId = String(req.body.leadId || "").trim();
+  const date = String(req.body.date || "").trim();
+  const time = String(req.body.time || "").trim();
+  const notes = String(req.body.notes || "").trim() || null;
+  if (!leadId || !isIsoDate(date) || timeToMinutes(time) === null) return res.status(400).json({ error: "Interesado, fecha y horario son obligatorios" });
+  try {
+    const availability = await appointmentAvailability(date);
+    const slot = availability.slots.find((item) => item.time === time);
+    if (!slot || !slot.available) return res.status(409).json({ error: "Ese horario no está disponible. Selecciona otro." });
+    const client = await pool.connect();
+    let appointment;
+    try {
+      await client.query("BEGIN");
+      const leadResult = await client.query(
+        `SELECT l.id, l.vehicle_id AS "vehicleId", l.name, l.email, l.phone, l.assigned_to AS "assignedTo"
+         FROM leads l WHERE l.id=$1 FOR UPDATE`,
+        [leadId],
+      );
+      if (!leadResult.rowCount) { await client.query("ROLLBACK"); return res.status(404).json({ error: "Interesado no encontrado" }); }
+      const lead = leadResult.rows[0];
+      if (!lead.vehicleId) { await client.query("ROLLBACK"); return res.status(400).json({ error: "Este interesado no tiene un vehículo asociado" }); }
+      const settings = await client.query("SELECT appointment_capacity AS capacity FROM business_settings WHERE id=1 FOR UPDATE");
+      const capacity = Number(settings.rows[0]?.capacity || 1);
+      const booked = await client.query("SELECT COUNT(*)::int AS count FROM test_drive_requests WHERE requested_date=$1::date AND requested_time=$2::time AND status IN ('pending','confirmed')", [date, time]);
+      if (Number(booked.rows[0].count) >= capacity) { await client.query("ROLLBACK"); return res.status(409).json({ error: "Ese horario acaba de completarse. Selecciona otro." }); }
+      const result = await client.query(
+        `INSERT INTO test_drive_requests (vehicle_id, lead_id, customer_name, customer_email, customer_phone, requested_date, requested_time, status, notes, assigned_to)
+         VALUES ($1,$2,$3,$4,$5,$6::date,$7::time,'confirmed',$8,$9)
+         RETURNING id, vehicle_id AS "vehicleId", lead_id AS "leadId", requested_date AS "date", requested_time AS "time", status, notes, created_at AS "createdAt"`,
+        [lead.vehicleId, lead.id, lead.name, lead.email, lead.phone, date, time, notes, lead.assignedTo || req.admin.id],
+      );
+      appointment = result.rows[0];
+      await client.query("INSERT INTO lead_events (lead_id, actor_id, event_type, note) VALUES ($1,$2,'appointment_created',$3)", [lead.id, req.admin.id, `Cita confirmada para ${date} a las ${time}`]);
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally { client.release(); }
+    await notifyAdmins({ type: "appointment", title: "Cita agregada desde un interesado", body: `Se agendó una cita para ${date} a las ${time}.`, entityType: "appointment", entityId: appointment.id });
+    res.status(201).json({ data: appointment });
+  } catch (error) {
+    console.error("Admin appointment creation failed", error);
+    res.status(500).json({ error: "No se pudo crear la cita" });
+  }
 });
 
 app.patch("/api/admin/appointments/:id", authenticate, requireRoles("admin", "editor", "seller"), async (req, res) => {

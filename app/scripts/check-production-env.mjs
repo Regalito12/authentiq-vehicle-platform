@@ -1,8 +1,8 @@
-const apiUrl = String(process.env.VITE_API_URL || "").trim();
+﻿const apiUrl = String(process.env.VITE_API_URL || "").trim();
 
 if (!apiUrl) {
-  console.error("PRODUCTION ENV FAIL · falta VITE_API_URL");
-  process.exit(1);
+  console.log("PRODUCTION ENV PASS · API same-origin (Render sirve frontend y API desde el mismo servicio)");
+  process.exit(0);
 }
 
 if (!/^https:\/\//i.test(apiUrl) || /https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?(?:\/|$)/i.test(apiUrl)) {

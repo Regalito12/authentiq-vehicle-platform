@@ -414,6 +414,8 @@ html[data-theme="dark"] .admin-nav { background: #111315; }
 .lead-history { display: grid; gap: 8px; margin-top: 10px; }
 .lead-appointment-badge { width: fit-content; padding: 6px 8px; border-left: 2px solid var(--auth-gold); background: color-mix(in srgb, var(--auth-gold) 12%, transparent); color: var(--auth-deep); font: 500 10px "IBM Plex Mono", monospace; letter-spacing: .03em; }
 .lead-history-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.appointment-inline-action { color: var(--auth-deep); }
+.appointment-admin-modal { max-width: 560px; }
 .copy-action { padding: 5px 7px; border: 1px solid #d9d3c8; background: transparent; color: #8a6a22; font: 500 10px "IBM Plex Mono", monospace; text-transform: uppercase; transition: border-color .16s ease, color .16s ease, transform .16s ease; }
 .copy-action:hover { border-color: #c8a24b; color: #a33b2b; transform: translateY(-1px); }
 .lead-events { display: grid; gap: 8px; padding: 10px 12px; border: 1px solid #d9d3c8; background: #fff; }
@@ -1701,6 +1703,7 @@ html[data-theme="dark"] .password-reset-result p { color: #9da39f; }
 .financing-result { display: grid; gap: 5px; grid-column: 1 / -1; padding-top: 13px; border-top: 1px solid #d1ccc1; }
 .financing-result span, .financing-result small { color: #68635d; font-size: 11px; }
 .financing-result strong { color: #151515; font: 500 clamp(25px, 4vw, 38px) "IBM Plex Mono", monospace; letter-spacing: -.06em; }
+.financing-result.is-empty p { color: #8a6a22; font: 500 12px "IBM Plex Mono", monospace; }
 html[data-theme="dark"] .filters-heading strong, html[data-theme="dark"] .model-line-copy strong, html[data-theme="dark"] .financing-result strong { color: #f3f0e9; }
 html[data-theme="dark"] .filters { border-color: #3b3933; background: #1c1b18; }
 html[data-theme="dark"] .filters input, html[data-theme="dark"] .filters select, html[data-theme="dark"] .financing-controls input[type="number"] { border-color: #48453c; background: #24221e; color: #f3f0e9; }
@@ -2132,4 +2135,22 @@ html[data-theme="dark"] .chart-panel, html[data-theme="dark"] .activity-panel, h
   :where(.vehicle-card, .intent-option, .brand-rail-item, .compare-vehicle-card, .detail-gallery-panel, .detail-gallery-editorial, .detail-decision-summary-grid article):hover { transform: none; }
   .detail-gallery-panel:hover::after { animation: none; }
   .animated-metric { animation: none; }
+}
+
+/* Ficha: contexto persistente y acciones comerciales accesibles en móvil. */
+.detail-topbar { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 18px; }
+.detail-topbar .back-button { margin: 0; }
+.detail-topbar-context { color: var(--auth-muted); font: 10px "IBM Plex Mono", monospace; letter-spacing: .08em; text-transform: uppercase; }
+.detail-topbar-link { color: var(--auth-gold); font: 500 10px "IBM Plex Mono", monospace; letter-spacing: .06em; text-decoration: none; text-transform: uppercase; }
+.detail-topbar-link:hover, .detail-topbar-link:focus-visible { color: var(--auth-ink); }
+.detail-mobile-actions { display: none; }
+@media (max-width: 620px) {
+  .detail-topbar { align-items: flex-start; flex-wrap: wrap; gap: 8px 14px; margin-bottom: 14px; }
+  .detail-topbar-context { order: 3; width: 100%; }
+  .detail-mobile-actions { position: fixed; right: 10px; bottom: 10px; left: 10px; z-index: 30; display: grid; grid-template-columns: 1.25fr 1fr .72fr; gap: 6px; padding: 7px; border: 1px solid var(--auth-gold); background: rgba(16,18,19,.96); box-shadow: 0 12px 30px rgba(0,0,0,.28); backdrop-filter: blur(14px); }
+  .detail-mobile-actions button, .detail-mobile-whatsapp { min-width: 0; min-height: 44px; padding: 0 8px; font: 500 10px "IBM Plex Mono", monospace; letter-spacing: .03em; text-align: center; text-transform: uppercase; }
+  .detail-mobile-whatsapp { display: inline-flex; align-items: center; justify-content: center; border: 1px solid #3b4243; color: #f2efe9; text-decoration: none; }
+  .detail-mobile-whatsapp:hover, .detail-mobile-whatsapp:focus-visible { border-color: var(--auth-gold); color: var(--auth-gold); }
+  .detail-decision-bar { display: none; }
+  .detail-page { padding-bottom: 86px; }
 }

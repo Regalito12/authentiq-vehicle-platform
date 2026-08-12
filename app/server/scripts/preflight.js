@@ -15,7 +15,7 @@ if (process.env.NODE_ENV === "production" && String(process.env.JWT_SECRET || ""
 }
 
 if (process.env.NODE_ENV === "production") {
-  const publicSettings = ["FRONTEND_ORIGIN", "PUBLIC_API_URL", "PUBLIC_SITE_URL", "UPLOADS_DIR"];
+  const publicSettings = ["FRONTEND_ORIGIN", "PUBLIC_API_URL", "PUBLIC_SITE_URL", "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_STORAGE_BUCKET"];
   const missingPublicSettings = publicSettings.filter((key) => !String(process.env[key] || "").trim());
   if (missingPublicSettings.length) {
     console.error(`PREFLIGHT FAIL · faltan variables de producción: ${missingPublicSettings.join(", ")}`);
@@ -33,7 +33,7 @@ if (process.env.NODE_ENV === "production") {
 try {
   const response = await fetch(`${baseUrl}/api/health`);
   const payload = await response.json();
-  const healthy = response.ok && payload.ok === true && payload.database === "connected" && payload.storage === "available";
+  const healthy = response.ok && payload.ok === true && payload.database === "connected" && ["available", "supabase"].includes(payload.storage);
   if (!healthy) {
     console.error("PREFLIGHT FAIL · el API no está listo", JSON.stringify(payload));
     process.exit(1);
