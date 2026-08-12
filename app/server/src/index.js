@@ -247,7 +247,16 @@ async function removeSupabaseObject(objectPath) {
   await fetch(endpoint, { method: "DELETE", headers: { Authorization: `Bearer ${supabaseServiceRoleKey}`, apikey: supabaseServiceRoleKey } }).catch(() => {});
 }
 
-app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  contentSecurityPolicy: {
+    directives: {
+      "img-src": ["'self'", "data:", "blob:", "https:"],
+      "connect-src": ["'self'", "https:"],
+      "media-src": ["'self'", "blob:", "https:"],
+    },
+  },
+}));
 app.use(cors({ origin: process.env.FRONTEND_ORIGIN ? process.env.FRONTEND_ORIGIN.split(",").map((value) => value.trim()) : true }));
 app.use(express.json({ limit: "1mb" }));
 app.use("/uploads", express.static(uploadsDir, {
