@@ -251,6 +251,10 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" },
   contentSecurityPolicy: {
     directives: {
+      // model-viewer usa WebAssembly para decodificar algunos modelos; esto
+      // permite wasm sin abrir la puerta general de unsafe-eval.
+      "script-src": ["'self'", "'wasm-unsafe-eval'"],
+      "worker-src": ["'self'", "blob:"],
       "img-src": ["'self'", "data:", "blob:", "https:"],
       "connect-src": ["'self'", "https:"],
       "media-src": ["'self'", "blob:", "https:"],

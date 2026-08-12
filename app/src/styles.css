@@ -16,17 +16,26 @@ button { cursor: pointer; }
 .presentation-page { min-height: 100vh; padding: 28px 48px 70px; background: #111315; color: #f2efe9; }
 .presentation-header { display: flex; align-items: center; gap: 24px; border-bottom: 1px solid #303538; padding-bottom: 22px; }
 .presentation-mode-label { color: #9da39f; font: 10px "IBM Plex Mono", monospace; letter-spacing: .1em; }
+.presentation-header .brand-mark { display: inline-flex; align-items: center; gap: 2px; }
+.presentation-header .brand-mark img { width: auto; max-width: 150px; max-height: 28px; object-fit: contain; }
+.presentation-header-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.presentation-control { border: 0; padding: 10px 12px; background: transparent; color: #9da39f; font: 500 10px "IBM Plex Mono", monospace; letter-spacing: .07em; text-transform: uppercase; cursor: pointer; }
+.presentation-control:hover { color: #c8a24b; }
 .presentation-exit { margin-left: auto; border: 1px solid #596164; padding: 9px 12px; background: transparent; color: #e3e0d8; font: 500 10px "IBM Plex Mono", monospace; letter-spacing: .07em; text-transform: uppercase; cursor: pointer; transition: border-color .18s ease, color .18s ease; }
+.presentation-header-actions .presentation-exit { margin-left: 0; }
 .presentation-exit:hover { border-color: #c8a24b; color: #c8a24b; }
 .presentation-intro { display: flex; justify-content: space-between; gap: 40px; max-width: 1440px; margin: 0 auto; padding: 82px 0 44px; }
 .presentation-intro h1 { max-width: 760px; margin: 18px 0 18px; font-size: clamp(48px, 7vw, 104px); font-weight: 300; letter-spacing: -.06em; line-height: .9; }
 .presentation-intro p { max-width: 440px; color: #a9ada9; font-size: 16px; line-height: 1.5; }
+.presentation-story { display: flex; flex-wrap: wrap; gap: 18px; margin-top: 28px; color: #9da39f; font: 10px "IBM Plex Mono", monospace; letter-spacing: .06em; text-transform: uppercase; }
+.presentation-story span { display: inline-flex; align-items: center; gap: 8px; }
+.presentation-story b { color: #c8a24b; font-weight: 400; }
 .presentation-metrics { display: flex; align-items: end; gap: 24px; padding-bottom: 8px; color: #9da39f; font: 10px "IBM Plex Mono", monospace; letter-spacing: .06em; text-transform: uppercase; }
 .presentation-metrics span { display: grid; gap: 8px; white-space: nowrap; }
 .presentation-metrics strong { color: #c8a24b; font-size: 19px; font-weight: 400; }
 .presentation-stage { position: relative; max-width: 1440px; min-height: 540px; margin: 0 auto; overflow: hidden; border: 1px solid #303538; background: #181b1d; }
 .presentation-stage > img, .presentation-stage-overlay { position: absolute; inset: 0; width: 100%; height: 100%; }
-.presentation-stage > img { object-fit: cover; filter: saturate(.8) contrast(1.1); animation: hero-drift 16s ease-out both; }
+.presentation-stage > img { object-fit: cover; filter: saturate(.8) contrast(1.1); animation: presentation-image-in .8s var(--ease-out-quint) both, hero-drift 16s ease-out both; }
 .presentation-stage-overlay { background: linear-gradient(90deg, rgba(10,10,10,.88), rgba(10,10,10,.18) 68%), linear-gradient(0deg, rgba(10,10,10,.7), transparent 55%); }
 .presentation-stage-copy { position: absolute; z-index: 1; left: 48px; bottom: 48px; display: grid; gap: 13px; max-width: 560px; }
 .presentation-stage-copy h2 { margin: 0; font-size: clamp(42px, 7vw, 92px); font-weight: 300; letter-spacing: -.06em; line-height: .88; }
@@ -34,6 +43,8 @@ button { cursor: pointer; }
 .presentation-stage-copy > strong { color: #f2efe9; font-size: 23px; font-weight: 400; }
 .presentation-stage-copy .primary-action { width: fit-content; margin-top: 8px; }
 .presentation-stage-index { position: absolute; z-index: 1; top: 24px; right: 28px; color: #c8a24b; font: 11px "IBM Plex Mono", monospace; letter-spacing: .12em; }
+.presentation-stage-progress { position: absolute; z-index: 2; right: 28px; bottom: 28px; width: min(220px, 28%); height: 2px; background: rgba(242,239,233,.28); }
+.presentation-stage-progress::before { display: block; width: var(--presentation-progress); height: 100%; background: #c8a24b; content: ""; transition: width .5s var(--ease-out-quint); }
 .presentation-rail { max-width: 1440px; margin: 0 auto; padding-top: 24px; }
 .presentation-rail-head { display: flex; justify-content: space-between; gap: 20px; padding-bottom: 14px; color: #9da39f; font: 10px "IBM Plex Mono", monospace; }
 .presentation-vehicle-list { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
@@ -43,6 +54,7 @@ button { cursor: pointer; }
 .presentation-vehicle strong { color: #f2efe9; font-size: 13px; font-weight: 500; }
 .presentation-vehicle small { grid-column: 2; color: #9da39f; font: 10px "IBM Plex Mono", monospace; }
 .presentation-empty { display: grid; place-items: center; min-height: 70vh; }
+@keyframes presentation-image-in { from { opacity: .2; transform: scale(1.035); } to { opacity: 1; transform: scale(1); } }
 .hero { min-height: clamp(850px, 84vh, 980px); position: relative; overflow: hidden; color: #faf8f5; isolation: isolate; }
 .hero-background, .hero-overlay { position: absolute; inset: 0; width: 100%; height: 100%; }
 .hero-background { object-fit: cover; filter: saturate(.78) contrast(1.08); transform: scale(1.02); animation: hero-drift 16s ease-out both; z-index: -2; }
@@ -60,6 +72,10 @@ button { cursor: pointer; }
 em { color: #c8a24b; font-style: italic; }
 .hero p { max-width: 390px; color: rgba(250,248,245,.82); font-size: 17px; line-height: 1.5; }
 .hero-link { display: inline-flex; align-items: center; margin-top: 28px; min-height: 44px; color: #faf8f5; font: 500 11px "IBM Plex Mono", monospace; letter-spacing: .1em; text-transform: uppercase; text-decoration: none; border-bottom: 1px solid #c8a24b; }
+.hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 18px; margin-top: 28px; }
+.hero-actions .hero-link { margin-top: 0; }
+.hero-secondary-action { border-bottom-color: rgba(250,248,245,.55); color: rgba(250,248,245,.86); }
+.hero-secondary-action:hover { border-bottom-color: #c8a24b; color: #c8a24b; }
 .hero-primary-action { border-color: #c8a24b; background: #c8a24b; color: #0a0a0a; }
 .hero-primary-action:hover { color: #0a0a0a; border-color: #f0cc73; background: #f0cc73; }
 .catalog { padding: 86px 48px 110px; max-width: 1440px; margin: 0 auto; }
@@ -629,7 +645,7 @@ html[data-theme="dark"] .lead-pipeline-card select { background: #111315; color:
 @media (max-width: 620px) { .admin-title-row { align-items: flex-start; flex-direction: column; gap: 8px; } .admin-toast { right: 16px; bottom: 16px; left: 16px; max-width: none; } }
 @media (max-width: 620px) { .skeleton-grid { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 620px) { .lead-control-room > .panel-heading { display: block; } .lead-view-switcher { margin-top: 16px; } .lead-pipeline { grid-template-columns: repeat(5, minmax(178px, 1fr)); } }
-@media (max-width: 760px) { .presentation-page { padding: 20px 18px 46px; } .presentation-header { flex-wrap: wrap; } .presentation-mode-label { order: 3; width: 100%; } .presentation-intro { display: block; padding-top: 55px; } .presentation-metrics { margin-top: 28px; } .presentation-stage { min-height: 520px; } .presentation-stage-copy { left: 24px; right: 20px; bottom: 28px; } .presentation-rail-head { display: block; } .presentation-rail-head > span:last-child { display: block; margin-top: 8px; } .presentation-vehicle-list { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 760px) { .presentation-page { padding: 20px 18px 46px; } .presentation-header { flex-wrap: wrap; } .presentation-mode-label { order: 3; width: 100%; } .presentation-header-actions { margin-left: auto; } .presentation-intro { display: block; padding-top: 55px; } .presentation-metrics { margin-top: 28px; } .presentation-stage { min-height: 520px; } .presentation-stage-copy { left: 24px; right: 20px; bottom: 28px; } .presentation-stage-progress { right: 24px; bottom: 20px; width: 36%; } .presentation-rail-head { display: block; } .presentation-rail-head > span:last-child { display: block; margin-top: 8px; } .presentation-vehicle-list { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 480px) { .presentation-vehicle-list { grid-template-columns: 1fr; } .presentation-metrics { gap: 14px; } .presentation-metrics span { white-space: normal; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; } }
 

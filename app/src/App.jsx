@@ -1079,14 +1079,62 @@ function ShowroomNav({ theme, setTheme, customer, onAccount, onBackoffice, busin
   return <nav className={`top-nav showroom-nav ${scrolled ? "is-scrolled" : ""}`} aria-label="Navegación principal"><a className="brand-mark showroom-nav-brand" href="#top" onClick={closeMenu}>{logoUrl ? <img src={logoUrl} alt={businessName} /> : businessName}<span>°</span></a><div className={`showroom-nav-links ${menuOpen ? "is-open" : ""}`}>{links.map(([icon, label, href]) => <a key={href} href={href} onClick={closeMenu}><NavIcon name={icon} /><span>{label}</span></a>)}<button className="nav-admin-link" type="button" onClick={() => { setTheme((current) => current === "dark" ? "light" : "dark"); closeMenu(); }}>{theme === "dark" ? "CLARO" : "OSCURO"}</button><button className="nav-admin-link account-launch" type="button" onClick={() => { onAccount(); closeMenu(); }}>{customer ? `CUENTA · ${customer.name.split(" ")[0].toUpperCase()}` : "MI CUENTA"}</button><button className="nav-admin-link nav-backoffice-link" type="button" onClick={() => { onBackoffice(); closeMenu(); }}>BACKOFFICE →</button></div><button className="showroom-nav-toggle" type="button" aria-label={menuOpen ? "Cerrar menú" : "Abrir menú"} aria-expanded={menuOpen} onClick={() => setMenuOpen((current) => !current)}><NavIcon name={menuOpen ? "explore" : "menu"} /></button></nav>;
 }
 
-function PresentationMode({ vehicles, loading, onExit, onOpenVehicle }) {
+function PresentationMode({ vehicles, loading, onExit, onOpenVehicle, businessName = "AUTHENTIQ", logoUrl = "" }) {
   const [activeIndex, setActiveIndex] = useState(0);
+  const [paused, setPaused] = useState(false);
+  const reduceMotion = useReducedMotion();
   const featured = vehicles.filter((vehicle) => vehicle.status === "published");
   const active = featured[activeIndex] || featured[0];
-  if (loading) return <main className="presentation-page"><p className="state-message">Cargando seleccion...</p></main>;
-  if (!active) return <main className="presentation-page"><button className="presentation-exit" onClick={onExit}>Salir</button><section className="presentation-empty"><span className="eyebrow">AUTHENTIQ · PRESENTACION</span><h1>No hay vehiculos publicados.</h1></section></main>;
-  const image = active.images?.[0]?.url || "/assets/taycan-turbo-s-2.webp";
-  return <main className="presentation-page"><header className="presentation-header"><span className="brand-mark">AUTHENTIQ</span><span className="presentation-mode-label">SHOWROOM · PRESENTATION MODE</span><button className="presentation-exit" onClick={onExit}>Salir de presentacion</button></header><section className="presentation-intro"><div><span className="eyebrow">SELECCION PRIVADA · {String(featured.length).padStart(2, "0")} MODELOS</span><h1>Una seleccion que se explica sola.</h1><p>Vehiculos verificados, informacion clara y una experiencia pensada para decidir con confianza.</p></div><div className="presentation-metrics"><span><strong>100%</strong> inventario verificado</span><span><strong>1:1</strong> atencion privada</span></div></section><section className="presentation-stage"><img src={image} alt={`${active.brand} ${active.model}`} /><div className="presentation-stage-overlay" /><div className="presentation-stage-copy"><span className="eyebrow">{active.brand} · {active.year}</span><h2>{active.model}</h2><p>{active.power || "Alto rendimiento"} · {active.transmission || "Especificacion premium"}</p><strong>{formatPrice(active.priceUsd)}</strong><button className="primary-action" onClick={() => onOpenVehicle(active)}>Explorar ficha →</button></div><div className="presentation-stage-index">{String(activeIndex + 1).padStart(2, "0")} / {String(featured.length).padStart(2, "0")}</div></section><section className="presentation-rail"><div className="presentation-rail-head"><span className="eyebrow">CATALOGO DESTACADO</span><span>Selecciona un modelo para cambiar la escena</span></div><div className="presentation-vehicle-list">{featured.map((vehicle, index) => <button className={index === activeIndex ? "presentation-vehicle active" : "presentation-vehicle"} key={vehicle.id} onClick={() => setActiveIndex(index)}><span>{String(index + 1).padStart(2, "0")}</span><strong>{vehicle.brand} {vehicle.model}</strong><small>{formatPrice(vehicle.priceUsd)}</small></button>)}</div></section></main>;
+  const model3dCount = featured.filter((vehicle) => vehicle.media?.some((item) => item.type === "model_3d")).length;
+
+  useEffect(() => {
+    if (reduceMotion || paused || featured.length < 2) return undefined;
+    const timer = window.setInterval(() => setActiveIndex((current) => (current + 1) % featured.length), 6500);
+    return () => window.clearInterval(timer);
+  }, [featured.length, paused, reduceMotion]);
+
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") onExit();
+      if (event.key === "ArrowRight") { setPaused(true); setActiveIndex((current) => (current + 1) % Math.max(featured.length, 1)); }
+      if (event.key === "ArrowLeft") { setPaused(true); setActiveIndex((current) => (current - 1 + Math.max(featured.length, 1)) % Math.max(featured.length, 1)); }
+      if (event.key === " ") { event.preventDefault(); setPaused((current) => !current); }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [featured.length, onExit]);
+
+  const selectModel = (index) => { setPaused(true); setActiveIndex(index); };
+  if (loading) return <main className="presentation-page"><p className="state-message">Cargando selección...</p></main>;
+  if (!active) return <main className="presentation-page"><button className="presentation-exit" type="button" onClick={onExit}>Salir</button><section className="presentation-empty"><span className="eyebrow">{businessName} · PRESENTACIÓN</span><h1>No hay vehículos publicados.</h1></section></main>;
+  const image = publicMediaUrl(active.images?.[0]?.url) || "/assets/taycan-turbo-s-2.webp";
+  return <main className="presentation-page">
+    <header className="presentation-header">
+      <span className="brand-mark">{logoUrl ? <img src={logoUrl} alt={businessName} /> : businessName}<span>°</span></span>
+      <span className="presentation-mode-label">SHOWROOM · DEMO GUIADA</span>
+      <div className="presentation-header-actions">
+        <button className="presentation-control" type="button" onClick={() => setPaused((current) => !current)}>{paused ? "Reanudar" : "Pausar"}</button>
+        <button className="presentation-exit" type="button" onClick={onExit}>Abrir catálogo</button>
+      </div>
+    </header>
+    <section className="presentation-intro">
+      <div>
+        <span className="eyebrow">{businessName} · EXPERIENCIA COMERCIAL</span>
+        <h1>Una selección que se explica sola.</h1>
+        <p>Descubre cómo un concesionario puede presentar inventario, orientar la decisión y convertir interés en una conversación.</p>
+        <div className="presentation-story" aria-label="Recorrido de la experiencia"><span><b>01</b> Descubre</span><span><b>02</b> Compara</span><span><b>03</b> Decide</span></div>
+      </div>
+      <div className="presentation-metrics"><span><strong>{featured.length}</strong> modelos publicados</span><span><strong>{model3dCount || "—"}</strong> experiencias 3D</span><span><strong>1:1</strong> atención privada</span></div>
+    </section>
+    <section className="presentation-stage" aria-label={`Vehículo destacado ${active.brand} ${active.model}`} onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)}>
+      <img key={active.id} src={image} alt={`${active.brand} ${active.model}`} />
+      <div className="presentation-stage-overlay" />
+      <div className="presentation-stage-copy"><span className="eyebrow">{active.brand} · {active.year}</span><h2>{active.model}</h2><p>{active.power || "Alto rendimiento"} · {active.transmission || "Especificación premium"}</p><strong>{formatPrice(active.priceUsd)}</strong><button className="primary-action" type="button" onClick={() => onOpenVehicle(active)}>Explorar ficha →</button></div>
+      <div className="presentation-stage-index">{String(activeIndex + 1).padStart(2, "0")} / {String(featured.length).padStart(2, "0")}</div>
+      <div className="presentation-stage-progress" style={{ "--presentation-progress": `${((activeIndex + 1) / featured.length) * 100}%` }} />
+    </section>
+    <section className="presentation-rail"><div className="presentation-rail-head"><span className="eyebrow">CATÁLOGO DESTACADO</span><span>{paused ? "Pausado · usa ← → o selecciona un modelo" : "La selección avanza sola · mueve el cursor para explorar"}</span></div><div className="presentation-vehicle-list">{featured.map((vehicle, index) => <button className={index === activeIndex ? "presentation-vehicle active" : "presentation-vehicle"} type="button" key={vehicle.id} onClick={() => selectModel(index)}><span>{String(index + 1).padStart(2, "0")}</span><strong>{vehicle.brand} {vehicle.model}</strong><small>{formatPrice(vehicle.priceUsd)}</small></button>)}</div></section>
+  </main>;
 }
 
 export default function App() {
@@ -1308,7 +1356,7 @@ export default function App() {
   };
 
   if (screen === "admin") return <Suspense fallback={<main className="admin-page"><p className="state-message">Cargando backoffice…</p></main>}><Backoffice onBack={() => { setScreen("catalog"); refreshVehicles(); }} onVehiclesChanged={syncCatalogVehicle} /></Suspense>;
-  if (pathname === "/presentacion") return <PresentationMode vehicles={vehicles} loading={loading} onExit={() => navigate("/")} onOpenVehicle={(vehicle) => navigate(vehiclePath(vehicle))} />;
+  if (pathname === "/presentacion") return <PresentationMode vehicles={vehicles} loading={loading} businessName={businessSettings.businessName} logoUrl={businessSettings.logoUrl} onExit={() => navigate("/")} onOpenVehicle={(vehicle) => navigate(vehiclePath(vehicle))} />;
   if (pathname.startsWith("/cotizaciones/") && pathname.slice("/cotizaciones/".length)) return <PublicQuotePage token={pathname.slice("/cotizaciones/".length)} />;
   if (pathname === "/preview") return previewVehicle ? <VehicleDetail vehicle={{ ...previewVehicle, status: "draft" }} onBack={() => navigate("/")} /> : <main className="article-page"><button className="back-button" onClick={() => navigate("/")}>← Volver al catálogo</button><section className="article-empty"><span className="eyebrow">AUTHENTIQ · PREVIEW</span><h1>No hay una ficha para previsualizar.</h1><p>Regresa al backoffice, completa el formulario y vuelve a abrir la vista previa.</p></section></main>;
   if (pathname.startsWith("/blog/")) return <BlogArticle slug={pathname.slice("/blog/".length)} onBack={() => navigate("/")} />;
@@ -1328,7 +1376,7 @@ export default function App() {
           <span className="eyebrow">{getBrandName()} / CURATED MOTION</span>
           <h1>Elige lo que <em>te mueve.</em></h1>
           <p>Vehículos con carácter, información clara y una atención diseñada alrededor de tu próxima historia.</p>
-          <a href="#catalog" className="hero-link primary-action hero-primary-action">Explorar inventario ↓</a>
+          <div className="hero-actions"><a href="#catalog" className="hero-link primary-action hero-primary-action">Explorar inventario ↓</a><a href="/presentacion" className="hero-link hero-secondary-action">Ver presentación →</a></div>
         </div>
         <div className="hero-proof" aria-label={`Pilares de ${getBrandName()}`}><span><strong><AnimatedMetric value={1} suffix="" /></strong> selección con criterio</span><span><strong><AnimatedMetric value={100} suffix="%" /></strong> inventario verificado</span><span><strong><AnimatedMetric value={1} suffix=":1" /></strong> atención privada</span></div>
         <a className="hero-scroll-cue" href="#catalog" aria-label="Bajar al catalogo"><span /> SCROLL</a>
