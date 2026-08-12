@@ -591,7 +591,7 @@ const CATALOG_SAFETY_LIMIT = 500;
 
 async function listVehicles(includeInactive = false) {
   const statusClause = includeInactive ? "" : "WHERE v.status IN ('published', 'reserved')";
-  const result = await pool.query(`${vehicleSelect} ${statusClause} GROUP BY v.id, b.name, c.name ORDER BY v.created_at DESC LIMIT ${CATALOG_SAFETY_LIMIT}`);
+  const result = await pool.query(`${vehicleSelect} ${statusClause} GROUP BY v.id, b.name, b.logo_url, c.name ORDER BY v.created_at DESC LIMIT ${CATALOG_SAFETY_LIMIT}`);
   return result.rows;
 }
 
