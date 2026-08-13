@@ -26,10 +26,17 @@ if (process.env.NODE_ENV === "production" && !process.env.JWT_SECRET) throw new 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const uploadsDir = path.resolve(serverDir, process.env.UPLOADS_DIR || "../uploads");
 const publicApiUrl = String(process.env.PUBLIC_API_URL || "").replace(/\/+$/, "");
+const publicSiteUrl = String(process.env.PUBLIC_SITE_URL || "").replace(/\/+$/, "");
+const frontendOrigin = String(process.env.FRONTEND_ORIGIN || "").trim();
 const supabaseUrl = String(process.env.SUPABASE_URL || "").replace(/\/+$/, "");
 const supabaseServiceRoleKey = String(process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
 const supabaseStorageBucket = String(process.env.SUPABASE_STORAGE_BUCKET || "vehicle-media").trim();
 const remoteStorageEnabled = Boolean(supabaseUrl && supabaseServiceRoleKey && supabaseStorageBucket);
+if (process.env.NODE_ENV === "production") {
+  if (jwtSecret.length < 32) throw new Error("JWT_SECRET debe tener al menos 32 caracteres en producción");
+  if (!publicApiUrl || !publicSiteUrl || !frontendOrigin || /localhost|127\.0\.0\.1/i.test(`${publicApiUrl} ${publicSiteUrl} ${frontendOrigin}`)) throw new Error("PUBLIC_API_URL, PUBLIC_SITE_URL y FRONTEND_ORIGIN deben apuntar al dominio de producción");
+  if (!remoteStorageEnabled) throw new Error("Supabase Storage es obligatorio en producción; no se permite almacenamiento temporal");
+}
 app.set("trust proxy", 1);
 await fs.mkdir(uploadsDir, { recursive: true });
 
@@ -119,7 +126,7 @@ async function collectReferencedUploads() {
     pool.query("SELECT image_url FROM vehicle_images"),
     pool.query("SELECT url, poster_url FROM vehicle_media"),
     pool.query("SELECT cover_image_url FROM blog_posts WHERE cover_image_url IS NOT NULL"),
-    pool.query("SELECT logo_url FROM business_settings WHERE logo_url IS NOT NULL"),
+    pool.query("SELECT logo_url FROM organization_settings WHERE logo_url IS NOT NULL"),
   ]);
   images.rows.forEach((row) => add(row.image_url));
   media.rows.forEach((row) => { add(row.url); add(row.poster_url); });
@@ -261,7 +268,7 @@ app.use(helmet({
     },
   },
 }));
-app.use(cors({ origin: process.env.FRONTEND_ORIGIN ? process.env.FRONTEND_ORIGIN.split(",").map((value) => value.trim()) : true }));
+app.use(cors({ origin: frontendOrigin ? frontendOrigin.split(",").map((value) => value.trim()) : true, credentials: true }));
 app.use(express.json({ limit: "1mb" }));
 app.use("/uploads", express.static(uploadsDir, {
   maxAge: "1y",
@@ -356,13 +363,65 @@ const vehicleSelect = `
 // aunque el token sea válido, para que un reseteo no deje una sesión operando con
 // una contraseña que el titular de la cuenta nunca eligió.
 const PASSWORD_CHANGE_PATH = "/api/auth/change-password";
+const ADMIN_SESSION_COOKIE = "authentiq_admin_session";
+const CUSTOMER_SESSION_COOKIE = "authentiq_customer_session";
+const DEFAULT_ORGANIZATION_SLUG = String(process.env.DEFAULT_ORGANIZATION_SLUG || "authentiq").trim().toLowerCase();
 
-function authenticate(req, res, next) {
+function readCookie(req, name) {
+  const cookies = String(req.headers.cookie || "").split(";").map((item) => item.trim().split("="));
+  const match = cookies.find(([key]) => key === name);
+  if (!match) return "";
+  try { return decodeURIComponent(match.slice(1).join("=")); } catch { return ""; }
+}
+
+function setSessionCookie(res, name, token, maxAge) {
+  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
+  res.setHeader("Set-Cookie", `${name}=${encodeURIComponent(token)}; Max-Age=${maxAge}; Path=/; HttpOnly; SameSite=Lax${secure}`);
+}
+
+function clearSessionCookie(res, name) {
+  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
+  res.setHeader("Set-Cookie", `${name}=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax${secure}`);
+}
+
+function requestHostname(req) {
+  return String(req.headers["x-forwarded-host"] || req.headers.host || "").split(",")[0].trim().split(":")[0].toLowerCase();
+}
+
+async function getOrganizationContext(req) {
+  if (req.organizationContext) return req.organizationContext;
+  const hostname = requestHostname(req);
+  const localSlug = /\.(?:localhost|test)$/.test(hostname) ? hostname.split(".")[0] : null;
+  const result = await pool.query(
+    `SELECT id, slug, name, logo_url AS "logoUrl", custom_domain AS "customDomain", is_active AS "isActive"
+     FROM organizations
+     WHERE is_active = TRUE AND (LOWER(custom_domain) = $1 OR slug = COALESCE($2, $3))
+     ORDER BY CASE WHEN LOWER(custom_domain) = $1 THEN 0 ELSE 1 END
+     LIMIT 1`,
+    [hostname, localSlug, DEFAULT_ORGANIZATION_SLUG],
+  );
+  if (!result.rowCount) {
+    const error = new Error("Organización no encontrada");
+    error.code = "ORGANIZATION_NOT_FOUND";
+    throw error;
+  }
+  req.organizationContext = result.rows[0];
+  return req.organizationContext;
+}
+
+function adminOrganizationId(req) {
+  return req.admin?.organizationId || req.organizationContext?.id || null;
+}
+
+async function authenticate(req, res, next) {
   const header = req.headers.authorization || "";
-  const token = header.startsWith("Bearer ") ? header.slice(7) : null;
+  const token = header.startsWith("Bearer ") ? header.slice(7) : readCookie(req, ADMIN_SESSION_COOKIE);
   if (!token) return res.status(401).json({ error: "Autenticación requerida" });
   try {
     req.admin = jwt.verify(token, jwtSecret);
+    const organization = await pool.query("SELECT organization_id AS \"organizationId\", is_active AS \"isActive\" FROM admin_users WHERE id=$1", [req.admin.id]);
+    if (!organization.rowCount || !organization.rows[0].isActive || !organization.rows[0].organizationId) return res.status(403).json({ error: "La cuenta no tiene una organización activa asignada" });
+    req.admin.organizationId = organization.rows[0].organizationId;
     if (req.admin.mustChangePassword && req.path !== PASSWORD_CHANGE_PATH) {
       return res.status(403).json({ error: "Debes definir una nueva contraseña antes de continuar", code: "MUST_CHANGE_PASSWORD" });
     }
@@ -378,7 +437,7 @@ function requireRoles(...roles) {
 
 function authenticateCustomer(req, res, next) {
   const header = req.headers.authorization || "";
-  const token = header.startsWith("Bearer ") ? header.slice(7) : null;
+  const token = header.startsWith("Bearer ") ? header.slice(7) : readCookie(req, CUSTOMER_SESSION_COOKIE);
   if (!token) return res.status(401).json({ error: "Inicia sesión para continuar" });
   try {
     const customer = jwt.verify(token, jwtSecret);
@@ -593,18 +652,19 @@ async function upsertTaxonomy(client, table, name, logoUrl = null) {
 // inventario crece mucho más allá de lo que el negocio maneja hoy.
 const CATALOG_SAFETY_LIMIT = 500;
 
-async function listVehicles(includeInactive = false) {
-  const statusClause = includeInactive ? "" : "WHERE v.status IN ('published', 'reserved')";
-  const result = await pool.query(`${vehicleSelect} ${statusClause} GROUP BY v.id, b.name, b.logo_url, c.name ORDER BY v.created_at DESC LIMIT ${CATALOG_SAFETY_LIMIT}`);
+async function listVehicles(includeInactive = false, organizationId = null) {
+  const clauses = [`v.organization_id = $1`];
+  if (!includeInactive) clauses.push("v.status IN ('published', 'reserved')");
+  const result = await pool.query(`${vehicleSelect} WHERE ${clauses.join(" AND ")} GROUP BY v.id, b.name, b.logo_url, c.name ORDER BY v.created_at DESC LIMIT ${CATALOG_SAFETY_LIMIT}`, [organizationId]);
   return result.rows;
 }
 
-async function createLead({ leadType, vehicleId = null, name, email = null, phone = null, message = null, source = "website", privacyConsent = false }) {
+async function createLead({ organizationId, leadType, vehicleId = null, name, email = null, phone = null, message = null, source = "website", privacyConsent = false }) {
   const result = await pool.query(
-    `INSERT INTO leads (lead_type, vehicle_id, name, email, phone, message, source, privacy_consent, privacy_consent_at, privacy_policy_version, consent_source)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,CASE WHEN $8 THEN NOW() ELSE NULL END,$9,$7)
+    `INSERT INTO leads (organization_id, lead_type, vehicle_id, name, email, phone, message, source, privacy_consent, privacy_consent_at, privacy_policy_version, consent_source)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,CASE WHEN $9 THEN NOW() ELSE NULL END,$10,$8)
      RETURNING id, status, created_at AS "createdAt"`,
-    [leadType, vehicleId, name, email, phone, message, source, privacyConsent, privacyPolicyVersion],
+    [organizationId, leadType, vehicleId, name, email, phone, message, source, privacyConsent, privacyPolicyVersion],
   );
   return result.rows[0];
 }
@@ -613,6 +673,15 @@ function isIsoDate(value) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) return false;
   const parsed = new Date(`${value}T00:00:00`);
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+function csvCell(value) {
+  return `"${String(value ?? "").replaceAll('"', '""')}"`;
+}
+
+function sendCsv(res, filename, columns, rows) {
+  const content = [columns.map((column) => csvCell(column.label)).join(","), ...rows.map((row) => columns.map((column) => csvCell(row[column.key])).join(","))].join("\r\n");
+  res.set({ "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="${filename}"` }).send(`\uFEFF${content}\r\n`);
 }
 
 function timeToMinutes(value) {
@@ -627,8 +696,8 @@ function minutesToTime(value) {
   return `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
 }
 
-async function appointmentAvailability(date) {
-  const settingsResult = await pool.query(`SELECT appointment_timezone AS timezone, appointment_start AS "start", appointment_end AS "end", appointment_duration_minutes AS "durationMinutes", appointment_min_notice_hours AS "minNoticeHours", appointment_max_days_ahead AS "maxDaysAhead", appointment_days AS "days", appointment_capacity AS "capacity" FROM business_settings WHERE id=1`);
+async function appointmentAvailability(date, organizationId) {
+  const settingsResult = await pool.query(`SELECT appointment_timezone AS timezone, appointment_start AS "start", appointment_end AS "end", appointment_duration_minutes AS "durationMinutes", appointment_min_notice_hours AS "minNoticeHours", appointment_max_days_ahead AS "maxDaysAhead", appointment_days AS "days", appointment_capacity AS "capacity" FROM organization_settings WHERE organization_id=$1`, [organizationId]);
   const settings = settingsResult.rows[0] || { start: "09:00", end: "18:00", durationMinutes: 60, minNoticeHours: 2, maxDaysAhead: 30, days: [1, 2, 3, 4, 5, 6], capacity: 1 };
   const requestedDate = new Date(`${date}T00:00:00`);
   const today = new Date();
@@ -641,9 +710,9 @@ async function appointmentAvailability(date) {
   if (!isIsoDate(date) || daysAhead < 0 || daysAhead > Number(settings.maxDaysAhead) || !settings.days.includes(dayOfWeek) || start === null || end === null || end <= start) {
     return { date, timezone: settings.timezone || "America/Santo_Domingo", slots: [], capacity: Number(settings.capacity) || 1 };
   }
-  const bookedResult = await pool.query(`SELECT requested_time AS "time", COUNT(*)::int AS count FROM test_drive_requests WHERE requested_date=$1 AND status IN ('pending','confirmed') GROUP BY requested_time`, [date]);
+  const bookedResult = await pool.query(`SELECT requested_time AS "time", COUNT(*)::int AS count FROM test_drive_requests WHERE organization_id=$1 AND requested_date=$2 AND status IN ('pending','confirmed') GROUP BY requested_time`, [organizationId, date]);
   const booked = new Map(bookedResult.rows.map((row) => [String(row.time).slice(0, 5), Number(row.count)]));
-  const blocksResult = await pool.query(`SELECT start_time AS "start", end_time AS "end" FROM appointment_blocks WHERE block_date=$1::date`, [date]);
+  const blocksResult = await pool.query(`SELECT start_time AS "start", end_time AS "end" FROM appointment_blocks WHERE organization_id=$1 AND block_date=$2::date`, [organizationId, date]);
   const blocks = blocksResult.rows.map((block) => ({ start: block.start ? timeToMinutes(String(block.start).slice(0, 5)) : start, end: block.end ? timeToMinutes(String(block.end).slice(0, 5)) : end }));
   const slots = [];
   for (let minute = start; minute + duration <= end; minute += duration) {
@@ -656,11 +725,11 @@ async function appointmentAvailability(date) {
   return { date, timezone: settings.timezone || "America/Santo_Domingo", durationMinutes: duration, slots, capacity: Number(settings.capacity || 1) };
 }
 
-async function notifyAdmins({ type = "lead", title, body, entityType = "lead", entityId = null }) {
+async function notifyAdmins({ organizationId, type = "lead", title, body, entityType = "lead", entityId = null }) {
   await pool.query(
     `INSERT INTO notifications (user_id, notification_type, title, body, entity_type, entity_id)
-     SELECT id, $1, $2, $3, $4, $5 FROM admin_users WHERE is_active = TRUE`,
-    [type, title, body, entityType, entityId],
+     SELECT id, $1, $2, $3, $4, $5 FROM admin_users WHERE organization_id=$6 AND is_active = TRUE`,
+    [type, title, body, entityType, entityId, organizationId],
   );
   if (process.env.LEAD_WEBHOOK_URL) {
     try { await fetch(process.env.LEAD_WEBHOOK_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type, title, body, entityType, entityId }) }); }
@@ -716,13 +785,15 @@ app.post("/api/auth/login", async (req, res) => {
   const email = String(req.body?.email || "").trim().toLowerCase();
   const password = String(req.body?.password || "");
   try {
-    const result = await pool.query("SELECT id, full_name, email, role, password_hash, must_change_password AS \"mustChangePassword\" FROM admin_users WHERE LOWER(email) = $1 AND is_active = TRUE", [email]);
+    const organization = await getOrganizationContext(req);
+    const result = await pool.query("SELECT id, full_name, email, role, password_hash, must_change_password AS \"mustChangePassword\", organization_id AS \"organizationId\" FROM admin_users WHERE LOWER(email) = $1 AND organization_id = $2 AND is_active = TRUE", [email, organization.id]);
     const admin = result.rows[0];
     if (!admin || !(await bcrypt.compare(password, admin.password_hash))) return res.status(401).json({ error: "Correo o contraseña incorrectos" });
     // Una contraseña restablecida por un administrador solo sirve para volver a entrar:
     // el token es de vida corta y obliga a definir una contraseña propia antes de operar.
-    const token = jwt.sign({ id: admin.id, email: admin.email, role: admin.role, name: admin.full_name, mustChangePassword: admin.mustChangePassword }, jwtSecret, { expiresIn: admin.mustChangePassword ? "15m" : "8h" });
-    res.json({ token, user: { id: admin.id, name: admin.full_name, email: admin.email, role: admin.role, mustChangePassword: admin.mustChangePassword } });
+    const token = jwt.sign({ id: admin.id, email: admin.email, role: admin.role, name: admin.full_name, organizationId: admin.organizationId, mustChangePassword: admin.mustChangePassword }, jwtSecret, { expiresIn: admin.mustChangePassword ? "15m" : "8h" });
+    setSessionCookie(res, ADMIN_SESSION_COOKIE, token, admin.mustChangePassword ? 900 : 28800);
+    res.json({ token, user: { id: admin.id, name: admin.full_name, email: admin.email, role: admin.role, organizationId: admin.organizationId, mustChangePassword: admin.mustChangePassword } });
   } catch (error) {
     console.error("Admin login failed", error);
     res.status(503).json({ error: "El servicio no está disponible en este momento. Intenta nuevamente." });
@@ -740,6 +811,7 @@ app.post("/api/customer/auth/register", async (req, res) => {
     const result = await pool.query("INSERT INTO customer_accounts (full_name, email, phone, password_hash) VALUES ($1,$2,$3,$4) RETURNING id, full_name, email, phone", [fullName, email, phone, passwordHash]);
     const account = result.rows[0];
     const token = jwt.sign({ id: account.id, email: account.email, name: account.full_name, kind: "customer" }, jwtSecret, { expiresIn: "30d" });
+    setSessionCookie(res, CUSTOMER_SESSION_COOKIE, token, 2592000);
     res.status(201).json({ token, user: { id: account.id, name: account.full_name, email: account.email, phone: account.phone } });
   } catch (error) {
     if (error.code === "23505") return res.status(409).json({ error: "Ya existe una cuenta con ese correo" });
@@ -756,6 +828,7 @@ app.post("/api/customer/auth/login", async (req, res) => {
     const account = result.rows[0];
     if (!account || !(await bcrypt.compare(password, account.password_hash))) return res.status(401).json({ error: "Correo o contraseña incorrectos" });
     const token = jwt.sign({ id: account.id, email: account.email, name: account.full_name, kind: "customer" }, jwtSecret, { expiresIn: "30d" });
+    setSessionCookie(res, CUSTOMER_SESSION_COOKIE, token, 2592000);
     res.json({ token, user: { id: account.id, name: account.full_name, email: account.email, phone: account.phone } });
   } catch (error) {
     console.error("Customer login failed", error);
@@ -830,28 +903,31 @@ app.patch("/api/customer/notifications/read", authenticateCustomer, async (req, 
   }
 });
 
-app.get("/api/vehicles", async (_req, res) => {
-  try { res.json({ data: await listVehicles(false) }); }
+app.get("/api/vehicles", async (req, res) => {
+  try { const organization = await getOrganizationContext(req); res.json({ data: await listVehicles(false, organization.id) }); }
   catch (error) { console.error("Vehicle listing failed", error); res.status(500).json({ error: "No se pudo cargar el catálogo" }); }
 });
 
-app.get("/api/settings", async (_req, res) => {
+app.get("/api/settings", async (req, res) => {
   try {
-    const result = await pool.query('SELECT business_name AS "businessName", logo_url AS "logoUrl", phone, whatsapp, email, address, hours, instagram_url AS "instagramUrl", facebook_url AS "facebookUrl", currency, privacy_text AS "privacyText", terms_text AS "termsText" FROM business_settings WHERE id=1');
+    const organization = await getOrganizationContext(req);
+    const result = await pool.query('SELECT business_name AS "businessName", logo_url AS "logoUrl", primary_color AS "primaryColor", accent_color AS "accentColor", favicon_url AS "faviconUrl", phone, whatsapp, email, address, hours, instagram_url AS "instagramUrl", facebook_url AS "facebookUrl", currency, privacy_text AS "privacyText", terms_text AS "termsText" FROM organization_settings WHERE organization_id=$1', [organization.id]);
     res.json({ data: result.rows[0] || null, privacyPolicyVersion });
   } catch (error) { console.error("Public settings query failed", error); res.status(500).json({ error: "No se pudo cargar la informacion del negocio" }); }
 });
 
-app.get("/api/blog", async (_req, res) => {
+app.get("/api/blog", async (req, res) => {
   try {
-    const result = await pool.query(`SELECT id, title, slug, summary, category, tags, cover_image_url AS "coverImageUrl", published_at AS "publishedAt", seo_title AS "seoTitle", seo_description AS "seoDescription" FROM blog_posts WHERE status='published' ORDER BY published_at DESC NULLS LAST, created_at DESC`);
+    const organization = await getOrganizationContext(req);
+    const result = await pool.query(`SELECT id, title, slug, summary, category, tags, cover_image_url AS "coverImageUrl", published_at AS "publishedAt", seo_title AS "seoTitle", seo_description AS "seoDescription" FROM blog_posts WHERE organization_id=$1 AND status='published' ORDER BY published_at DESC NULLS LAST, created_at DESC`, [organization.id]);
     res.json({ data: result.rows });
   } catch (error) { console.error("Blog listing failed", error); res.status(500).json({ error: "No se pudo cargar el blog" }); }
 });
 
 app.get("/api/blog/:slug", async (req, res) => {
   try {
-    const result = await pool.query(`SELECT id, title, slug, summary, content, category, tags, cover_image_url AS "coverImageUrl", published_at AS "publishedAt", seo_title AS "seoTitle", seo_description AS "seoDescription" FROM blog_posts WHERE slug=$1 AND status='published'`, [req.params.slug]);
+    const organization = await getOrganizationContext(req);
+    const result = await pool.query(`SELECT id, title, slug, summary, content, category, tags, cover_image_url AS "coverImageUrl", published_at AS "publishedAt", seo_title AS "seoTitle", seo_description AS "seoDescription" FROM blog_posts WHERE organization_id=$1 AND slug=$2 AND status='published'`, [organization.id, req.params.slug]);
     if (!result.rowCount) return res.status(404).json({ error: "Artículo no encontrado" });
     res.json({ data: result.rows[0] });
   } catch (error) { console.error("Blog article failed", error); res.status(500).json({ error: "No se pudo cargar el artículo" }); }
@@ -869,18 +945,19 @@ app.post("/api/offers", async (req, res) => {
   if (!privacyConsent) return res.status(400).json({ error: "Debes aceptar la politica de privacidad para enviar la oferta" });
   if (!vehicleId || !buyerName || !Number.isFinite(amountUsd) || amountUsd <= 0) return res.status(400).json({ error: "Nombre, vehículo y monto válido son obligatorios" });
   try {
-    const vehicle = await pool.query("SELECT id, status FROM vehicles WHERE id=$1 AND status IN ('published','reserved')", [vehicleId]);
+    const organization = await getOrganizationContext(req);
+    const vehicle = await pool.query("SELECT id, status FROM vehicles WHERE id=$1 AND organization_id=$2 AND status IN ('published','reserved')", [vehicleId, organization.id]);
     if (!vehicle.rowCount) return res.status(404).json({ error: "Este vehículo ya no está disponible en el catálogo" });
     if (vehicle.rows[0].status === "reserved") return res.status(409).json({ error: "Este vehículo está reservado y no admite ofertas nuevas. Escríbenos y te avisamos si vuelve a estar disponible." });
     const result = await pool.query(
-      `INSERT INTO offers (vehicle_id, buyer_name, buyer_email, buyer_phone, amount_usd, payment_method, message, privacy_consent, privacy_consent_at, privacy_policy_version, customer_id)
-       VALUES ($1,$2,$3,$4,$5,'cash',$6,$7,NOW(),$8,$9)
+      `INSERT INTO offers (organization_id, vehicle_id, buyer_name, buyer_email, buyer_phone, amount_usd, payment_method, message, privacy_consent, privacy_consent_at, privacy_policy_version, customer_id)
+       VALUES ($1,$2,$3,$4,$5,$6,'cash',$7,$8,NOW(),$9,$10)
        RETURNING id, status, created_at AS "createdAt"`,
-      [vehicleId, buyerName, buyerEmail, buyerPhone, amountUsd, message, privacyConsent, privacyPolicyVersion, customerId],
+      [organization.id, vehicleId, buyerName, buyerEmail, buyerPhone, amountUsd, message, privacyConsent, privacyPolicyVersion, customerId],
     );
-    const lead = await createLead({ leadType: "offer", vehicleId, name: buyerName, email: buyerEmail, phone: buyerPhone, message, source: "vehicle-offer", privacyConsent });
+    const lead = await createLead({ organizationId: organization.id, leadType: "offer", vehicleId, name: buyerName, email: buyerEmail, phone: buyerPhone, message, source: "vehicle-offer", privacyConsent });
     await pool.query("UPDATE offers SET lead_id=$1 WHERE id=$2", [lead.id, result.rows[0].id]);
-    await notifyAdmins({ type: "offer", title: "Nueva oferta recibida", body: `${buyerName} envió una oferta para un vehículo.`, entityType: "offer", entityId: result.rows[0].id });
+    await notifyAdmins({ organizationId: organization.id, type: "offer", title: "Nueva oferta recibida", body: `${buyerName} envió una oferta para un vehículo.`, entityType: "offer", entityId: result.rows[0].id });
     res.status(201).json({ data: { ...result.rows[0], leadId: lead.id } });
   } catch (error) {
     console.error("Offer creation failed", error);
@@ -905,7 +982,8 @@ app.get("/api/appointments/availability", async (req, res) => {
   const date = String(req.query.date || "").trim();
   if (!isIsoDate(date)) return res.status(400).json({ error: "La fecha debe tener formato YYYY-MM-DD" });
   try {
-    res.json({ data: await appointmentAvailability(date) });
+    const organization = await getOrganizationContext(req);
+    res.json({ data: await appointmentAvailability(date, organization.id) });
   } catch (error) {
     console.error("Appointment availability failed", error);
     res.status(500).json({ error: "No se pudo consultar la disponibilidad" });
@@ -923,7 +1001,8 @@ app.post("/api/appointments", async (req, res) => {
   const privacyConsent = req.body.privacyConsent === true;
   if (!vehicleId || !name || (!email && !phone) || !isIsoDate(date) || timeToMinutes(time) === null || !privacyConsent) return res.status(400).json({ error: "Vehículo, nombre, correo o teléfono, fecha, horario y consentimiento son obligatorios" });
   try {
-    const availability = await appointmentAvailability(date);
+    const organization = await getOrganizationContext(req);
+    const availability = await appointmentAvailability(date, organization.id);
     const slot = availability.slots.find((item) => item.time === time);
     if (!slot || !slot.available) return res.status(409).json({ error: "Ese horario ya no está disponible. Selecciona otro." });
     const client = await pool.connect();
@@ -931,24 +1010,24 @@ app.post("/api/appointments", async (req, res) => {
     let lead;
     try {
       await client.query("BEGIN");
-      const vehicle = await client.query("SELECT id FROM vehicles WHERE id=$1 AND status IN ('published','reserved')", [vehicleId]);
+      const vehicle = await client.query("SELECT id FROM vehicles WHERE id=$1 AND organization_id=$2 AND status IN ('published','reserved')", [vehicleId, organization.id]);
       if (!vehicle.rowCount) { await client.query("ROLLBACK"); return res.status(404).json({ error: "Vehículo no disponible" }); }
-      const settings = await client.query("SELECT appointment_capacity AS capacity FROM business_settings WHERE id=1 FOR UPDATE");
+      const settings = await client.query("SELECT appointment_capacity AS capacity FROM organization_settings WHERE organization_id=$1 FOR UPDATE", [organization.id]);
       const capacity = Number(settings.rows[0]?.capacity || 1);
-      const booked = await client.query("SELECT COUNT(*)::int AS count FROM test_drive_requests WHERE requested_date=$1::date AND requested_time=$2::time AND status IN ('pending','confirmed')", [date, time]);
+      const booked = await client.query("SELECT COUNT(*)::int AS count FROM test_drive_requests WHERE organization_id=$1 AND requested_date=$2::date AND requested_time=$3::time AND status IN ('pending','confirmed')", [organization.id, date, time]);
       if (Number(booked.rows[0].count) >= capacity) { await client.query("ROLLBACK"); return res.status(409).json({ error: "Ese horario acaba de completarse. Selecciona otro." }); }
       const leadResult = await client.query(
-        `INSERT INTO leads (lead_type, vehicle_id, name, email, phone, message, source, privacy_consent, privacy_consent_at, privacy_policy_version, consent_source)
-         VALUES ('test-drive',$1,$2,$3,$4,$5,'appointment',$6,CASE WHEN $6 THEN NOW() ELSE NULL END,$7,'appointment')
+        `INSERT INTO leads (organization_id, lead_type, vehicle_id, name, email, phone, message, source, privacy_consent, privacy_consent_at, privacy_policy_version, consent_source)
+         VALUES ($1,'test-drive',$2,$3,$4,$5,$6,'appointment',$7,CASE WHEN $7 THEN NOW() ELSE NULL END,$8,'appointment')
          RETURNING id, status, created_at AS "createdAt"`,
-        [vehicleId, name, email, phone, notes, privacyConsent, privacyPolicyVersion],
+        [organization.id, vehicleId, name, email, phone, notes, privacyConsent, privacyPolicyVersion],
       );
       lead = leadResult.rows[0];
       const appointmentResult = await client.query(
-        `INSERT INTO test_drive_requests (vehicle_id, lead_id, customer_name, customer_email, customer_phone, requested_date, requested_time, status, notes)
-         VALUES ($1,$2,$3,$4,$5,$6::date,$7::time,'pending',$8)
+        `INSERT INTO test_drive_requests (organization_id, vehicle_id, lead_id, customer_name, customer_email, customer_phone, requested_date, requested_time, status, notes)
+         VALUES ($1,$2,$3,$4,$5,$6,$7::date,$8::time,'pending',$9)
          RETURNING id, vehicle_id AS "vehicleId", requested_date AS "date", requested_time AS "time", status, created_at AS "createdAt"`,
-        [vehicleId, lead.id, name, email, phone, date, time, notes],
+        [organization.id, vehicleId, lead.id, name, email, phone, date, time, notes],
       );
       appointment = appointmentResult.rows[0];
       await client.query("COMMIT");
@@ -956,7 +1035,7 @@ app.post("/api/appointments", async (req, res) => {
       await client.query("ROLLBACK");
       throw error;
     } finally { client.release(); }
-    await notifyAdmins({ title: "Nueva cita solicitada", body: `${name} solicitó una cita para ${date} a las ${time}.`, entityType: "appointment", entityId: appointment.id });
+    await notifyAdmins({ organizationId: organization.id, title: "Nueva cita solicitada", body: `${name} solicitó una cita para ${date} a las ${time}.`, entityType: "appointment", entityId: appointment.id });
     res.status(201).json({ data: { ...appointment, leadId: lead.id } });
   } catch (error) {
     console.error("Appointment creation failed", error);
@@ -974,13 +1053,14 @@ app.post("/api/leads", async (req, res) => {
   if (!privacyConsent) return res.status(400).json({ error: "Debes aceptar la politica de privacidad para enviar el mensaje" });
   if (!name || (!email && !phone)) return res.status(400).json({ error: "Nombre y correo o teléfono son obligatorios" });
   try {
+    const organization = await getOrganizationContext(req);
     if (vehicleId) {
       // El catálogo público muestra 'published' y 'reserved': se puede consultar por ambos.
-      const vehicle = await pool.query("SELECT id FROM vehicles WHERE id=$1 AND status IN ('published','reserved')", [vehicleId]);
+      const vehicle = await pool.query("SELECT id FROM vehicles WHERE id=$1 AND organization_id=$2 AND status IN ('published','reserved')", [vehicleId, organization.id]);
       if (!vehicle.rowCount) return res.status(404).json({ error: "Vehículo no disponible" });
     }
-    const lead = await createLead({ leadType: vehicleId ? "interest" : "contact", vehicleId, name, email, phone, message, source: vehicleId ? "vehicle-interest" : "contact-form", privacyConsent });
-    await notifyAdmins({ title: "Nuevo lead recibido", body: `${name} dejó sus datos desde el sitio web.`, entityType: "lead", entityId: lead.id });
+    const lead = await createLead({ organizationId: organization.id, leadType: vehicleId ? "interest" : "contact", vehicleId, name, email, phone, message, source: vehicleId ? "vehicle-interest" : "contact-form", privacyConsent });
+    await notifyAdmins({ organizationId: organization.id, title: "Nuevo lead recibido", body: `${name} dejó sus datos desde el sitio web.`, entityType: "lead", entityId: lead.id });
     res.status(201).json({ data: lead });
   } catch (error) {
     console.error("Lead creation failed", error);
@@ -1071,8 +1151,8 @@ app.post("/api/admin/media-package-upload", authenticate, requireRoles("admin", 
   });
 });
 
-app.get("/api/admin/vehicles", authenticate, requireRoles("admin", "editor", "seller"), async (_req, res) => {
-  try { res.json({ data: await listVehicles(true) }); }
+app.get("/api/admin/vehicles", authenticate, requireRoles("admin", "editor", "seller"), async (req, res) => {
+  try { res.json({ data: await listVehicles(true, adminOrganizationId(req)) }); }
   catch (error) { console.error("Admin vehicle listing failed", error); res.status(500).json({ error: "No se pudo cargar el inventario" }); }
 });
 
@@ -1089,16 +1169,16 @@ app.post("/api/admin/vehicles", authenticate, requireRoles("admin", "editor"), a
     const brandId = await upsertTaxonomy(client, "vehicle_brands", vehicle.brand, vehicle.brandLogoUrl);
     const categoryId = await upsertTaxonomy(client, "vehicle_categories", vehicle.category);
     const inserted = await client.query(
-      `INSERT INTO vehicles (brand_id, category_id, model, variant, year, condition, price_usd, engine, power, transmission, drive, fuel_type, exterior_color, interior_color, doors, seats, location, stock_number, warranty, features, mileage_km, description, seo_title, seo_description, stock, status, max_discount_percent)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27) RETURNING id`,
-      [brandId, categoryId, vehicle.model, vehicle.variant, vehicle.year, vehicle.condition, vehicle.priceUsd, vehicle.engine, vehicle.power, vehicle.transmission, vehicle.drive, vehicle.fuelType, vehicle.exteriorColor, vehicle.interiorColor, vehicle.doors, vehicle.seats, vehicle.location, vehicle.stockNumber, vehicle.warranty, vehicle.features, vehicle.mileageKm, vehicle.description, vehicle.seoTitle, vehicle.seoDescription, vehicle.stock, vehicle.status, vehicle.maxDiscountPercent],
+      `INSERT INTO vehicles (organization_id, brand_id, category_id, model, variant, year, condition, price_usd, engine, power, transmission, drive, fuel_type, exterior_color, interior_color, doors, seats, location, stock_number, warranty, features, mileage_km, description, seo_title, seo_description, stock, status, max_discount_percent)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28) RETURNING id`,
+      [adminOrganizationId(req), brandId, categoryId, vehicle.model, vehicle.variant, vehicle.year, vehicle.condition, vehicle.priceUsd, vehicle.engine, vehicle.power, vehicle.transmission, vehicle.drive, vehicle.fuelType, vehicle.exteriorColor, vehicle.interiorColor, vehicle.doors, vehicle.seats, vehicle.location, vehicle.stockNumber, vehicle.warranty, vehicle.features, vehicle.mileageKm, vehicle.description, vehicle.seoTitle, vehicle.seoDescription, vehicle.stock, vehicle.status, vehicle.maxDiscountPercent],
     );
     for (const [sortOrder, imageUrl] of vehicle.images.entries()) await client.query("INSERT INTO vehicle_images (vehicle_id, image_url, alt_text, sort_order) VALUES ($1,$2,$3,$4)", [inserted.rows[0].id, imageUrl, vehicle.imageAltTexts[sortOrder] || `${vehicle.brand} ${vehicle.model} - vista ${sortOrder + 1}`, sortOrder]);
     await replaceVehicleMedia(client, inserted.rows[0].id, vehicle.media);
     await client.query("COMMIT");
     await writeAudit(req, "vehicle.create", "vehicle", inserted.rows[0].id, { status: vehicle.status, imageCount: vehicle.images.length, mediaCount: vehicle.media.length });
-    if (vehicle.status === "pending_review") await notifyAdmins({ type: "vehicle_review", title: "Vehículo pendiente de revisión", body: `${vehicle.brand} ${vehicle.model} fue enviado para aprobación.`, entityType: "vehicle", entityId: inserted.rows[0].id });
-    res.status(201).json({ data: (await listVehicles(true)).find((item) => item.id === inserted.rows[0].id) });
+    if (vehicle.status === "pending_review") await notifyAdmins({ organizationId: adminOrganizationId(req), type: "vehicle_review", title: "Vehículo pendiente de revisión", body: `${vehicle.brand} ${vehicle.model} fue enviado para aprobación.`, entityType: "vehicle", entityId: inserted.rows[0].id });
+    res.status(201).json({ data: (await listVehicles(true, adminOrganizationId(req))).find((item) => item.id === inserted.rows[0].id) });
   } catch (error) {
     await client.query("ROLLBACK");
     console.error("Vehicle creation failed", error);
@@ -1110,19 +1190,19 @@ app.post("/api/admin/vehicles/:id/duplicate", authenticate, requireRoles("admin"
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const source = await client.query("SELECT * FROM vehicles WHERE id=$1", [req.params.id]);
+    const source = await client.query("SELECT * FROM vehicles WHERE id=$1 AND organization_id=$2", [req.params.id, adminOrganizationId(req)]);
     if (!source.rowCount) { await client.query("ROLLBACK"); return res.status(404).json({ error: "Vehículo no encontrado" }); }
     const vehicle = source.rows[0];
     const copied = await client.query(
-      `INSERT INTO vehicles (brand_id, category_id, model, variant, year, condition, price_usd, engine, power, transmission, drive, fuel_type, exterior_color, interior_color, doors, seats, location, stock_number, warranty, features, mileage_km, description, seo_title, seo_description, stock, status, max_discount_percent)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,NULL,$18,$19,$20,$21,$22,$23,$24,'draft',$25) RETURNING id`,
-      [vehicle.brand_id, vehicle.category_id, `${vehicle.model} · copia`, vehicle.variant, vehicle.year, vehicle.condition, vehicle.price_usd, vehicle.engine, vehicle.power, vehicle.transmission, vehicle.drive, vehicle.fuel_type, vehicle.exterior_color, vehicle.interior_color, vehicle.doors, vehicle.seats, vehicle.location, vehicle.warranty, vehicle.features, vehicle.mileage_km, vehicle.description, vehicle.seo_title, vehicle.seo_description, vehicle.stock, vehicle.max_discount_percent],
+      `INSERT INTO vehicles (organization_id, brand_id, category_id, model, variant, year, condition, price_usd, engine, power, transmission, drive, fuel_type, exterior_color, interior_color, doors, seats, location, stock_number, warranty, features, mileage_km, description, seo_title, seo_description, stock, status, max_discount_percent)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,NULL,$19,$20,$21,$22,$23,$24,$25,'draft',$26) RETURNING id`,
+      [adminOrganizationId(req), vehicle.brand_id, vehicle.category_id, `${vehicle.model} · copia`, vehicle.variant, vehicle.year, vehicle.condition, vehicle.price_usd, vehicle.engine, vehicle.power, vehicle.transmission, vehicle.drive, vehicle.fuel_type, vehicle.exterior_color, vehicle.interior_color, vehicle.doors, vehicle.seats, vehicle.location, vehicle.warranty, vehicle.features, vehicle.mileage_km, vehicle.description, vehicle.seo_title, vehicle.seo_description, vehicle.stock, vehicle.max_discount_percent],
     );
     await client.query("INSERT INTO vehicle_images (vehicle_id, image_url, alt_text, sort_order) SELECT $1, image_url, alt_text, sort_order FROM vehicle_images WHERE vehicle_id=$2", [copied.rows[0].id, req.params.id]);
     await client.query("INSERT INTO vehicle_media (vehicle_id, media_type, url, poster_url, alt_text, sort_order, is_active, metadata) SELECT $1, media_type, url, poster_url, alt_text, sort_order, is_active, metadata FROM vehicle_media WHERE vehicle_id=$2", [copied.rows[0].id, req.params.id]);
     await client.query("COMMIT");
     await writeAudit(req, "vehicle.duplicate", "vehicle", copied.rows[0].id, { sourceId: req.params.id });
-    res.status(201).json({ data: (await listVehicles(true)).find((item) => item.id === copied.rows[0].id) });
+    res.status(201).json({ data: (await listVehicles(true, adminOrganizationId(req))).find((item) => item.id === copied.rows[0].id) });
   } catch (error) {
     await client.query("ROLLBACK");
     console.error("Vehicle duplication failed", error);
@@ -1143,8 +1223,8 @@ app.put("/api/admin/vehicles/:id", authenticate, requireRoles("admin", "editor")
     const brandId = await upsertTaxonomy(client, "vehicle_brands", vehicle.brand, vehicle.brandLogoUrl);
     const categoryId = await upsertTaxonomy(client, "vehicle_categories", vehicle.category);
     const updated = await client.query(
-      `UPDATE vehicles SET brand_id=$1, category_id=$2, model=$3, variant=$4, year=$5, condition=$6, price_usd=$7, engine=$8, power=$9, transmission=$10, drive=$11, fuel_type=$12, exterior_color=$13, interior_color=$14, doors=$15, seats=$16, location=$17, stock_number=$18, warranty=$19, features=$20, mileage_km=$21, description=$22, seo_title=$23, seo_description=$24, stock=$25, status=$26, max_discount_percent=$27, updated_at=NOW() WHERE id=$28 RETURNING id`,
-      [brandId, categoryId, vehicle.model, vehicle.variant, vehicle.year, vehicle.condition, vehicle.priceUsd, vehicle.engine, vehicle.power, vehicle.transmission, vehicle.drive, vehicle.fuelType, vehicle.exteriorColor, vehicle.interiorColor, vehicle.doors, vehicle.seats, vehicle.location, vehicle.stockNumber, vehicle.warranty, vehicle.features, vehicle.mileageKm, vehicle.description, vehicle.seoTitle, vehicle.seoDescription, vehicle.stock, vehicle.status, vehicle.maxDiscountPercent, req.params.id],
+       `UPDATE vehicles SET brand_id=$1, category_id=$2, model=$3, variant=$4, year=$5, condition=$6, price_usd=$7, engine=$8, power=$9, transmission=$10, drive=$11, fuel_type=$12, exterior_color=$13, interior_color=$14, doors=$15, seats=$16, location=$17, stock_number=$18, warranty=$19, features=$20, mileage_km=$21, description=$22, seo_title=$23, seo_description=$24, stock=$25, status=$26, max_discount_percent=$27, updated_at=NOW() WHERE id=$28 AND organization_id=$29 RETURNING id`,
+      [brandId, categoryId, vehicle.model, vehicle.variant, vehicle.year, vehicle.condition, vehicle.priceUsd, vehicle.engine, vehicle.power, vehicle.transmission, vehicle.drive, vehicle.fuelType, vehicle.exteriorColor, vehicle.interiorColor, vehicle.doors, vehicle.seats, vehicle.location, vehicle.stockNumber, vehicle.warranty, vehicle.features, vehicle.mileageKm, vehicle.description, vehicle.seoTitle, vehicle.seoDescription, vehicle.stock, vehicle.status, vehicle.maxDiscountPercent, req.params.id, adminOrganizationId(req)],
     );
     if (!updated.rowCount) { await client.query("ROLLBACK"); return res.status(404).json({ error: "Vehículo no encontrado" }); }
     await client.query("DELETE FROM vehicle_images WHERE vehicle_id = $1", [req.params.id]);
@@ -1152,8 +1232,8 @@ app.put("/api/admin/vehicles/:id", authenticate, requireRoles("admin", "editor")
     await replaceVehicleMedia(client, req.params.id, vehicle.media);
     await client.query("COMMIT");
     await writeAudit(req, "vehicle.update", "vehicle", req.params.id, { status: vehicle.status, imageCount: vehicle.images.length, mediaCount: vehicle.media.length });
-    if (vehicle.status === "pending_review") await notifyAdmins({ type: "vehicle_review", title: "Vehículo pendiente de revisión", body: `${vehicle.brand} ${vehicle.model} fue enviado para aprobación.`, entityType: "vehicle", entityId: req.params.id });
-    res.json({ data: (await listVehicles(true)).find((item) => item.id === req.params.id) });
+    if (vehicle.status === "pending_review") await notifyAdmins({ organizationId: adminOrganizationId(req), type: "vehicle_review", title: "Vehículo pendiente de revisión", body: `${vehicle.brand} ${vehicle.model} fue enviado para aprobación.`, entityType: "vehicle", entityId: req.params.id });
+    res.json({ data: (await listVehicles(true, adminOrganizationId(req))).find((item) => item.id === req.params.id) });
   } catch (error) {
     await client.query("ROLLBACK");
     console.error("Vehicle update failed", error);
@@ -1165,7 +1245,7 @@ app.patch("/api/admin/vehicles/:id/review", authenticate, requireRoles("admin"),
   const decision = req.body?.decision === "approve" ? "published" : req.body?.decision === "reject" ? "draft" : null;
   if (!decision) return res.status(400).json({ error: "La decisión debe ser approve o reject" });
   try {
-    const result = await pool.query("UPDATE vehicles SET status=$1, updated_at=NOW() WHERE id=$2 AND status='pending_review' RETURNING id, status", [decision, req.params.id]);
+      const result = await pool.query("UPDATE vehicles SET status=$1, updated_at=NOW() WHERE id=$2 AND organization_id=$3 AND status='pending_review' RETURNING id, status", [decision, req.params.id, adminOrganizationId(req)]);
     if (!result.rowCount) return res.status(404).json({ error: "Vehículo no encontrado o no está pendiente de revisión" });
     await writeAudit(req, `vehicle.${decision === "published" ? "approve" : "reject"}`, "vehicle", req.params.id, { decision, note: String(req.body?.note || "").slice(0, 240) });
     res.json({ data: result.rows[0] });
@@ -1179,14 +1259,14 @@ app.patch("/api/admin/vehicles/:id/status", authenticate, requireRoles("admin", 
   if (status === "published" && req.admin.role !== "admin") return res.status(403).json({ error: "Solo un administrador puede publicar directamente" });
   try {
     if (status === "published") {
-      const ready = await pool.query("SELECT (SELECT COUNT(*) FROM vehicle_images WHERE vehicle_id=$1)::int AS images, description, price_usd AS price FROM vehicles WHERE id=$1", [req.params.id]);
+      const ready = await pool.query("SELECT (SELECT COUNT(*) FROM vehicle_images WHERE vehicle_id=$1)::int AS images, description, price_usd AS price FROM vehicles WHERE id=$1 AND organization_id=$2", [req.params.id, adminOrganizationId(req)]);
       if (!ready.rowCount) return res.status(404).json({ error: "Vehículo no encontrado" });
       const row = ready.rows[0];
       if (!row.images || !String(row.description || "").trim() || !(Number(row.price) > 0)) {
         return res.status(400).json({ error: "Para publicar, el vehículo necesita al menos una imagen, una descripción y un precio." });
       }
     }
-    const result = await pool.query('UPDATE vehicles SET status=$1, updated_at=NOW() WHERE id=$2 RETURNING id, status', [status, req.params.id]);
+    const result = await pool.query('UPDATE vehicles SET status=$1, updated_at=NOW() WHERE id=$2 AND organization_id=$3 RETURNING id, status', [status, req.params.id, adminOrganizationId(req)]);
     if (!result.rowCount) return res.status(404).json({ error: "Vehículo no encontrado" });
     await writeAudit(req, "vehicle.status_update", "vehicle", req.params.id, { status });
     res.json({ data: result.rows[0] });
@@ -1195,14 +1275,14 @@ app.patch("/api/admin/vehicles/:id/status", authenticate, requireRoles("admin", 
 
 app.delete("/api/admin/vehicles/:id", authenticate, requireRoles("admin", "editor"), async (req, res) => {
   try {
-    const result = await pool.query("UPDATE vehicles SET status='inactive', updated_at=NOW() WHERE id=$1 RETURNING id", [req.params.id]);
+    const result = await pool.query("UPDATE vehicles SET status='inactive', updated_at=NOW() WHERE id=$1 AND organization_id=$2 RETURNING id", [req.params.id, adminOrganizationId(req)]);
     if (!result.rowCount) return res.status(404).json({ error: "Vehículo no encontrado" });
     await writeAudit(req, "vehicle.archive", "vehicle", req.params.id);
     res.status(204).end();
   } catch (error) { console.error("Vehicle deactivation failed", error); res.status(500).json({ error: "No se pudo desactivar el vehículo" }); }
 });
 
-app.get("/api/admin/leads", authenticate, requireRoles("admin", "editor", "seller"), async (_req, res) => {
+app.get("/api/admin/leads", authenticate, requireRoles("admin", "editor", "seller"), async (req, res) => {
   try {
     const result = await pool.query(`
       SELECT l.id, l.lead_type AS "leadType", l.name, l.email, l.phone, l.message, l.source, l.status, l.notes, l.priority, l.next_action AS "nextAction", l.next_action_at AS "nextActionAt", l.lost_reason AS "lostReason", l.closed_at AS "closedAt",
@@ -1213,9 +1293,10 @@ app.get("/api/admin/leads", authenticate, requireRoles("admin", "editor", "selle
       LEFT JOIN vehicles v ON v.id = l.vehicle_id
       LEFT JOIN vehicle_brands b ON b.id = v.brand_id
       LEFT JOIN admin_users au ON au.id = l.assigned_to
-      LEFT JOIN LATERAL (SELECT id, requested_date, requested_time, status FROM test_drive_requests WHERE lead_id=l.id ORDER BY created_at DESC LIMIT 1) appointment ON TRUE
-      ORDER BY l.created_at DESC
-    `);
+       LEFT JOIN LATERAL (SELECT id, requested_date, requested_time, status FROM test_drive_requests WHERE lead_id=l.id AND organization_id=$1 ORDER BY created_at DESC LIMIT 1) appointment ON TRUE
+       WHERE l.organization_id=$1
+       ORDER BY l.created_at DESC
+    `, [adminOrganizationId(req)]);
     res.json({ data: result.rows });
   } catch (error) {
     console.error("Leads query failed", error);
@@ -1233,7 +1314,8 @@ app.get("/api/admin/appointments", authenticate, requireRoles("admin", "editor",
       LEFT JOIN vehicles v ON v.id=t.vehicle_id
       LEFT JOIN vehicle_brands b ON b.id=v.brand_id
       WHERE ($1::date IS NULL OR t.requested_date >= $1::date) AND ($2::date IS NULL OR t.requested_date <= $2::date)
-      ORDER BY t.requested_date ASC, t.requested_time ASC, t.created_at DESC`, [from, to]);
+      AND t.organization_id=$3
+      ORDER BY t.requested_date ASC, t.requested_time ASC, t.created_at DESC`, [from, to, adminOrganizationId(req)]);
     res.json({ data: result.rows });
   } catch (error) { console.error("Appointments query failed", error); res.status(500).json({ error: "No se pudieron cargar las citas" }); }
 });
@@ -1245,7 +1327,7 @@ app.post("/api/admin/appointments", authenticate, requireRoles("admin", "editor"
   const notes = String(req.body.notes || "").trim() || null;
   if (!leadId || !isIsoDate(date) || timeToMinutes(time) === null) return res.status(400).json({ error: "Interesado, fecha y horario son obligatorios" });
   try {
-    const availability = await appointmentAvailability(date);
+    const availability = await appointmentAvailability(date, adminOrganizationId(req));
     const slot = availability.slots.find((item) => item.time === time);
     if (!slot || !slot.available) return res.status(409).json({ error: "Ese horario no está disponible. Selecciona otro." });
     const client = await pool.connect();
@@ -1254,21 +1336,21 @@ app.post("/api/admin/appointments", authenticate, requireRoles("admin", "editor"
       await client.query("BEGIN");
       const leadResult = await client.query(
         `SELECT l.id, l.vehicle_id AS "vehicleId", l.name, l.email, l.phone, l.assigned_to AS "assignedTo"
-         FROM leads l WHERE l.id=$1 FOR UPDATE`,
-        [leadId],
+         FROM leads l WHERE l.id=$1 AND l.organization_id=$2 FOR UPDATE`,
+        [leadId, adminOrganizationId(req)],
       );
       if (!leadResult.rowCount) { await client.query("ROLLBACK"); return res.status(404).json({ error: "Interesado no encontrado" }); }
       const lead = leadResult.rows[0];
       if (!lead.vehicleId) { await client.query("ROLLBACK"); return res.status(400).json({ error: "Este interesado no tiene un vehículo asociado" }); }
-      const settings = await client.query("SELECT appointment_capacity AS capacity FROM business_settings WHERE id=1 FOR UPDATE");
+      const settings = await client.query("SELECT appointment_capacity AS capacity FROM organization_settings WHERE organization_id=$1 FOR UPDATE", [adminOrganizationId(req)]);
       const capacity = Number(settings.rows[0]?.capacity || 1);
-      const booked = await client.query("SELECT COUNT(*)::int AS count FROM test_drive_requests WHERE requested_date=$1::date AND requested_time=$2::time AND status IN ('pending','confirmed')", [date, time]);
+      const booked = await client.query("SELECT COUNT(*)::int AS count FROM test_drive_requests WHERE organization_id=$1 AND requested_date=$2::date AND requested_time=$3::time AND status IN ('pending','confirmed')", [adminOrganizationId(req), date, time]);
       if (Number(booked.rows[0].count) >= capacity) { await client.query("ROLLBACK"); return res.status(409).json({ error: "Ese horario acaba de completarse. Selecciona otro." }); }
       const result = await client.query(
-        `INSERT INTO test_drive_requests (vehicle_id, lead_id, customer_name, customer_email, customer_phone, requested_date, requested_time, status, notes, assigned_to)
-         VALUES ($1,$2,$3,$4,$5,$6::date,$7::time,'confirmed',$8,$9)
-         RETURNING id, vehicle_id AS "vehicleId", lead_id AS "leadId", requested_date AS "date", requested_time AS "time", status, notes, created_at AS "createdAt"`,
-        [lead.vehicleId, lead.id, lead.name, lead.email, lead.phone, date, time, notes, lead.assignedTo || req.admin.id],
+         `INSERT INTO test_drive_requests (organization_id, vehicle_id, lead_id, customer_name, customer_email, customer_phone, requested_date, requested_time, status, notes, assigned_to)
+          VALUES ($1,$2,$3,$4,$5,$6,$7::date,$8::time,'confirmed',$9,$10)
+          RETURNING id, vehicle_id AS "vehicleId", lead_id AS "leadId", requested_date AS "date", requested_time AS "time", status, notes, created_at AS "createdAt"`,
+         [adminOrganizationId(req), lead.vehicleId, lead.id, lead.name, lead.email, lead.phone, date, time, notes, lead.assignedTo || req.admin.id],
       );
       appointment = result.rows[0];
       await client.query("INSERT INTO lead_events (lead_id, actor_id, event_type, note) VALUES ($1,$2,'appointment_created',$3)", [lead.id, req.admin.id, `Cita confirmada para ${date} a las ${time}`]);
@@ -1277,7 +1359,7 @@ app.post("/api/admin/appointments", authenticate, requireRoles("admin", "editor"
       await client.query("ROLLBACK");
       throw error;
     } finally { client.release(); }
-    await notifyAdmins({ type: "appointment", title: "Cita agregada desde un interesado", body: `Se agendó una cita para ${date} a las ${time}.`, entityType: "appointment", entityId: appointment.id });
+    await notifyAdmins({ organizationId: adminOrganizationId(req), type: "appointment", title: "Cita agregada desde un interesado", body: `Se agendó una cita para ${date} a las ${time}.`, entityType: "appointment", entityId: appointment.id });
     res.status(201).json({ data: appointment });
   } catch (error) {
     console.error("Admin appointment creation failed", error);
@@ -1290,7 +1372,7 @@ app.patch("/api/admin/appointments/:id", authenticate, requireRoles("admin", "ed
   const notes = String(req.body.notes || "").trim() || null;
   if (!["pending", "confirmed", "cancelled"].includes(status)) return res.status(400).json({ error: "Estado de cita no válido" });
   try {
-    const result = await pool.query(`UPDATE test_drive_requests SET status=$1, notes=$2 WHERE id=$3 RETURNING id, status, notes, requested_date AS "date", requested_time AS "time"`, [status, notes, req.params.id]);
+    const result = await pool.query(`UPDATE test_drive_requests SET status=$1, notes=$2 WHERE id=$3 AND organization_id=$4 RETURNING id, status, notes, requested_date AS "date", requested_time AS "time"`, [status, notes, req.params.id, adminOrganizationId(req)]);
     if (!result.rowCount) return res.status(404).json({ error: "Cita no encontrada" });
     await writeAudit(req, "appointment.update", "appointment", req.params.id, { status });
     res.json({ data: result.rows[0] });
@@ -1301,7 +1383,7 @@ app.get("/api/admin/appointment-blocks", authenticate, requireRoles("admin", "ed
   const from = isIsoDate(String(req.query.from || "")) ? String(req.query.from) : null;
   const to = isIsoDate(String(req.query.to || "")) ? String(req.query.to) : null;
   try {
-    const result = await pool.query(`SELECT id, block_date AS "date", start_time AS "start", end_time AS "end", reason, created_at AS "createdAt" FROM appointment_blocks WHERE ($1::date IS NULL OR block_date >= $1::date) AND ($2::date IS NULL OR block_date <= $2::date) ORDER BY block_date ASC, start_time ASC NULLS FIRST`, [from, to]);
+     const result = await pool.query(`SELECT id, block_date AS "date", start_time AS "start", end_time AS "end", reason, created_at AS "createdAt" FROM appointment_blocks WHERE organization_id=$3 AND ($1::date IS NULL OR block_date >= $1::date) AND ($2::date IS NULL OR block_date <= $2::date) ORDER BY block_date ASC, start_time ASC NULLS FIRST`, [from, to, adminOrganizationId(req)]);
     res.json({ data: result.rows });
   } catch (error) { console.error("Appointment blocks query failed", error); res.status(500).json({ error: "No se pudieron cargar los bloqueos" }); }
 });
@@ -1313,7 +1395,7 @@ app.post("/api/admin/appointment-blocks", authenticate, requireRoles("admin", "e
   const reason = String(req.body.reason || "").trim();
   if (!isIsoDate(date) || !reason || (start && timeToMinutes(start) === null) || (end && timeToMinutes(end) === null) || (!!start !== !!end) || (start && end && timeToMinutes(end) <= timeToMinutes(start))) return res.status(400).json({ error: "Fecha, motivo y un rango de horas válido son obligatorios" });
   try {
-    const result = await pool.query(`INSERT INTO appointment_blocks (block_date, start_time, end_time, reason, created_by) VALUES ($1::date,$2::time,$3::time,$4,$5) RETURNING id, block_date AS "date", start_time AS "start", end_time AS "end", reason, created_at AS "createdAt"`, [date, start, end, reason, req.admin.id]);
+     const result = await pool.query(`INSERT INTO appointment_blocks (organization_id, block_date, start_time, end_time, reason, created_by) VALUES ($1,$2::date,$3::time,$4::time,$5,$6) RETURNING id, block_date AS "date", start_time AS "start", end_time AS "end", reason, created_at AS "createdAt"`, [adminOrganizationId(req), date, start, end, reason, req.admin.id]);
     await writeAudit(req, "appointment_block.create", "appointment_block", result.rows[0].id, { date, start, end, reason });
     res.status(201).json({ data: result.rows[0] });
   } catch (error) { console.error("Appointment block creation failed", error); res.status(500).json({ error: "No se pudo crear el bloqueo" }); }
@@ -1321,7 +1403,7 @@ app.post("/api/admin/appointment-blocks", authenticate, requireRoles("admin", "e
 
 app.delete("/api/admin/appointment-blocks/:id", authenticate, requireRoles("admin", "editor"), async (req, res) => {
   try {
-    const result = await pool.query("DELETE FROM appointment_blocks WHERE id=$1 RETURNING id", [req.params.id]);
+     const result = await pool.query("DELETE FROM appointment_blocks WHERE id=$1 AND organization_id=$2 RETURNING id", [req.params.id, adminOrganizationId(req)]);
     if (!result.rowCount) return res.status(404).json({ error: "Bloqueo no encontrado" });
     await writeAudit(req, "appointment_block.delete", "appointment_block", req.params.id);
     res.status(204).end();
@@ -1342,16 +1424,16 @@ app.patch("/api/admin/leads/:id", authenticate, requireRoles("admin", "editor", 
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const current = await client.query("SELECT status, notes FROM leads WHERE id=$1", [req.params.id]);
+     const current = await client.query("SELECT status, notes FROM leads WHERE id=$1 AND organization_id=$2", [req.params.id, adminOrganizationId(req)]);
     if (!current.rowCount) { await client.query("ROLLBACK"); return res.status(404).json({ error: "Lead no encontrado" }); }
     if (assignedTo) {
-      const assignee = await client.query("SELECT id FROM admin_users WHERE id=$1 AND is_active=TRUE", [assignedTo]);
+       const assignee = await client.query("SELECT id FROM admin_users WHERE id=$1 AND organization_id=$2 AND is_active=TRUE", [assignedTo, adminOrganizationId(req)]);
       if (!assignee.rowCount) { await client.query("ROLLBACK"); return res.status(400).json({ error: "Usuario asignado no válido" }); }
     }
     const result = await client.query(
-      `UPDATE leads SET status=$1::varchar, notes=$2::text, assigned_to=$3::uuid, priority=$4::smallint, next_action=$5::varchar, next_action_at=$6::timestamptz, lost_reason=$7::varchar, closed_at=CASE WHEN $1::varchar='closed' THEN COALESCE(closed_at, NOW()) ELSE NULL::timestamptz END, updated_at=NOW(), last_contacted_at=CASE WHEN $1::varchar IN ('contacted','qualified','closed') THEN NOW() ELSE last_contacted_at END
-       WHERE id=$8::uuid RETURNING id, status, notes, assigned_to AS "assignedTo", priority, next_action AS "nextAction", next_action_at AS "nextActionAt", lost_reason AS "lostReason", closed_at AS "closedAt", updated_at AS "updatedAt"`,
-      [status, notes, assignedTo, priority, nextAction, nextActionAt, lostReason, req.params.id],
+       `UPDATE leads SET status=$1::varchar, notes=$2::text, assigned_to=$3::uuid, priority=$4::smallint, next_action=$5::varchar, next_action_at=$6::timestamptz, lost_reason=$7::varchar, closed_at=CASE WHEN $1::varchar='closed' THEN COALESCE(closed_at, NOW()) ELSE NULL::timestamptz END, updated_at=NOW(), last_contacted_at=CASE WHEN $1::varchar IN ('contacted','qualified','closed') THEN NOW() ELSE last_contacted_at END
+        WHERE id=$8::uuid AND organization_id=$9 RETURNING id, status, notes, assigned_to AS "assignedTo", priority, next_action AS "nextAction", next_action_at AS "nextActionAt", lost_reason AS "lostReason", closed_at AS "closedAt", updated_at AS "updatedAt"`,
+       [status, notes, assignedTo, priority, nextAction, nextActionAt, lostReason, req.params.id, adminOrganizationId(req)],
     );
     if (current.rows[0].status !== status) await client.query("INSERT INTO lead_events (lead_id, actor_id, event_type, note) VALUES ($1,$2,'status_change',$3)", [req.params.id, req.admin.id, `Estado cambiado a ${status}`]);
     if (current.rows[0].notes !== notes) await client.query("INSERT INTO lead_events (lead_id, actor_id, event_type, note) VALUES ($1,$2,'note',$3)", [req.params.id, req.admin.id, notes]);
@@ -1367,7 +1449,7 @@ app.patch("/api/admin/leads/:id", authenticate, requireRoles("admin", "editor", 
 
 app.get("/api/admin/leads/:id/events", authenticate, requireRoles("admin", "editor", "seller"), async (req, res) => {
   try {
-    const result = await pool.query(`SELECT e.id, e.event_type AS "eventType", e.note, e.created_at AS "createdAt", au.full_name AS "actorName" FROM lead_events e LEFT JOIN admin_users au ON au.id = e.actor_id WHERE e.lead_id=$1 ORDER BY e.created_at DESC`, [req.params.id]);
+     const result = await pool.query(`SELECT e.id, e.event_type AS "eventType", e.note, e.created_at AS "createdAt", au.full_name AS "actorName" FROM lead_events e LEFT JOIN admin_users au ON au.id = e.actor_id JOIN leads l ON l.id=e.lead_id WHERE e.lead_id=$1 AND l.organization_id=$2 ORDER BY e.created_at DESC`, [req.params.id, adminOrganizationId(req)]);
     res.json({ data: result.rows });
   } catch (error) {
     console.error("Lead events query failed", error);
@@ -1404,20 +1486,24 @@ app.post("/api/auth/change-password", authenticate, async (req, res) => {
     await writeAudit(req, "user.password_change", "admin_user", req.admin.id, {});
     const admin = result.rows[0];
     const token = jwt.sign({ id: admin.id, email: admin.email, role: admin.role, name: admin.full_name, mustChangePassword: false }, jwtSecret, { expiresIn: "8h" });
+    setSessionCookie(res, ADMIN_SESSION_COOKIE, token, 28800);
     res.json({ token, user: { id: admin.id, name: admin.full_name, email: admin.email, role: admin.role, mustChangePassword: false } });
   } catch (error) { console.error("Password change failed", error); res.status(500).json({ error: "No se pudo cambiar la contraseña" }); }
 });
 
-app.get("/api/admin/users", authenticate, requireRoles("admin", "editor", "seller"), async (_req, res) => {
+app.post("/api/auth/logout", (_req, res) => { clearSessionCookie(res, ADMIN_SESSION_COOKIE); res.status(204).end(); });
+app.post("/api/customer/auth/logout", (_req, res) => { clearSessionCookie(res, CUSTOMER_SESSION_COOKIE); res.status(204).end(); });
+
+app.get("/api/admin/users", authenticate, requireRoles("admin", "editor", "seller"), async (req, res) => {
   try {
-    const result = await pool.query("SELECT id, full_name AS \"name\", email, role FROM admin_users WHERE is_active=TRUE ORDER BY full_name");
+     const result = await pool.query("SELECT id, full_name AS \"name\", email, role FROM admin_users WHERE organization_id=$1 AND is_active=TRUE ORDER BY full_name", [adminOrganizationId(req)]);
     res.json({ data: result.rows });
   } catch (error) { console.error("Admin users query failed", error); res.status(500).json({ error: "No se pudieron cargar los usuarios" }); }
 });
 
-app.get("/api/admin/users/manage", authenticate, requireRoles("admin"), async (_req, res) => {
+app.get("/api/admin/users/manage", authenticate, requireRoles("admin"), async (req, res) => {
   try {
-    const result = await pool.query('SELECT id, full_name AS "name", email, role, is_active AS "isActive", created_at AS "createdAt" FROM admin_users ORDER BY is_active DESC, full_name');
+     const result = await pool.query('SELECT id, full_name AS "name", email, role, is_active AS "isActive", created_at AS "createdAt" FROM admin_users WHERE organization_id=$1 ORDER BY is_active DESC, full_name', [adminOrganizationId(req)]);
     res.json({ data: result.rows });
   } catch (error) { console.error("Admin user management query failed", error); res.status(500).json({ error: "No se pudieron cargar los usuarios" }); }
 });
@@ -1446,8 +1532,8 @@ app.post("/api/admin/users/:id/reset-password", authenticate, requireRoles("admi
     const temporaryPassword = crypto.randomBytes(9).toString("base64url");
     const passwordHash = await bcrypt.hash(temporaryPassword, 12);
     const result = await pool.query(
-      "UPDATE admin_users SET password_hash=$1, must_change_password=TRUE, updated_at=NOW() WHERE id=$2 AND is_active=TRUE RETURNING id, email, full_name AS \"name\"",
-      [passwordHash, req.params.id],
+       "UPDATE admin_users SET password_hash=$1, must_change_password=TRUE, updated_at=NOW() WHERE id=$2 AND organization_id=$3 AND is_active=TRUE RETURNING id, email, full_name AS \"name\"",
+       [passwordHash, req.params.id, adminOrganizationId(req)],
     );
     if (!result.rowCount) return res.status(404).json({ error: "Usuario no encontrado o inactivo" });
     await writeAudit(req, "user.password_reset", "admin_user", req.params.id, { email: result.rows[0].email });
@@ -1463,38 +1549,60 @@ app.patch("/api/admin/users/:id", authenticate, requireRoles("admin"), async (re
   if (!name) return res.status(400).json({ error: "El nombre es obligatorio" });
   if (req.params.id === req.admin.id && !isActive) return res.status(400).json({ error: "No puedes desactivar tu propia cuenta" });
   try {
-    const result = await pool.query('UPDATE admin_users SET full_name=$1, role=$2, is_active=$3, updated_at=NOW() WHERE id=$4 RETURNING id, full_name AS "name", email, role, is_active AS "isActive", created_at AS "createdAt"', [name, role, isActive, req.params.id]);
+    const result = await pool.query('UPDATE admin_users SET full_name=$1, role=$2, is_active=$3, updated_at=NOW() WHERE id=$4 AND organization_id=$5 RETURNING id, full_name AS "name", email, role, is_active AS "isActive", created_at AS "createdAt"', [name, role, isActive, req.params.id, adminOrganizationId(req)]);
     if (!result.rowCount) return res.status(404).json({ error: "Usuario no encontrado" });
     await writeAudit(req, "user.update", "admin_user", req.params.id, { role, isActive });
     res.json({ data: result.rows[0] });
   } catch (error) { console.error("Admin user update failed", error); res.status(500).json({ error: "No se pudo actualizar el usuario" }); }
 });
 
-app.get("/api/admin/settings", authenticate, requireRoles("admin", "editor", "content_editor"), async (_req, res) => {
+app.get("/api/admin/settings", authenticate, requireRoles("admin", "editor", "content_editor"), async (req, res) => {
   try {
-    const result = await pool.query('SELECT id, business_name AS "businessName", logo_url AS "logoUrl", phone, whatsapp, email, address, hours, instagram_url AS "instagramUrl", facebook_url AS "facebookUrl", currency, privacy_text AS "privacyText", terms_text AS "termsText", appointment_timezone AS "appointmentTimezone", appointment_start AS "appointmentStart", appointment_end AS "appointmentEnd", appointment_duration_minutes AS "appointmentDurationMinutes", appointment_min_notice_hours AS "appointmentMinNoticeHours", appointment_max_days_ahead AS "appointmentMaxDaysAhead", appointment_days AS "appointmentDays", appointment_capacity AS "appointmentCapacity", updated_at AS "updatedAt" FROM business_settings WHERE id=1');
+    const result = await pool.query('SELECT organization_id AS "organizationId", business_name AS "businessName", logo_url AS "logoUrl", primary_color AS "primaryColor", accent_color AS "accentColor", favicon_url AS "faviconUrl", phone, whatsapp, email, address, hours, instagram_url AS "instagramUrl", facebook_url AS "facebookUrl", currency, privacy_text AS "privacyText", terms_text AS "termsText", appointment_timezone AS "appointmentTimezone", appointment_start AS "appointmentStart", appointment_end AS "appointmentEnd", appointment_duration_minutes AS "appointmentDurationMinutes", appointment_min_notice_hours AS "appointmentMinNoticeHours", appointment_max_days_ahead AS "appointmentMaxDaysAhead", appointment_days AS "appointmentDays", appointment_capacity AS "appointmentCapacity", updated_at AS "updatedAt" FROM organization_settings WHERE organization_id=$1', [adminOrganizationId(req)]);
     res.json({ data: result.rows[0] || null });
   } catch (error) { console.error("Business settings query failed", error); res.status(500).json({ error: "No se pudo cargar la configuración" }); }
 });
 
 app.patch("/api/admin/settings", authenticate, requireRoles("admin"), async (req, res) => {
+  const normalizeColor = (value, fallback) => /^#[0-9a-f]{6}$/i.test(String(value || "").trim()) ? String(value).trim().toLowerCase() : fallback;
+  const normalizeTime = (value, fallback) => {
+    const match = String(value || "").trim().match(/^(\d{1,2}):(\d{2})/);
+    if (!match) return fallback;
+    return `${String(Number(match[1])).padStart(2, "0")}:${match[2]}`;
+  };
   const settings = {
     businessName: String(req.body.businessName || "AUTHENTIQ").trim(), logoUrl: String(req.body.logoUrl || "").trim() || null,
+    primaryColor: normalizeColor(req.body.primaryColor, "#c8a24b"), accentColor: normalizeColor(req.body.accentColor, "#b28b37"), faviconUrl: String(req.body.faviconUrl || "").trim() || null,
     phone: String(req.body.phone || "").trim() || null, whatsapp: String(req.body.whatsapp || "").trim() || null,
     email: String(req.body.email || "").trim() || null, address: String(req.body.address || "").trim() || null,
     hours: String(req.body.hours || "").trim() || null, instagramUrl: String(req.body.instagramUrl || "").trim() || null,
     facebookUrl: String(req.body.facebookUrl || "").trim() || null, currency: String(req.body.currency || "USD").trim().toUpperCase(),
     privacyText: String(req.body.privacyText || "").trim() || null, termsText: String(req.body.termsText || "").trim() || null,
-    appointmentTimezone: String(req.body.appointmentTimezone || "America/Santo_Domingo").trim(), appointmentStart: String(req.body.appointmentStart || "09:00").trim(), appointmentEnd: String(req.body.appointmentEnd || "18:00").trim(), appointmentDurationMinutes: Number(req.body.appointmentDurationMinutes || 60), appointmentMinNoticeHours: Number(req.body.appointmentMinNoticeHours || 2), appointmentMaxDaysAhead: Number(req.body.appointmentMaxDaysAhead || 30), appointmentDays: Array.isArray(req.body.appointmentDays) ? req.body.appointmentDays.map(Number).filter((day) => day >= 1 && day <= 7) : [1, 2, 3, 4, 5, 6], appointmentCapacity: Number(req.body.appointmentCapacity || 1),
+    appointmentTimezone: String(req.body.appointmentTimezone || "America/Santo_Domingo").trim(), appointmentStart: normalizeTime(req.body.appointmentStart, "09:00"), appointmentEnd: normalizeTime(req.body.appointmentEnd, "18:00"), appointmentDurationMinutes: Number(req.body.appointmentDurationMinutes || 60), appointmentMinNoticeHours: Number(req.body.appointmentMinNoticeHours || 2), appointmentMaxDaysAhead: Number(req.body.appointmentMaxDaysAhead || 30), appointmentDays: Array.isArray(req.body.appointmentDays) ? req.body.appointmentDays.map(Number).filter((day) => day >= 1 && day <= 7) : [1, 2, 3, 4, 5, 6], appointmentCapacity: Number(req.body.appointmentCapacity || 1),
   };
   if (!settings.businessName) return res.status(400).json({ error: "El nombre del negocio es obligatorio" });
   try {
     if (settings.appointmentDurationMinutes < 15 || settings.appointmentDurationMinutes > 240 || settings.appointmentMinNoticeHours < 0 || settings.appointmentMaxDaysAhead < 1 || settings.appointmentMaxDaysAhead > 365 || settings.appointmentCapacity < 1 || settings.appointmentCapacity > 20 || timeToMinutes(settings.appointmentStart) === null || timeToMinutes(settings.appointmentEnd) === null || timeToMinutes(settings.appointmentEnd) <= timeToMinutes(settings.appointmentStart)) return res.status(400).json({ error: "La configuración de citas no es válida" });
     const values = [settings.businessName, settings.logoUrl, settings.phone, settings.whatsapp, settings.email, settings.address, settings.hours, settings.instagramUrl, settings.facebookUrl, settings.currency, settings.privacyText, settings.termsText, settings.appointmentTimezone, settings.appointmentStart, settings.appointmentEnd, settings.appointmentDurationMinutes, settings.appointmentMinNoticeHours, settings.appointmentMaxDaysAhead, settings.appointmentDays, settings.appointmentCapacity];
-    const result = await pool.query('UPDATE business_settings SET business_name=$1, logo_url=$2, phone=$3, whatsapp=$4, email=$5, address=$6, hours=$7, instagram_url=$8, facebook_url=$9, currency=$10, privacy_text=$11, terms_text=$12, appointment_timezone=$13, appointment_start=$14, appointment_end=$15, appointment_duration_minutes=$16, appointment_min_notice_hours=$17, appointment_max_days_ahead=$18, appointment_days=$19, appointment_capacity=$20, updated_at=NOW() WHERE id=1 RETURNING id, business_name AS "businessName", logo_url AS "logoUrl", phone, whatsapp, email, address, hours, instagram_url AS "instagramUrl", facebook_url AS "facebookUrl", currency, privacy_text AS "privacyText", terms_text AS "termsText", appointment_timezone AS "appointmentTimezone", appointment_start AS "appointmentStart", appointment_end AS "appointmentEnd", appointment_duration_minutes AS "appointmentDurationMinutes", appointment_min_notice_hours AS "appointmentMinNoticeHours", appointment_max_days_ahead AS "appointmentMaxDaysAhead", appointment_days AS "appointmentDays", appointment_capacity AS "appointmentCapacity", updated_at AS "updatedAt"', values);
-    await writeAudit(req, "settings.update", "business_settings", null, { businessName: settings.businessName });
-    res.json({ data: result.rows[0] });
+     const result = await pool.query('UPDATE organization_settings SET business_name=$1, logo_url=$2, phone=$3, whatsapp=$4, email=$5, address=$6, hours=$7, instagram_url=$8, facebook_url=$9, currency=$10, privacy_text=$11, terms_text=$12, appointment_timezone=$13, appointment_start=$14, appointment_end=$15, appointment_duration_minutes=$16, appointment_min_notice_hours=$17, appointment_max_days_ahead=$18, appointment_days=$19, appointment_capacity=$20, updated_at=NOW() WHERE organization_id=$21 RETURNING organization_id AS "organizationId", business_name AS "businessName", logo_url AS "logoUrl", phone, whatsapp, email, address, hours, instagram_url AS "instagramUrl", facebook_url AS "facebookUrl", currency, privacy_text AS "privacyText", terms_text AS "termsText", appointment_timezone AS "appointmentTimezone", appointment_start AS "appointmentStart", appointment_end AS "appointmentEnd", appointment_duration_minutes AS "appointmentDurationMinutes", appointment_min_notice_hours AS "appointmentMinNoticeHours", appointment_max_days_ahead AS "appointmentMaxDaysAhead", appointment_days AS "appointmentDays", appointment_capacity AS "appointmentCapacity", updated_at AS "updatedAt"', [...values, adminOrganizationId(req)]);
+    await pool.query("UPDATE organization_settings SET primary_color=$1, accent_color=$2, favicon_url=$3, updated_at=NOW() WHERE organization_id=$4", [settings.primaryColor, settings.accentColor, settings.faviconUrl, adminOrganizationId(req)]);
+    const branding = await pool.query('SELECT primary_color AS "primaryColor", accent_color AS "accentColor", favicon_url AS "faviconUrl" FROM organization_settings WHERE organization_id=$1', [adminOrganizationId(req)]);
+    await writeAudit(req, "settings.update", "business_settings", null, { businessName: settings.businessName, primaryColor: settings.primaryColor, accentColor: settings.accentColor });
+    res.json({ data: { ...(result.rows[0] || {}), ...(branding.rows[0] || {}) } });
   } catch (error) { console.error("Business settings update failed", error); res.status(500).json({ error: "No se pudo guardar la configuración" }); }
+});
+
+app.patch("/api/admin/settings/branding", authenticate, requireRoles("admin"), async (req, res) => {
+  const normalizeColor = (value, fallback) => /^#[0-9a-f]{6}$/i.test(String(value || "").trim()) ? String(value).trim().toLowerCase() : fallback;
+  const primaryColor = normalizeColor(req.body?.primaryColor, "#c8a24b");
+  const accentColor = normalizeColor(req.body?.accentColor, "#b28b37");
+  const faviconUrl = String(req.body?.faviconUrl || "").trim() || null;
+  try {
+    const result = await pool.query('UPDATE organization_settings SET primary_color=$1, accent_color=$2, favicon_url=$3, updated_at=NOW() WHERE organization_id=$4 RETURNING organization_id AS "organizationId", primary_color AS "primaryColor", accent_color AS "accentColor", favicon_url AS "faviconUrl"', [primaryColor, accentColor, faviconUrl, adminOrganizationId(req)]);
+    if (!result.rowCount) return res.status(404).json({ error: "Configuración de marca no encontrada" });
+    await writeAudit(req, "branding.update", "organization_settings", adminOrganizationId(req), { primaryColor, accentColor, hasFavicon: Boolean(faviconUrl) });
+    res.json({ data: result.rows[0] });
+  } catch (error) { console.error("Branding update failed", error); res.status(500).json({ error: "No se pudo guardar la identidad visual" }); }
 });
 
 app.get("/api/admin/organization", authenticate, requireRoles("admin"), async (req, res) => {
@@ -1520,7 +1628,7 @@ app.patch("/api/admin/organization", authenticate, requireRoles("admin"), async 
     try {
       await client.query("BEGIN");
       const result = await client.query(`UPDATE organizations SET name=$1, slug=$2, logo_url=$3, custom_domain=$4, updated_at=NOW() WHERE id=$5 RETURNING id, slug, name, logo_url AS "logoUrl", custom_domain AS "customDomain", is_active AS "isActive", updated_at AS "updatedAt"`, [name, slug, logoUrl, customDomain, organization.rows[0].id]);
-      await client.query("UPDATE business_settings SET business_name=$1, logo_url=$2, updated_at=NOW() WHERE organization_id=$3", [name, logoUrl, organization.rows[0].id]);
+      await client.query("UPDATE organization_settings SET business_name=$1, logo_url=$2, updated_at=NOW() WHERE organization_id=$3", [name, logoUrl, organization.rows[0].id]);
       await client.query("COMMIT");
       await writeAudit(req, "organization.update", "organization", organization.rows[0].id, { name, slug });
       res.json({ data: result.rows[0] });
@@ -1528,9 +1636,180 @@ app.patch("/api/admin/organization", authenticate, requireRoles("admin"), async 
   } catch (error) { console.error("Organization update failed", error); res.status(500).json({ error: "No se pudo guardar el perfil del concesionario" }); }
 });
 
-app.get("/api/admin/blog", authenticate, requireRoles("admin", "editor", "content_editor"), async (_req, res) => {
+app.get("/api/admin/onboarding", authenticate, requireRoles("admin"), async (req, res) => {
   try {
-    const result = await pool.query(`SELECT id, title, slug, summary, content, category, tags, cover_image_url AS "coverImageUrl", status, published_at AS "publishedAt", seo_title AS "seoTitle", seo_description AS "seoDescription", created_at AS "createdAt", updated_at AS "updatedAt" FROM blog_posts ORDER BY created_at DESC`);
+    const organizationId = adminOrganizationId(req);
+    const result = await pool.query(`
+      SELECT o.name, o.slug, o.custom_domain AS "customDomain", o.logo_url AS "logoUrl",
+             os.business_name AS "businessName", os.phone, os.whatsapp, os.email,
+             os.privacy_text AS "privacyText", os.terms_text AS "termsText",
+             os.instagram_url AS "instagramUrl", os.facebook_url AS "facebookUrl",
+             os.appointment_start AS "appointmentStart", os.appointment_end AS "appointmentEnd",
+             os.appointment_days AS "appointmentDays",
+             (SELECT COUNT(*)::int FROM vehicles v WHERE v.organization_id=o.id AND v.status IN ('published','reserved')) AS "publishedVehicles",
+             (SELECT COUNT(*)::int FROM admin_users au WHERE au.organization_id=o.id AND au.is_active=TRUE) AS "activeUsers"
+      FROM organizations o
+      JOIN organization_settings os ON os.organization_id=o.id
+      WHERE o.id=$1
+    `, [organizationId]);
+    if (!result.rowCount) return res.status(404).json({ error: "Organización no encontrada" });
+    const row = result.rows[0];
+    const steps = [
+      { id: "identity", label: "Identidad comercial", detail: "Nombre y slug listos para la marca blanca.", done: Boolean(row.name && row.slug) },
+      { id: "logo", label: "Logo del concesionario", detail: "Sube el logo que verá el comprador.", done: Boolean(row.logoUrl) },
+      { id: "contact", label: "Canales de contacto", detail: "Teléfono, WhatsApp o correo para convertir consultas.", done: Boolean(row.phone || row.whatsapp || row.email) },
+      { id: "catalog", label: "Primer inventario publicado", detail: "El sitio ya puede recibir compradores.", done: Number(row.publishedVehicles) > 0 },
+      { id: "appointments", label: "Horarios de citas", detail: "Define cuándo el showroom puede recibir visitas.", done: Boolean(row.appointmentStart && row.appointmentEnd && row.appointmentDays?.length) },
+      { id: "social", label: "Redes sociales", detail: "Conecta Instagram o Facebook cuando el cliente lo autorice.", done: Boolean(row.instagramUrl || row.facebookUrl) },
+      { id: "legal", label: "Textos legales", detail: "Revisa privacidad y términos antes de publicar.", done: Boolean(row.privacyText && row.termsText && !/borrador|pendiente de revisión/i.test(`${row.privacyText} ${row.termsText}`)) },
+      { id: "domain", label: "Dominio personalizado", detail: "Opcional: enlaza el dominio del concesionario.", done: Boolean(row.customDomain) },
+    ];
+    const completed = steps.filter((step) => step.done).length;
+    res.json({ data: { steps, completed, total: steps.length, progress: Math.round((completed / steps.length) * 100), activeUsers: Number(row.activeUsers) } });
+  } catch (error) { console.error("Onboarding query failed", error); res.status(500).json({ error: "No se pudo cargar el estado de inicio" }); }
+});
+
+function icsText(value) {
+  return String(value || "").replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\r?\n/g, "\\n");
+}
+
+function icsLocalDate(date, time = "00:00:00") {
+  const datePart = String(date || "").slice(0, 10).replaceAll("-", "");
+  const timePart = String(time || "00:00:00").slice(0, 8).replaceAll(":", "").padEnd(6, "0");
+  return `${datePart}T${timePart}`;
+}
+
+app.get("/api/admin/calendar.ics", authenticate, requireRoles("admin", "editor", "seller"), async (req, res) => {
+  try {
+    const organizationId = adminOrganizationId(req);
+    const result = await pool.query(`
+      SELECT t.id, t.customer_name AS "customerName", t.customer_email AS "customerEmail", t.customer_phone AS "customerPhone",
+             t.requested_date AS date, t.requested_time AS time, t.status, t.notes,
+             v.model, v.variant, b.name AS brand
+      FROM test_drive_requests t
+      LEFT JOIN vehicles v ON v.id=t.vehicle_id AND v.organization_id=$1
+      LEFT JOIN vehicle_brands b ON b.id=v.brand_id
+      WHERE t.organization_id=$1 AND t.requested_date >= CURRENT_DATE AND t.status <> 'cancelled'
+      ORDER BY t.requested_date, t.requested_time
+    `, [organizationId]);
+    const settings = await pool.query("SELECT business_name AS \"businessName\", appointment_duration_minutes AS \"durationMinutes\" FROM organization_settings WHERE organization_id=$1", [organizationId]);
+    const duration = Number(settings.rows[0]?.durationMinutes || 60);
+    const events = result.rows.map((appointment) => {
+      const start = icsLocalDate(appointment.date, appointment.time);
+      const [hours, minutes] = String(appointment.time || "00:00").split(":").map(Number);
+      const endTotalMinutes = (hours || 0) * 60 + (minutes || 0) + duration;
+      const endHours = String(Math.floor(endTotalMinutes / 60) % 24).padStart(2, "0");
+      const endMinutes = String(endTotalMinutes % 60).padStart(2, "0");
+      const end = icsLocalDate(appointment.date, `${endHours}:${endMinutes}:00`);
+      const vehicleName = [appointment.brand, appointment.model, appointment.variant].filter(Boolean).join(" ") || "visita al showroom";
+      const summary = `Visita · ${vehicleName}`;
+      const description = [appointment.customerEmail, appointment.customerPhone, appointment.notes].filter(Boolean).join(" · ");
+      return [
+        "BEGIN:VEVENT", `UID:${appointment.id}@authentiq.local`, `DTSTAMP:${icsLocalDate(new Date().toISOString().slice(0, 10), new Date().toISOString().slice(11, 19))}Z`, `DTSTART:${start}`, `DTEND:${end}`,
+        `SUMMARY:${icsText(summary)}`, `DESCRIPTION:${icsText(description)}`, `STATUS:${appointment.status === "confirmed" ? "CONFIRMED" : "TENTATIVE"}`, "END:VEVENT",
+      ].join("\r\n");
+    });
+    const calendarName = settings.rows[0]?.businessName || "Agenda del showroom";
+    const content = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//AUTHENTIQ//Local showroom calendar//ES", "CALSCALE:GREGORIAN", `X-WR-CALNAME:${icsText(calendarName)}`, ...events, "END:VCALENDAR", ""].join("\r\n");
+    res.set({ "Content-Type": "text/calendar; charset=utf-8", "Content-Disposition": `attachment; filename=agenda-${String(calendarName).toLowerCase().replace(/[^a-z0-9]+/g, "-")}.ics` }).send(content);
+  } catch (error) { console.error("Calendar export failed", error); res.status(500).json({ error: "No se pudo exportar la agenda" }); }
+});
+
+app.get("/api/admin/export/leads.csv", authenticate, requireRoles("admin", "editor", "seller"), async (req, res) => {
+  try {
+    const result = await pool.query(`SELECT l.created_at AS "createdAt", l.status, l.lead_type AS "leadType", l.name, l.email, l.phone, l.source, l.message, l.notes, b.name AS brand, v.model, v.year FROM leads l LEFT JOIN vehicles v ON v.id=l.vehicle_id AND v.organization_id=$1 LEFT JOIN vehicle_brands b ON b.id=v.brand_id WHERE l.organization_id=$1 ORDER BY l.created_at DESC`, [adminOrganizationId(req)]);
+    sendCsv(res, "interesados.csv", [
+      { key: "createdAt", label: "Fecha" }, { key: "status", label: "Estado" }, { key: "leadType", label: "Tipo" }, { key: "name", label: "Nombre" }, { key: "email", label: "Correo" }, { key: "phone", label: "Teléfono" }, { key: "source", label: "Origen" }, { key: "brand", label: "Marca" }, { key: "model", label: "Modelo" }, { key: "year", label: "Año" }, { key: "message", label: "Mensaje" }, { key: "notes", label: "Notas" },
+    ], result.rows);
+  } catch (error) { console.error("Leads export failed", error); res.status(500).json({ error: "No se pudo exportar los interesados" }); }
+});
+
+app.get("/api/admin/export/appointments.csv", authenticate, requireRoles("admin", "editor", "seller"), async (req, res) => {
+  try {
+    const result = await pool.query(`SELECT t.created_at AS "createdAt", t.requested_date AS date, t.requested_time AS time, t.status, t.customer_name AS "customerName", t.customer_email AS "customerEmail", t.customer_phone AS "customerPhone", b.name AS brand, v.model, v.year, t.notes FROM test_drive_requests t LEFT JOIN vehicles v ON v.id=t.vehicle_id AND v.organization_id=$1 LEFT JOIN vehicle_brands b ON b.id=v.brand_id WHERE t.organization_id=$1 ORDER BY t.requested_date DESC, t.requested_time DESC`, [adminOrganizationId(req)]);
+    sendCsv(res, "citas.csv", [
+      { key: "createdAt", label: "Creada" }, { key: "date", label: "Fecha" }, { key: "time", label: "Hora" }, { key: "status", label: "Estado" }, { key: "customerName", label: "Cliente" }, { key: "customerEmail", label: "Correo" }, { key: "customerPhone", label: "Teléfono" }, { key: "brand", label: "Marca" }, { key: "model", label: "Modelo" }, { key: "year", label: "Año" }, { key: "notes", label: "Notas" },
+    ], result.rows);
+  } catch (error) { console.error("Appointments export failed", error); res.status(500).json({ error: "No se pudo exportar las citas" }); }
+});
+
+app.get("/api/admin/export/quotes.csv", authenticate, requireRoles("admin", "editor", "seller"), async (req, res) => {
+  try {
+    const result = await pool.query(`SELECT q.created_at AS "createdAt", q.quote_number AS "quoteNumber", q.status, q.customer_name AS "customerName", q.customer_email AS "customerEmail", q.customer_phone AS "customerPhone", q.base_price_usd AS "basePriceUsd", q.discount_usd AS "discountUsd", q.total_usd AS "totalUsd", q.currency, q.valid_until AS "validUntil", b.name AS brand, v.model, v.year FROM quotes q LEFT JOIN vehicles v ON v.id=q.vehicle_id AND v.organization_id=$1 LEFT JOIN vehicle_brands b ON b.id=v.brand_id WHERE q.organization_id=$1 ORDER BY q.created_at DESC`, [adminOrganizationId(req)]);
+    sendCsv(res, "cotizaciones.csv", [
+      { key: "createdAt", label: "Creada" }, { key: "quoteNumber", label: "Cotización" }, { key: "status", label: "Estado" }, { key: "customerName", label: "Cliente" }, { key: "customerEmail", label: "Correo" }, { key: "customerPhone", label: "Teléfono" }, { key: "basePriceUsd", label: "Precio base USD" }, { key: "discountUsd", label: "Descuento USD" }, { key: "totalUsd", label: "Total USD" }, { key: "currency", label: "Moneda" }, { key: "validUntil", label: "Válida hasta" }, { key: "brand", label: "Marca" }, { key: "model", label: "Modelo" }, { key: "year", label: "Año" },
+    ], result.rows);
+  } catch (error) { console.error("Quotes export failed", error); res.status(500).json({ error: "No se pudo exportar las cotizaciones" }); }
+});
+
+app.get("/api/admin/integrations", authenticate, requireRoles("admin"), async (req, res) => {
+  try {
+    const organizationId = adminOrganizationId(req);
+    const [integrations, billing] = await Promise.all([
+      pool.query("SELECT provider, mode, status, config, connected_at AS \"connectedAt\", updated_at AS \"updatedAt\" FROM organization_integrations WHERE organization_id=$1 ORDER BY provider", [organizationId]),
+      pool.query("SELECT provider, mode, plan_code AS \"planCode\", status, monthly_amount AS \"monthlyAmount\", currency, current_period_end AS \"currentPeriodEnd\", updated_at AS \"updatedAt\" FROM billing_subscriptions WHERE organization_id=$1", [organizationId]),
+    ]);
+    res.json({ data: { integrations: integrations.rows, billing: billing.rows[0] || null, localMode: true } });
+  } catch (error) { console.error("Integrations query failed", error); res.status(500).json({ error: "No se pudo cargar el centro de integraciones" }); }
+});
+
+app.patch("/api/admin/integrations/:provider", authenticate, requireRoles("admin"), async (req, res) => {
+  const provider = String(req.params.provider || "").trim();
+  if (!["google_calendar", "meta_social", "billing"].includes(provider)) return res.status(400).json({ error: "Proveedor de integración no válido" });
+  const localStatuses = { google_calendar: "local_export_ready", meta_social: "drafts_ready", billing: "trialing" };
+  const config = req.body?.config && typeof req.body.config === "object" && !Array.isArray(req.body.config) ? req.body.config : {};
+  try {
+    const result = await pool.query(`
+      INSERT INTO organization_integrations (organization_id, provider, mode, status, config, connected_at, updated_at)
+      VALUES ($1,$2,'local',$3,$4::jsonb,NOW(),NOW())
+      ON CONFLICT (organization_id, provider) DO UPDATE SET status=EXCLUDED.status, config=EXCLUDED.config, connected_at=NOW(), updated_at=NOW()
+      RETURNING provider, mode, status, config, connected_at AS "connectedAt", updated_at AS "updatedAt"
+    `, [adminOrganizationId(req), provider, localStatuses[provider], JSON.stringify(config)]);
+    await writeAudit(req, "integration.local_configure", "organization_integration", `${adminOrganizationId(req)}:${provider}`, { provider });
+    res.json({ data: result.rows[0] });
+  } catch (error) { console.error("Integration update failed", error); res.status(500).json({ error: "No se pudo guardar la integración" }); }
+});
+
+app.get("/api/admin/social/drafts", authenticate, requireRoles("admin", "editor", "content_editor"), async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT d.id, d.vehicle_id AS "vehicleId", d.platform, d.caption, d.hashtags, d.media_url AS "mediaUrl", d.status,
+             d.created_at AS "createdAt", v.model, v.year, b.name AS brand
+      FROM social_drafts d LEFT JOIN vehicles v ON v.id=d.vehicle_id AND v.organization_id=d.organization_id
+      LEFT JOIN vehicle_brands b ON b.id=v.brand_id
+      WHERE d.organization_id=$1 ORDER BY d.created_at DESC LIMIT 50
+    `, [adminOrganizationId(req)]);
+    res.json({ data: result.rows });
+  } catch (error) { console.error("Social drafts query failed", error); res.status(500).json({ error: "No se pudieron cargar los borradores sociales" }); }
+});
+
+app.post("/api/admin/social/drafts", authenticate, requireRoles("admin", "editor", "content_editor"), async (req, res) => {
+  const platform = ["instagram", "facebook", "both"].includes(req.body?.platform) ? req.body.platform : "both";
+  const caption = String(req.body?.caption || "").trim().slice(0, 2200);
+  const hashtags = Array.isArray(req.body?.hashtags) ? req.body.hashtags.map((tag) => String(tag).trim().replace(/^#/, "")).filter(Boolean).slice(0, 20) : [];
+  const vehicleId = String(req.body?.vehicleId || "").trim() || null;
+  if (!caption) return res.status(400).json({ error: "El texto de la publicación es obligatorio" });
+  try {
+    if (vehicleId) {
+      const vehicle = await pool.query("SELECT id FROM vehicles WHERE id=$1 AND organization_id=$2", [vehicleId, adminOrganizationId(req)]);
+      if (!vehicle.rowCount) return res.status(404).json({ error: "Vehículo no encontrado en esta organización" });
+    }
+    const result = await pool.query(`INSERT INTO social_drafts (organization_id, vehicle_id, platform, caption, hashtags, media_url, status, created_by) VALUES ($1,$2,$3,$4,$5,$6,'ready',$7) RETURNING id, vehicle_id AS "vehicleId", platform, caption, hashtags, media_url AS "mediaUrl", status, created_at AS "createdAt"`, [adminOrganizationId(req), vehicleId, platform, caption, hashtags, String(req.body?.mediaUrl || "").trim() || null, req.admin.id]);
+    await writeAudit(req, "social_draft.create", "social_draft", result.rows[0].id, { platform, vehicleId });
+    res.status(201).json({ data: result.rows[0] });
+  } catch (error) { console.error("Social draft creation failed", error); res.status(500).json({ error: "No se pudo crear el borrador social" }); }
+});
+
+app.get("/api/admin/billing", authenticate, requireRoles("admin"), async (req, res) => {
+  try {
+    const result = await pool.query("SELECT provider, mode, plan_code AS \"planCode\", status, monthly_amount AS \"monthlyAmount\", currency, current_period_end AS \"currentPeriodEnd\", updated_at AS \"updatedAt\" FROM billing_subscriptions WHERE organization_id=$1", [adminOrganizationId(req)]);
+    res.json({ data: { ...(result.rows[0] || { provider: "local", mode: "local_demo", planCode: "starter", status: "trialing", monthlyAmount: 0, currency: "USD" }), checkoutReady: false, message: "Modo local: conecta Stripe o el proveedor elegido antes de cobrar." } });
+  } catch (error) { console.error("Billing query failed", error); res.status(500).json({ error: "No se pudo cargar la suscripción" }); }
+});
+
+app.get("/api/admin/blog", authenticate, requireRoles("admin", "editor", "content_editor"), async (req, res) => {
+  try {
+     const result = await pool.query(`SELECT id, title, slug, summary, content, category, tags, cover_image_url AS "coverImageUrl", status, published_at AS "publishedAt", seo_title AS "seoTitle", seo_description AS "seoDescription", created_at AS "createdAt", updated_at AS "updatedAt" FROM blog_posts WHERE organization_id=$1 ORDER BY created_at DESC`, [adminOrganizationId(req)]);
     res.json({ data: result.rows });
   } catch (error) { console.error("Admin blog listing failed", error); res.status(500).json({ error: "No se pudo cargar el contenido" }); }
 });
@@ -1539,7 +1818,7 @@ app.post("/api/admin/blog", authenticate, requireRoles("admin", "editor", "conte
   const post = blogPayload(req.body);
   if (!post.title || !post.slug || !post.content) return res.status(400).json({ error: "Título y contenido son obligatorios" });
   try {
-    const result = await pool.query(`INSERT INTO blog_posts (title, slug, summary, content, category, tags, cover_image_url, author_id, status, published_at, seo_title, seo_description) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,CASE WHEN $9='published' THEN NOW() ELSE NULL END,$10,$11) RETURNING id`, [post.title, post.slug, post.summary, post.content, post.category, post.tags, post.coverImageUrl, req.admin.id, post.status, post.seoTitle, post.seoDescription]);
+     const result = await pool.query(`INSERT INTO blog_posts (organization_id, title, slug, summary, content, category, tags, cover_image_url, author_id, status, published_at, seo_title, seo_description) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,CASE WHEN $10='published' THEN NOW() ELSE NULL END,$11,$12) RETURNING id`, [adminOrganizationId(req), post.title, post.slug, post.summary, post.content, post.category, post.tags, post.coverImageUrl, req.admin.id, post.status, post.seoTitle, post.seoDescription]);
     await writeAudit(req, "blog.create", "blog_post", result.rows[0].id, { status: post.status, slug: post.slug });
     res.status(201).json({ data: { id: result.rows[0].id, ...post } });
   } catch (error) { console.error("Blog creation failed", error); res.status(error.code === "23505" ? 409 : 500).json({ error: error.code === "23505" ? "Ese slug ya existe" : "No se pudo crear el artículo" }); }
@@ -1549,7 +1828,7 @@ app.put("/api/admin/blog/:id", authenticate, requireRoles("admin", "editor", "co
   const post = blogPayload(req.body);
   if (!post.title || !post.slug || !post.content) return res.status(400).json({ error: "Título y contenido son obligatorios" });
   try {
-    const result = await pool.query(`UPDATE blog_posts SET title=$1, slug=$2, summary=$3, content=$4, category=$5, tags=$6, cover_image_url=$7, status=$8, published_at=CASE WHEN $8='published' AND published_at IS NULL THEN NOW() WHEN $8 <> 'published' THEN NULL ELSE published_at END, seo_title=$9, seo_description=$10, updated_at=NOW() WHERE id=$11 RETURNING id`, [post.title, post.slug, post.summary, post.content, post.category, post.tags, post.coverImageUrl, post.status, post.seoTitle, post.seoDescription, req.params.id]);
+     const result = await pool.query(`UPDATE blog_posts SET title=$1, slug=$2, summary=$3, content=$4, category=$5, tags=$6, cover_image_url=$7, status=$8, published_at=CASE WHEN $8='published' AND published_at IS NULL THEN NOW() WHEN $8 <> 'published' THEN NULL ELSE published_at END, seo_title=$9, seo_description=$10, updated_at=NOW() WHERE id=$11 AND organization_id=$12 RETURNING id`, [post.title, post.slug, post.summary, post.content, post.category, post.tags, post.coverImageUrl, post.status, post.seoTitle, post.seoDescription, req.params.id, adminOrganizationId(req)]);
     if (!result.rowCount) return res.status(404).json({ error: "Artículo no encontrado" });
     await writeAudit(req, "blog.update", "blog_post", req.params.id, { status: post.status, slug: post.slug });
     res.json({ data: { id: result.rows[0].id, ...post } });
@@ -1558,14 +1837,14 @@ app.put("/api/admin/blog/:id", authenticate, requireRoles("admin", "editor", "co
 
 app.delete("/api/admin/blog/:id", authenticate, requireRoles("admin", "editor", "content_editor"), async (req, res) => {
   try {
-    const result = await pool.query("UPDATE blog_posts SET status='archived', updated_at=NOW() WHERE id=$1 RETURNING id", [req.params.id]);
+     const result = await pool.query("UPDATE blog_posts SET status='archived', updated_at=NOW() WHERE id=$1 AND organization_id=$2 RETURNING id", [req.params.id, adminOrganizationId(req)]);
     if (!result.rowCount) return res.status(404).json({ error: "Artículo no encontrado" });
     await writeAudit(req, "blog.archive", "blog_post", req.params.id);
     res.status(204).end();
   } catch (error) { console.error("Blog archive failed", error); res.status(500).json({ error: "No se pudo archivar el artículo" }); }
 });
 
-app.get("/api/admin/dashboard", authenticate, requireRoles("admin", "editor", "seller", "content_editor"), async (_req, res) => {
+app.get("/api/admin/dashboard", authenticate, requireRoles("admin", "editor", "seller", "content_editor"), async (req, res) => {
   try {
     const [summary, brands, statuses, recentOffers] = await Promise.all([
       pool.query(`
@@ -1574,32 +1853,32 @@ app.get("/api/admin/dashboard", authenticate, requireRoles("admin", "editor", "s
           COUNT(*) FILTER (WHERE status = 'published')::int AS "publishedVehicles",
           COALESCE(SUM(stock) FILTER (WHERE status = 'published'), 0)::int AS "availableStock",
           COALESCE(SUM(price_usd * stock) FILTER (WHERE status = 'published'), 0)::numeric AS "inventoryValue",
-          (SELECT COUNT(*)::int FROM leads WHERE status IN ('new', 'contacted', 'qualified')) AS "pendingLeads",
-          (SELECT COUNT(*)::int FROM offers WHERE status = 'pending') AS "pendingOffers"
-        FROM vehicles
-      `),
+           (SELECT COUNT(*)::int FROM leads WHERE organization_id=$1 AND status IN ('new', 'contacted', 'qualified')) AS "pendingLeads",
+           (SELECT COUNT(*)::int FROM offers WHERE organization_id=$1 AND status = 'pending') AS "pendingOffers"
+        FROM vehicles WHERE organization_id=$1
+      `, [adminOrganizationId(req)]),
       pool.query(`
         SELECT b.name, COUNT(v.id)::int AS vehicles, COALESCE(SUM(v.stock), 0)::int AS stock
         FROM vehicle_brands b
-        LEFT JOIN vehicles v ON v.brand_id = b.id AND v.status <> 'inactive'
+         LEFT JOIN vehicles v ON v.brand_id = b.id AND v.organization_id=$1 AND v.status <> 'inactive'
         GROUP BY b.id, b.name
         ORDER BY vehicles DESC, b.name ASC
-      `),
+       `, [adminOrganizationId(req)]),
       pool.query(`
         SELECT status, COUNT(*)::int AS count
-        FROM vehicles
+         FROM vehicles WHERE organization_id=$1
         GROUP BY status
         ORDER BY status
-      `),
+       `, [adminOrganizationId(req)]),
       pool.query(`
         SELECT o.id, o.buyer_name AS "buyerName", o.amount_usd AS "amountUsd", o.status, o.created_at AS "createdAt",
                b.name AS brand, v.model, v.year
-        FROM offers o
-        JOIN vehicles v ON v.id = o.vehicle_id
+         FROM offers o
+         JOIN vehicles v ON v.id = o.vehicle_id AND v.organization_id=$1
         JOIN vehicle_brands b ON b.id = v.brand_id
         ORDER BY o.created_at DESC
         LIMIT 5
-      `),
+       `, [adminOrganizationId(req)]),
     ]);
     res.json({ data: { summary: summary.rows[0], byBrand: brands.rows, byStatus: statuses.rows, recentOffers: recentOffers.rows } });
   } catch (error) {
@@ -1608,18 +1887,18 @@ app.get("/api/admin/dashboard", authenticate, requireRoles("admin", "editor", "s
   }
 });
 
-app.get("/api/admin/offers", authenticate, requireRoles("admin", "editor", "seller"), async (_req, res) => {
+app.get("/api/admin/offers", authenticate, requireRoles("admin", "editor", "seller"), async (req, res) => {
   try {
     const result = await pool.query(`
       SELECT o.id, o.buyer_name AS "buyerName", o.buyer_email AS "buyerEmail", o.buyer_phone AS "buyerPhone",
              o.amount_usd AS "amountUsd", o.payment_method AS "paymentMethod", o.message, o.status,
              o.created_at AS "createdAt", o.reviewed_at AS "reviewedAt", b.name AS brand, v.model, v.year,
              v.price_usd AS "vehiclePriceUsd"
-      FROM offers o
-      JOIN vehicles v ON v.id = o.vehicle_id
+       FROM offers o
+       JOIN vehicles v ON v.id = o.vehicle_id AND v.organization_id=$1
       JOIN vehicle_brands b ON b.id = v.brand_id
       ORDER BY o.created_at DESC
-    `);
+    `, [adminOrganizationId(req)]);
     res.json({ data: result.rows });
   } catch (error) {
     console.error("Offers query failed", error);
@@ -1631,15 +1910,15 @@ app.patch("/api/admin/offers/:id/status", authenticate, requireRoles("admin", "e
   const status = String(req.body.status || "");
   if (!["pending", "accepted", "rejected"].includes(status)) return res.status(400).json({ error: "Estado de oferta no válido" });
   try {
-    const current = await pool.query("SELECT status, customer_id AS \"customerId\", vehicle_id AS \"vehicleId\" FROM offers WHERE id=$1", [req.params.id]);
+    const current = await pool.query("SELECT status, customer_id AS \"customerId\", vehicle_id AS \"vehicleId\" FROM offers WHERE id=$1 AND organization_id=$2", [req.params.id, adminOrganizationId(req)]);
     if (!current.rowCount) return res.status(404).json({ error: "Oferta no encontrada" });
     const result = await pool.query(
-      "UPDATE offers SET status=$1, reviewed_by=$2, reviewed_at=NOW() WHERE id=$3 RETURNING id, status, customer_id AS \"customerId\", vehicle_id AS \"vehicleId\"",
-      [status, req.admin.id, req.params.id],
+      "UPDATE offers SET status=$1, reviewed_by=$2, reviewed_at=NOW() WHERE id=$3 AND organization_id=$4 RETURNING id, status, customer_id AS \"customerId\", vehicle_id AS \"vehicleId\"",
+      [status, req.admin.id, req.params.id, adminOrganizationId(req)],
     );
     await writeAudit(req, "offer.status_update", "offer", req.params.id, { status });
     if (current.rows[0].status !== status && status !== "pending" && result.rows[0].customerId) {
-      const vehicle = await pool.query("SELECT b.name AS brand, v.model FROM vehicles v JOIN vehicle_brands b ON b.id=v.brand_id WHERE v.id=$1", [result.rows[0].vehicleId]);
+      const vehicle = await pool.query("SELECT b.name AS brand, v.model FROM vehicles v JOIN vehicle_brands b ON b.id=v.brand_id WHERE v.id=$1 AND v.organization_id=$2", [result.rows[0].vehicleId, adminOrganizationId(req)]);
       const vehicleName = vehicle.rows[0] ? `${vehicle.rows[0].brand} ${vehicle.rows[0].model}` : "tu vehículo";
       await notifyCustomer({ customerId: result.rows[0].customerId, type: "offer_status", title: status === "accepted" ? "Oferta aceptada" : "Oferta revisada", body: status === "accepted" ? `Tu oferta para ${vehicleName} fue aceptada.` : `Tu oferta para ${vehicleName} fue rechazada.`, entityType: "offer", entityId: result.rows[0].id });
     }
@@ -1650,7 +1929,7 @@ app.patch("/api/admin/offers/:id/status", authenticate, requireRoles("admin", "e
   }
 });
 
-app.get("/api/admin/quotes", authenticate, requireRoles("admin", "editor", "seller"), async (_req, res) => {
+app.get("/api/admin/quotes", authenticate, requireRoles("admin", "editor", "seller"), async (req, res) => {
   try {
     const result = await pool.query(`
       SELECT q.id, q.quote_number AS "quoteNumber", q.lead_id AS "leadId", q.vehicle_id AS "vehicleId",
@@ -1658,12 +1937,12 @@ app.get("/api/admin/quotes", authenticate, requireRoles("admin", "editor", "sell
              q.base_price_usd AS "basePriceUsd", q.discount_usd AS "discountUsd", q.total_usd AS "totalUsd",
              q.currency, q.valid_until AS "validUntil", q.notes, q.status, q.created_at AS "createdAt", q.updated_at AS "updatedAt",
              b.name AS brand, v.model, v.year, au.full_name AS "createdByName"
-      FROM quotes q
-      LEFT JOIN vehicles v ON v.id = q.vehicle_id
+       FROM quotes q
+       LEFT JOIN vehicles v ON v.id = q.vehicle_id AND v.organization_id=$1
       LEFT JOIN vehicle_brands b ON b.id = v.brand_id
       LEFT JOIN admin_users au ON au.id = q.created_by
       ORDER BY q.created_at DESC
-    `);
+    `, [adminOrganizationId(req)]);
     res.json({ data: result.rows });
   } catch (error) {
     console.error("Quotes query failed", error);
@@ -1673,13 +1952,13 @@ app.get("/api/admin/quotes", authenticate, requireRoles("admin", "editor", "sell
 
 app.post("/api/admin/quotes/:id/share", authenticate, requireRoles("admin", "editor", "seller"), async (req, res) => {
   try {
-    const result = await pool.query("SELECT id, status, valid_until AS \"validUntil\" FROM quotes WHERE id=$1", [req.params.id]);
+    const result = await pool.query("SELECT id, status, valid_until AS \"validUntil\" FROM quotes WHERE id=$1 AND organization_id=$2", [req.params.id, adminOrganizationId(req)]);
     if (!result.rowCount) return res.status(404).json({ error: "Cotización no encontrada" });
     const quote = result.rows[0];
     if (["cancelled", "expired"].includes(quote.status)) return res.status(400).json({ error: "Esta cotización ya no se puede compartir" });
     if (quote.validUntil && new Date(quote.validUntil) < new Date(new Date().toISOString().slice(0, 10))) return res.status(400).json({ error: "La cotización está vencida" });
-    if (quote.status === "draft") await pool.query("UPDATE quotes SET status='sent', updated_at=NOW() WHERE id=$1", [req.params.id]);
-    const token = jwt.sign({ kind: "public_quote", quoteId: quote.id }, jwtSecret, { expiresIn: "30d" });
+    if (quote.status === "draft") await pool.query("UPDATE quotes SET status='sent', updated_at=NOW() WHERE id=$1 AND organization_id=$2", [req.params.id, adminOrganizationId(req)]);
+    const token = jwt.sign({ kind: "public_quote", quoteId: quote.id, organizationId: adminOrganizationId(req) }, jwtSecret, { expiresIn: "30d" });
     const baseUrl = String(process.env.PUBLIC_SITE_URL || "http://localhost:5173").replace(/\/$/, "");
     const url = `${baseUrl}/cotizaciones/${token}`;
     await writeAudit(req, "quote.share", "quote", quote.id, { status: quote.status, expiresIn: "30d" });
@@ -1693,7 +1972,7 @@ app.post("/api/admin/quotes/:id/share", authenticate, requireRoles("admin", "edi
 app.get("/api/public/quotes/:token", async (req, res) => {
   try {
     const payload = jwt.verify(req.params.token, jwtSecret);
-    if (payload.kind !== "public_quote" || !payload.quoteId) return res.status(401).json({ error: "Enlace de cotización inválido" });
+    if (payload.kind !== "public_quote" || !payload.quoteId || !payload.organizationId) return res.status(401).json({ error: "Enlace de cotización inválido" });
     const result = await pool.query(`
       SELECT q.quote_number AS "quoteNumber", q.customer_name AS "customerName", q.base_price_usd AS "basePriceUsd",
              q.discount_usd AS "discountUsd", q.total_usd AS "totalUsd", q.currency, q.valid_until AS "validUntil",
@@ -1701,8 +1980,8 @@ app.get("/api/public/quotes/:token", async (req, res) => {
              v.engine, v.power, v.transmission,
              (SELECT image_url FROM vehicle_images WHERE vehicle_id=v.id ORDER BY sort_order ASC LIMIT 1) AS "imageUrl"
       FROM quotes q LEFT JOIN vehicles v ON v.id=q.vehicle_id LEFT JOIN vehicle_brands b ON b.id=v.brand_id
-      WHERE q.id=$1 AND q.status IN ('sent','accepted')
-    `, [payload.quoteId]);
+       WHERE q.id=$1 AND q.organization_id=$2 AND q.status IN ('sent','accepted')
+    `, [payload.quoteId, payload.organizationId]);
     if (!result.rowCount) return res.status(404).json({ error: "La cotización no está disponible" });
     const quote = result.rows[0];
     if (quote.validUntil && new Date(quote.validUntil) < new Date(new Date().toISOString().slice(0, 10))) return res.status(410).json({ error: "La cotización ha vencido" });
@@ -1715,7 +1994,7 @@ app.get("/api/public/quotes/:token", async (req, res) => {
 app.post("/api/public/quotes/:token/decision", async (req, res) => {
   try {
     const payload = jwt.verify(req.params.token, jwtSecret);
-    if (payload.kind !== "public_quote" || !payload.quoteId) return res.status(401).json({ error: "Enlace de cotización inválido" });
+    if (payload.kind !== "public_quote" || !payload.quoteId || !payload.organizationId) return res.status(401).json({ error: "Enlace de cotización inválido" });
     const decision = String(req.body?.decision || "").trim().toLowerCase();
     const message = String(req.body?.message || "").trim().slice(0, 500);
     if (!["accepted", "changes"].includes(decision)) return res.status(400).json({ error: "Decisión no válida" });
@@ -1727,8 +2006,8 @@ app.post("/api/public/quotes/:token/decision", async (req, res) => {
       FROM quotes q
       LEFT JOIN vehicles v ON v.id = q.vehicle_id
       LEFT JOIN vehicle_brands b ON b.id = v.brand_id
-      WHERE q.id=$1
-    `, [payload.quoteId]);
+       WHERE q.id=$1 AND q.organization_id=$2
+    `, [payload.quoteId, payload.organizationId]);
     if (!result.rowCount) return res.status(404).json({ error: "La cotización no está disponible" });
     const quote = result.rows[0];
     if (["cancelled", "expired"].includes(quote.status)) return res.status(410).json({ error: "La cotización ya no está disponible" });
@@ -1736,9 +2015,9 @@ app.post("/api/public/quotes/:token/decision", async (req, res) => {
     if (quote.status !== "sent") return res.status(409).json({ error: quote.status === "accepted" ? "Esta cotización ya fue aceptada" : "Esta cotización no admite decisiones" });
 
     const note = `${decision === "accepted" ? "Cliente aceptó" : "Cliente solicitó cambios"} la cotización ${quote.quoteNumber}${message ? `: ${message}` : "."}`;
-    if (decision === "accepted") await pool.query("UPDATE quotes SET status='accepted', updated_at=NOW() WHERE id=$1 AND status='sent'", [quote.id]);
+    if (decision === "accepted") await pool.query("UPDATE quotes SET status='accepted', updated_at=NOW() WHERE id=$1 AND organization_id=$2 AND status='sent'", [quote.id, payload.organizationId]);
     if (quote.leadId) await pool.query("INSERT INTO lead_events (lead_id, actor_id, event_type, note) VALUES ($1, NULL, $2, $3)", [quote.leadId, decision === "accepted" ? "quote_accepted" : "quote_changes_requested", note]);
-    await notifyAdmins({ type: "quote", title: decision === "accepted" ? "Cotización aceptada" : "Cambios solicitados en cotización", body: `${quote.customerName || "El cliente"} ${decision === "accepted" ? "aceptó" : "solicitó cambios en"} ${quote.quoteNumber}.`, entityType: "quote", entityId: quote.id });
+    await notifyAdmins({ organizationId: payload.organizationId, type: "quote", title: decision === "accepted" ? "Cotización aceptada" : "Cambios solicitados en cotización", body: `${quote.customerName || "El cliente"} ${decision === "accepted" ? "aceptó" : "solicitó cambios en"} ${quote.quoteNumber}.`, entityType: "quote", entityId: quote.id });
     res.json({ data: { decision, status: decision === "accepted" ? "accepted" : "sent", quoteNumber: quote.quoteNumber } });
   } catch (error) {
     if (error?.name === "JsonWebTokenError" || error?.name === "TokenExpiredError") return res.status(401).json({ error: "El enlace de cotización es inválido o expiró" });
@@ -1753,20 +2032,20 @@ app.post("/api/admin/quotes", authenticate, requireRoles("admin", "editor", "sel
   if (validationError) return res.status(400).json({ error: validationError });
   try {
     if (quote.vehicleId) {
-      const vehicle = await pool.query("SELECT id FROM vehicles WHERE id=$1", [quote.vehicleId]);
+       const vehicle = await pool.query("SELECT id FROM vehicles WHERE id=$1 AND organization_id=$2", [quote.vehicleId, adminOrganizationId(req)]);
       if (!vehicle.rowCount) return res.status(404).json({ error: "Vehículo no encontrado" });
     }
     if (quote.leadId) {
-      const lead = await pool.query("SELECT id FROM leads WHERE id=$1", [quote.leadId]);
+       const lead = await pool.query("SELECT id FROM leads WHERE id=$1 AND organization_id=$2", [quote.leadId, adminOrganizationId(req)]);
       if (!lead.rowCount) return res.status(404).json({ error: "Lead no encontrado" });
     }
     const customer = quote.customerEmail ? await pool.query("SELECT id FROM customer_accounts WHERE LOWER(email)=LOWER($1) AND is_active=TRUE", [quote.customerEmail]) : { rows: [] };
     const customerId = customer.rows[0]?.id || null;
     const result = await pool.query(`
-      INSERT INTO quotes (quote_number, lead_id, vehicle_id, customer_name, customer_email, customer_phone, base_price_usd, discount_usd, total_usd, currency, valid_until, notes, customer_id, created_by)
-      VALUES ($1, $2::uuid, $3::uuid, $4, $5, $6, $7::numeric, $8::numeric, $9::numeric, $10, $11::date, $12, $13::uuid, $14::uuid)
+       INSERT INTO quotes (organization_id, quote_number, lead_id, vehicle_id, customer_name, customer_email, customer_phone, base_price_usd, discount_usd, total_usd, currency, valid_until, notes, customer_id, created_by)
+       VALUES ($1, $2, $3::uuid, $4::uuid, $5, $6, $7, $8::numeric, $9::numeric, $10::numeric, $11, $12::date, $13, $14::uuid, $15::uuid)
       RETURNING id, quote_number AS "quoteNumber", status, total_usd AS "totalUsd", created_at AS "createdAt"
-    `, [createQuoteNumber(), quote.leadId, quote.vehicleId, quote.customerName, quote.customerEmail, quote.customerPhone, quote.basePriceUsd, quote.discountUsd, quote.totalUsd, quote.currency || "USD", quote.validUntil, quote.notes, customerId, req.admin.id]);
+    `, [adminOrganizationId(req), createQuoteNumber(), quote.leadId, quote.vehicleId, quote.customerName, quote.customerEmail, quote.customerPhone, quote.basePriceUsd, quote.discountUsd, quote.totalUsd, quote.currency || "USD", quote.validUntil, quote.notes, customerId, req.admin.id]);
     await writeAudit(req, "quote.create", "quote", result.rows[0].id, { leadId: quote.leadId, vehicleId: quote.vehicleId, totalUsd: quote.totalUsd });
     if (customerId) await notifyCustomer({ customerId, type: "quote_created", title: "Nueva cotización disponible", body: `AUTHENTIQ preparó una cotización por $${Number(quote.totalUsd).toLocaleString("en-US")} USD.`, entityType: "quote", entityId: result.rows[0].id });
     res.status(201).json({ data: result.rows[0] });
@@ -1780,9 +2059,9 @@ app.patch("/api/admin/quotes/:id/status", authenticate, requireRoles("admin", "e
   const status = String(req.body.status || "");
   if (!["draft", "sent", "accepted", "expired", "cancelled"].includes(status)) return res.status(400).json({ error: "Estado de cotización no válido" });
   try {
-    const current = await pool.query("SELECT status, customer_id AS \"customerId\", quote_number AS \"quoteNumber\" FROM quotes WHERE id=$1", [req.params.id]);
+    const current = await pool.query("SELECT status, customer_id AS \"customerId\", quote_number AS \"quoteNumber\" FROM quotes WHERE id=$1 AND organization_id=$2", [req.params.id, adminOrganizationId(req)]);
     if (!current.rowCount) return res.status(404).json({ error: "Cotización no encontrada" });
-    const result = await pool.query("UPDATE quotes SET status=$1, updated_at=NOW() WHERE id=$2 RETURNING id, quote_number AS \"quoteNumber\", status, customer_id AS \"customerId\"", [status, req.params.id]);
+    const result = await pool.query("UPDATE quotes SET status=$1, updated_at=NOW() WHERE id=$2 AND organization_id=$3 RETURNING id, quote_number AS \"quoteNumber\", status, customer_id AS \"customerId\"", [status, req.params.id, adminOrganizationId(req)]);
     await writeAudit(req, "quote.status_update", "quote", req.params.id, { status });
     if (current.rows[0].status !== status && current.rows[0].customerId && status !== "draft") {
       const labels = { sent: ["Cotización enviada", `La cotización ${current.rows[0].quoteNumber} ya está disponible para revisión.`], accepted: ["Cotización aceptada", `La cotización ${current.rows[0].quoteNumber} fue aceptada.`], expired: ["Cotización vencida", `La cotización ${current.rows[0].quoteNumber} venció.`], cancelled: ["Cotización cancelada", `La cotización ${current.rows[0].quoteNumber} fue cancelada.`] };
@@ -1812,7 +2091,7 @@ app.post("/api/admin/maintenance/orphan-media", authenticate, requireRoles("admi
 
 app.get("/api/admin/audit-logs", authenticate, requireRoles("admin"), async (req, res) => {
   try {
-    const result = await pool.query(`SELECT a.id, a.action, a.entity_type AS "entityType", a.entity_id AS "entityId", a.metadata, a.created_at AS "createdAt", u.email AS "actorEmail", u.full_name AS "actorName" FROM audit_logs a LEFT JOIN admin_users u ON u.id = a.actor_id ORDER BY a.created_at DESC LIMIT 100`);
+    const result = await pool.query(`SELECT a.id, a.action, a.entity_type AS "entityType", a.entity_id AS "entityId", a.metadata, a.created_at AS "createdAt", u.email AS "actorEmail", u.full_name AS "actorName" FROM audit_logs a JOIN admin_users u ON u.id = a.actor_id AND u.organization_id=$1 ORDER BY a.created_at DESC LIMIT 100`, [adminOrganizationId(req)]);
     res.json({ data: result.rows });
   } catch (error) {
     console.error("Audit log query failed", error);
@@ -1829,23 +2108,24 @@ app.post("/api/events", async (req, res) => {
   const sessionId = String(req.body.sessionId || "").slice(0, 80) || null;
   const metadata = req.body.metadata && typeof req.body.metadata === "object" && !Array.isArray(req.body.metadata) ? req.body.metadata : {};
   if (!allowedEvents.has(eventName)) return res.status(400).json({ error: "Evento no permitido" });
-  try { await pool.query("INSERT INTO analytics_events (event_name, path, vehicle_id, source, session_id, metadata) VALUES ($1,$2,$3::uuid,$4,$5,$6::jsonb)", [eventName, eventPath, vehicleId, source, sessionId, JSON.stringify(metadata)]); } catch (error) { console.error("Analytics event failed", error); }
+  try { const organization = await getOrganizationContext(req); await pool.query("INSERT INTO analytics_events (organization_id, event_name, path, vehicle_id, source, session_id, metadata) VALUES ($1,$2,$3,$4::uuid,$5,$6,$7::jsonb)", [organization.id, eventName, eventPath, vehicleId, source, sessionId, JSON.stringify(metadata)]); } catch (error) { console.error("Analytics event failed", error); }
   res.status(204).end();
 });
 
 app.get("/api/admin/analytics", authenticate, requireRoles("admin", "editor", "seller"), async (req, res) => {
   const days = Math.min(Math.max(Number(req.query.days || 30), 1), 365);
   try {
-    const result = await pool.query("SELECT event_name AS \"eventName\", COUNT(*)::int AS count FROM analytics_events WHERE created_at >= NOW() - ($1::int * INTERVAL '1 day') GROUP BY event_name ORDER BY count DESC", [days]);
+    const result = await pool.query("SELECT event_name AS \"eventName\", COUNT(*)::int AS count FROM analytics_events WHERE organization_id=$1 AND created_at >= NOW() - ($2::int * INTERVAL '1 day') GROUP BY event_name ORDER BY count DESC", [adminOrganizationId(req), days]);
     res.json({ data: result.rows, days });
   } catch (error) { console.error("Analytics query failed", error); res.status(500).json({ error: "No se pudo cargar la analítica" }); }
 });
 
-app.get("/sitemap.xml", async (_req, res) => {
+app.get("/sitemap.xml", async (req, res) => {
   try {
-    const baseUrl = String(process.env.PUBLIC_SITE_URL || "http://localhost:5173").replace(/\/$/, "");
-    const vehicles = await pool.query("SELECT v.id, v.model, v.variant, v.updated_at AS \"updatedAt\", b.name AS brand FROM vehicles v JOIN vehicle_brands b ON b.id=v.brand_id WHERE v.status IN ('published','reserved') ORDER BY v.updated_at DESC");
-    const posts = await pool.query("SELECT slug, updated_at AS \"updatedAt\" FROM blog_posts WHERE status='published' ORDER BY updated_at DESC");
+    const organization = await getOrganizationContext(req);
+    const baseUrl = String(organization.customDomain ? `https://${organization.customDomain}` : (process.env.PUBLIC_SITE_URL || `${req.protocol}://${req.get("host")}`)).replace(/\/$/, "");
+    const vehicles = await pool.query("SELECT v.id, v.model, v.variant, v.updated_at AS \"updatedAt\", b.name AS brand FROM vehicles v JOIN vehicle_brands b ON b.id=v.brand_id WHERE v.organization_id=$1 AND v.status IN ('published','reserved') ORDER BY v.updated_at DESC", [organization.id]);
+    const posts = await pool.query("SELECT slug, updated_at AS \"updatedAt\" FROM blog_posts WHERE organization_id=$1 AND status='published' ORDER BY updated_at DESC", [organization.id]);
     const urls = [
       { loc: "/" },
       ...vehicles.rows.map((vehicle) => ({ loc: `/vehiculos/${vehicleSlug(vehicle)}`, lastmod: vehicle.updatedAt })),
@@ -1883,7 +2163,8 @@ app.use((req, res, next) => {
 
 // Último recurso: cualquier error no controlado responde JSON consistente y sin filtrar detalles internos.
 app.use((error, _req, res, _next) => {
-  console.error("Unhandled request error", error);
+  const clientInputError = error?.type === "entity.parse.failed" || error?.type === "entity.too.large";
+  if (!clientInputError) console.error("Unhandled request error", error);
   if (res.headersSent) return;
   if (error?.type === "entity.parse.failed") return res.status(400).json({ error: "El cuerpo de la petición no es JSON válido" });
   if (error?.type === "entity.too.large") return res.status(413).json({ error: "La petición es demasiado grande" });

@@ -17,6 +17,8 @@
 6. Usar `vehicle-media` como `SUPABASE_STORAGE_BUCKET`.
 7. Aplicar las migraciones SQL de `app/database` en orden antes del primer uso.
 
+Antes de iniciar en produccion, el servidor rechazara automaticamente un entorno si falta `JWT_SECRET`, si las URLs publicas apuntan a localhost o si Supabase Storage no esta configurado.
+
 ## Render
 
 1. Conectar el repositorio y seleccionar el Blueprint `render.yaml`.
@@ -30,5 +32,15 @@
 Crear en UptimeRobot un monitor HTTP para:
 
 `https://TU-SERVICIO.onrender.com/api/health`
+
+## Lista final antes de entregar
+
+- Reemplazar los textos legales borrador desde Backoffice -> Configuracion -> Legal y confianza.
+- Cambiar las credenciales de demostracion y crear el administrador real.
+- Verificar una subida de imagen y una lectura desde `vehicle-media`.
+- Confirmar que los endpoints `export/leads.csv`, `export/appointments.csv` y `export/quotes.csv` descarguen datos del tenant correcto.
+- Ejecutar `npm run backup:db` desde `app/server` en una máquina con `pg_dump` y conservar el `.dump` junto a su manifiesto SHA-256.
+- Confirmar dominio, DNS, SSL, telefono, WhatsApp y horario del concesionario.
+- Conectar proveedores externos solo cuando existan sus credenciales y webhooks.
 
 El plan Free permite monitores HTTP cada 5 minutos. Esto ayuda a mantener activo el servicio, pero no es una garantía absoluta: Render puede reiniciar servicios gratuitos y Supabase puede pausar proyectos sin actividad.

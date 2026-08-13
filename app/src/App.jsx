@@ -131,6 +131,10 @@ function ShareAction({ vehicle }) {
   return <button className="detail-utility-action" type="button" onClick={share}>{shared ? "Enlace copiado ✓" : "Compartir vehículo ↗"}</button>;
 }
 
+function NotFoundPage({ onBack }) {
+  return <main className="article-page not-found-page"><span className="eyebrow">{getBrandName()} · 404</span><h1>Esta ruta no lleva a ningún vehículo.</h1><p>Puede que el enlace haya cambiado o que la página ya no esté disponible. Regresa al catálogo para continuar explorando.</p><button className="primary-action" type="button" onClick={onBack}>Volver al catálogo →</button></main>;
+}
+
 function FinanceCalculator({ price }) {
   const [downPayment, setDownPayment] = useState(Math.round(Number(price) * .2));
   const [months, setMonths] = useState(60);
@@ -542,15 +546,22 @@ function VehicleStudio({ vehicle, images }) {
   </>;
 }
 
-const brandLogoSlugs = { Acura: "acura", "Alfa Romeo": "alfaromeo", Audi: "https://cdn.freebiesupply.com/logos/large/2x/audi-14-logo-png-transparent.png", Bentley: "bentley", BMW: "https://cdn.freebiesupply.com/logos/large/2x/bmw-logo-png-transparent.png", Buick: "buick", BYD: "byd", Cadillac: "cadillac", Changan: "changan", Chevrolet: "chevrolet", Chrysler: "chrysler", Citroen: "citroen", Daihatsu: "daihatsu", Dodge: "dodge", Ferrari: "ferrari", Fiat: "fiat", Ford: "ford", GMC: "gmc", Porsche: "https://cdn.freebiesupply.com/logos/large/2x/porsche-logo-png-transparent.png", "Mercedes-AMG": "https://cdn.freebiesupply.com/logos/large/2x/mercedes-benz-logo-png-transparent.png", "Mercedes-Benz": "https://cdn.freebiesupply.com/logos/large/2x/mercedes-benz-logo-png-transparent.png" };
+const brandLogoSlugs = { Acura: "acura", "Alfa Romeo": "alfaromeo", Audi: "audi", Bentley: "bentley", BMW: "bmw", Buick: "buick", BYD: "byd", Cadillac: "cadillac", Changan: "changan", Chevrolet: "chevrolet", Chrysler: "chrysler", Citroen: "citroen", Daihatsu: "daihatsu", Dodge: "dodge", Ferrari: "ferrari", Fiat: "fiat", Ford: "ford", GMC: "gmc", Porsche: "porsche", "Mercedes-AMG": "mercedesbenz", "Mercedes-Benz": "mercedesbenz" };
 
 const brandDirectory = ["Acura", "Alfa Romeo", "Audi", "Bentley", "BMW", "Buick", "BYD", "Cadillac", "Changan", "Chevrolet", "Chrysler", "Citroen", "Daihatsu", "Dodge", "Ferrari", "Fiat", "Ford", "GMC", "Mercedes-AMG", "Porsche"];
 
 function BrandLogo({ brand, logoUrl = "", size = "normal" }) {
+  const [imageFailed, setImageFailed] = useState(false);
   const slug = brandLogoSlugs[brand];
-  const source = logoUrl || (slug?.startsWith("http") ? slug : slug ? `https://cdn.simpleicons.org/${slug}` : "");
-  const [failed, setFailed] = useState(!source);
-  return <span className={`brand-logo brand-logo-${size}`} aria-label={`Logo de ${brand}`}>{!failed && <img src={source} alt="" onError={() => setFailed(true)} />}{failed && <b>{brand?.slice(0, 2).toUpperCase()}</b>}</span>;
+  const initials = String(brand || slug || "").split(/\s+/).map((part) => part[0]).join("").slice(0, 3).toUpperCase();
+  // El catálogo se presenta también en redes corporativas y entornos cerrados:
+  // un logo remoto roto no debe convertirse en una petición fallida ni romper
+  // la composición. El monograma mantiene el lenguaje de marca hasta que el
+  // concesionario suba un asset propio al almacenamiento de la plataforma.
+  const resolvedLogoUrl = publicMediaUrl(logoUrl);
+  return <span className={`brand-logo brand-logo-${size}${imageFailed ? " has-fallback" : ""}`} aria-label={`Logo de ${brand}`} data-brand-slug={slug || "custom"}>
+    {resolvedLogoUrl && !imageFailed ? <img src={resolvedLogoUrl} alt="" loading="lazy" decoding="async" onError={() => setImageFailed(true)} /> : <b>{initials || "°"}</b>}
+  </span>;
 }
 
 function VehicleCard({ vehicle, onOpen, onToggleCompare, isCompared, isFavorite, onToggleFavorite, imageLoading = "lazy" }) {
@@ -1137,7 +1148,7 @@ function PresentationMode({ vehicles, loading, onExit, onOpenVehicle, businessNa
   </main>;
 }
 
-export default function App() {
+function App() {
   const [vehicles, setVehicles] = useState([]);
   const [selected, setSelected] = useState(null);
   const [compareVehicles, setCompareVehicles] = useState([]);
@@ -1157,6 +1168,7 @@ export default function App() {
   const [category, setCategory] = useState("all");
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState("newest");
+  const [catalogView, setCatalogView] = useState(() => localStorage.getItem("authentiq_catalog_view") || "grid");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [condition, setCondition] = useState("all");
   const [fuelType, setFuelType] = useState("all");
@@ -1168,24 +1180,43 @@ export default function App() {
   const [error, setError] = useState("");
   const [screen, setScreen] = useState("catalog");
   const [posts, setPosts] = useState([]);
-  const [businessSettings, setBusinessSettings] = useState({ businessName: "AUTHENTIQ", logoUrl: "", phone: "", whatsapp: "", email: "", address: "", hours: "", instagramUrl: "", facebookUrl: "", privacyText: "", termsText: "" });
+  const [businessSettings, setBusinessSettings] = useState({ businessName: "AUTHENTIQ", logoUrl: "", primaryColor: "#c8a24b", accentColor: "#b28b37", faviconUrl: "", phone: "", whatsapp: "", email: "", address: "", hours: "", instagramUrl: "", facebookUrl: "", privacyText: "", termsText: "" });
   const [theme, setTheme] = useState(() => localStorage.getItem("authentiq_theme") || "light");
   publicBrandName = businessSettings.businessName || "AUTHENTIQ";
+  useEffect(() => {
+    const root = document.documentElement;
+    const normalizeColor = (value, fallback) => /^#[0-9a-f]{6}$/i.test(String(value || "")) ? value : fallback;
+    root.style.setProperty("--tenant-primary", normalizeColor(businessSettings.primaryColor, "#c8a24b"));
+    root.style.setProperty("--tenant-accent", normalizeColor(businessSettings.accentColor, "#b28b37"));
+    let favicon = document.querySelector("link[data-authentiq-favicon]");
+    if (!favicon) { favicon = document.createElement("link"); favicon.rel = "icon"; favicon.dataset.authentiqFavicon = "true"; document.head.appendChild(favicon); }
+    favicon.href = businessSettings.faviconUrl || "/favicon.svg";
+  }, [businessSettings.primaryColor, businessSettings.accentColor, businessSettings.faviconUrl]);
   useEffect(() => {
     const brand = businessSettings.businessName || "AUTHENTIQ";
     document.title = document.title.replace(/AUTHENTIQ/g, brand);
   }, [businessSettings.businessName]);
 
   const customerRequest = async (path, options = {}) => {
-    const response = await fetch(`${apiUrl}${path}`, { ...options, headers: { "Content-Type": "application/json", Authorization: `Bearer ${customerToken}`, ...(options.headers || {}) } });
+    const response = await fetch(`${apiUrl}${path}`, { ...options, credentials: "include", headers: { "Content-Type": "application/json", Authorization: `Bearer ${customerToken}`, ...(options.headers || {}) } });
     const payload = response.status === 204 ? null : await response.json();
     if (!response.ok) throw new Error(payload?.error || "La operación no pudo completarse");
     return payload;
   };
 
   useEffect(() => { document.documentElement.dataset.theme = theme; localStorage.setItem("authentiq_theme", theme); }, [theme]);
+  useEffect(() => {
+    const preloadBackoffice = () => import("./admin/Backoffice.jsx").catch(() => null);
+    if (typeof window.requestIdleCallback === "function") {
+      const idleId = window.requestIdleCallback(preloadBackoffice, { timeout: 1800 });
+      return () => window.cancelIdleCallback?.(idleId);
+    }
+    const timer = window.setTimeout(preloadBackoffice, 900);
+    return () => window.clearTimeout(timer);
+  }, []);
   useEffect(() => { localStorage.setItem("authentiq_favorite_vehicles", JSON.stringify(favoriteIds)); }, [favoriteIds]);
   useEffect(() => { localStorage.setItem("authentiq_recent_vehicles", JSON.stringify(recentVehicleIds)); }, [recentVehicleIds]);
+  useEffect(() => { localStorage.setItem("authentiq_catalog_view", catalogView); }, [catalogView]);
   useEffect(() => {
     if (!customerToken) return undefined;
     let cancelled = false;
@@ -1327,7 +1358,7 @@ export default function App() {
     setAccountStatus({ loading: true, error: "" });
     try {
       const endpoint = accountMode === "login" ? "/api/customer/auth/login" : "/api/customer/auth/register";
-      const response = await fetch(`${apiUrl}${endpoint}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: accountForm.name, email: accountForm.email, phone: accountForm.phone, password: accountForm.password }) });
+      const response = await fetch(`${apiUrl}${endpoint}`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: accountForm.name, email: accountForm.email, phone: accountForm.phone, password: accountForm.password }) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "No se pudo completar la cuenta");
       setCustomerToken(payload.token);
@@ -1338,7 +1369,7 @@ export default function App() {
       setAccountStatus({ loading: false, error: "" });
     } catch (requestError) { setAccountStatus({ loading: false, error: requestError.message }); }
   };
-  const logoutCustomer = () => { localStorage.removeItem("authentiq_customer_token"); localStorage.removeItem("authentiq_customer_user"); setCustomerToken(""); setCustomer(null); setCustomerActivity({ offers: [], quotes: [], notifications: [] }); setAccountStatus({ loading: false, error: "" }); };
+  const logoutCustomer = () => { fetch(`${apiUrl}/api/customer/auth/logout`, { method: "POST", credentials: "include" }).catch(() => {}); localStorage.removeItem("authentiq_customer_token"); localStorage.removeItem("authentiq_customer_user"); setCustomerToken(""); setCustomer(null); setCustomerActivity({ offers: [], quotes: [], notifications: [] }); setAccountStatus({ loading: false, error: "" }); };
   const markCustomerNotificationsRead = async () => { try { await customerRequest("/api/customer/notifications/read", { method: "PATCH" }); setCustomerActivity((current) => ({ ...current, notifications: (current.notifications || []).map((item) => ({ ...item, readAt: new Date().toISOString() })) })); } catch (requestError) { setAccountStatus({ loading: false, error: requestError.message }); } };
   const toggleFavorite = (vehicle) => {
     const wasFavorite = favoriteIds.includes(vehicle.id);
@@ -1362,12 +1393,14 @@ export default function App() {
   if (pathname.startsWith("/blog/")) return <BlogArticle slug={pathname.slice("/blog/".length)} onBack={() => navigate("/")} />;
   if (pathname.startsWith("/vehiculos/") && loading) return <main className="article-page"><p className="state-message">Cargando vehículo…</p></main>;
   if (pathname.startsWith("/vehiculos/") && !routeVehicle) return <main className="article-page"><button className="back-button" onClick={() => navigate("/")}>← Volver al catálogo</button><section className="article-empty"><span className="eyebrow">AUTHENTIQ · INVENTARIO</span><h1>Este vehículo no está disponible.</h1><p>Puede haber sido vendido, archivado o la dirección puede haber cambiado.</p></section></main>;
+  const knownPath = pathname === "/" || pathname === "/presentacion" || pathname === "/preview" || pathname.startsWith("/cotizaciones/") || pathname.startsWith("/blog/") || pathname.startsWith("/vehiculos/");
+  if (!knownPath) return <NotFoundPage onBack={() => navigate("/")} />;
   if (["contact", "location", "privacy", "terms"].includes(screen)) return <InstitutionalPage type={screen} settings={businessSettings} onBack={() => setScreen("catalog")} />;
   if (activeVehicle) return <VehicleDetail vehicle={activeVehicle} vehicles={vehicles} onBack={() => navigate("/")} isFavorite={favoriteIds.includes(activeVehicle.id)} onToggleFavorite={toggleFavorite} customerToken={customerToken} compareVehicles={compareVehicles} favoriteIds={favoriteIds} onOpenVehicle={(vehicle) => navigate(vehiclePath(vehicle))} onToggleCompare={toggleCompare} />;
 
   const heroVideoUrl = String(import.meta.env.VITE_HERO_VIDEO_URL || "").trim();
   return (
-    <main id="top">
+    <><a className="skip-link" href="#top">Saltar al contenido</a><main id="top">
       <ShowroomNav theme={theme} setTheme={setTheme} customer={customer} businessName={businessSettings.businessName} logoUrl={businessSettings.logoUrl} onAccount={() => { setAccountOpen(true); setAccountStatus({ loading: false, error: "" }); }} onBackoffice={() => setScreen("admin")} />
       <section className="hero">
         {heroVideoUrl ? <video className="hero-background hero-video" autoPlay muted loop playsInline preload="metadata" poster="/assets/authentiq-hero-v1.webp" aria-label="Vehículo premium en movimiento"><source src={heroVideoUrl} /></video> : <img src="/assets/authentiq-hero-v1.webp" alt="Coupé premium AUTHENTIQ recorriendo una carretera costera" className="hero-background" loading="eager" fetchPriority="high" decoding="async" />}
@@ -1403,9 +1436,10 @@ export default function App() {
            {(search || brand !== "all" || category !== "all" || condition !== "all" || fuelType !== "all" || transmission !== "all" || minPrice || maxPrice || minYear || sort !== "newest") && <button className="clear-filters" type="button" onClick={clearFilters}>Limpiar</button>}
          </div>
          <div className="catalog-toolbar"><span>{loading ? "Consultando inventario" : <><AnimatedMetric value={filteredVehicles.length} /> de <AnimatedMetric value={vehicles.length} /> vehiculos visibles</>}</span><span className="catalog-toolbar-line" /><span>Desliza para explorar</span><button className={`favorites-filter ${favoritesOnly ? "is-active" : ""}`} type="button" onClick={() => setFavoritesOnly((current) => !current)} aria-pressed={favoritesOnly}>♡ Favoritos {favoriteIds.length ? <>· <AnimatedMetric value={favoriteIds.length} /></> : ""}</button></div>
+        <div className="catalog-view-switcher" role="group" aria-label="Vista del catálogo"><span>Mostrar como</span><button type="button" className={catalogView === "grid" ? "is-active" : ""} onClick={() => setCatalogView("grid")} aria-pressed={catalogView === "grid"}>Cuadrícula</button><button type="button" className={catalogView === "list" ? "is-active" : ""} onClick={() => setCatalogView("list")} aria-pressed={catalogView === "list"}>Lista</button></div>
         {loading && <CatalogSkeleton />}
         {error && <CatalogError message={`${error}. Verifica que la API esté corriendo en el puerto 3001.`} onRetry={() => { setLoading(true); refreshVehicles(); }} />}
-        {!loading && !error && (filteredVehicles.length ? <div className="vehicle-grid"><AnimatePresence mode="popLayout" initial={false}>{filteredVehicles.map((vehicle, index) => <VehicleCard key={vehicle.id} vehicle={vehicle} isCompared={compareVehicles.some((item) => item.id === vehicle.id)} isFavorite={favoriteIds.includes(vehicle.id)} onToggleFavorite={toggleFavorite} onToggleCompare={toggleCompare} onOpen={(item) => navigate(vehiclePath(item))} imageLoading={index < 6 ? "eager" : "lazy"} />)}</AnimatePresence></div> : <div className="catalog-empty"><h3>No encontramos vehículos con esos criterios.</h3><p>Prueba limpiando la búsqueda o seleccionando otros filtros.</p><button className="secondary-action" onClick={clearFilters}>Limpiar filtros</button></div>)}
+        {!loading && !error && (filteredVehicles.length ? <div className={`vehicle-grid ${catalogView === "list" ? "is-list-view" : ""}`}><AnimatePresence mode="popLayout" initial={false}>{filteredVehicles.map((vehicle, index) => <VehicleCard key={vehicle.id} vehicle={vehicle} isCompared={compareVehicles.some((item) => item.id === vehicle.id)} isFavorite={favoriteIds.includes(vehicle.id)} onToggleFavorite={toggleFavorite} onToggleCompare={toggleCompare} onOpen={(item) => navigate(vehiclePath(item))} imageLoading={index < 6 ? "eager" : "lazy"} />)}</AnimatePresence></div> : <div className="catalog-empty"><h3>No encontramos vehículos con esos criterios.</h3><p>Prueba limpiando la búsqueda o seleccionando otros filtros.</p><button className="secondary-action" onClick={clearFilters}>Limpiar filtros</button></div>)}
         <ShowroomTrustRail />
         <RecentlyViewed vehicles={recentlyViewedVehicles} compareVehicles={compareVehicles} favoriteIds={favoriteIds} onOpen={(vehicle) => navigate(vehiclePath(vehicle))} onToggleCompare={toggleCompare} onToggleFavorite={toggleFavorite} />
         <RecentSelection vehicles={recentVehicles} compareVehicles={compareVehicles} favoriteIds={favoriteIds} onOpen={(vehicle) => navigate(vehiclePath(vehicle))} onToggleCompare={toggleCompare} onToggleFavorite={toggleFavorite} />
@@ -1428,6 +1462,20 @@ export default function App() {
         </footer>
       </section>
       <AnimatePresence>{accountOpen && <CustomerAccountModal customer={customer} form={accountForm} mode={accountMode} status={accountStatus} favoriteCount={favoriteIds.length} activity={customerActivity} onChange={changeAccountForm} onSubmit={submitAccount} onMode={(mode) => { setAccountMode(mode); setAccountStatus({ loading: false, error: "" }); }} onClose={() => setAccountOpen(false)} onLogout={logoutCustomer} onReadNotifications={markCustomerNotificationsRead} />}</AnimatePresence>
-    </main>
+    </main></>
   );
+}
+
+class AppErrorBoundary extends Component {
+  constructor(props) { super(props); this.state = { failed: false }; }
+  static getDerivedStateFromError() { return { failed: true }; }
+  componentDidCatch(error, info) { console.error("[AUTHENTIQ] Error global de interfaz", error, info); }
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return <main className="app-error-boundary"><span className="eyebrow">{getBrandName()}</span><h1>Estamos afinando esta experiencia.</h1><p>La página encontró un problema inesperado. Puedes volver a cargarla para continuar.</p><button className="primary-action" type="button" onClick={() => window.location.reload()}>Recargar página</button></main>;
+  }
+}
+
+export default function AppRoot() {
+  return <AppErrorBoundary><App /></AppErrorBoundary>;
 }

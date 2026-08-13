@@ -13,8 +13,11 @@ const expectedFiles = [
   "031_appointment_reminders.sql",
   "032_multitenancy_foundation.sql",
   "034_white_label_domain.sql",
+  "035_organization_settings.sql",
+  "036_local_integrations.sql",
+  "037_white_label_branding.sql",
 ];
-const expectedTables = ["appointment_blocks", "organizations", "organization_members"];
+const expectedTables = ["appointment_blocks", "organizations", "organization_members", "organization_settings", "organization_integrations", "social_drafts", "billing_subscriptions"];
 const expectedColumns = [
   ["organizations", "custom_domain"],
   ["business_settings", "appointment_capacity"],
@@ -29,6 +32,13 @@ const expectedColumns = [
   ["offers", "organization_id"],
   ["quotes", "organization_id"],
   ["blog_posts", "organization_id"],
+  ["appointment_blocks", "organization_id"],
+  ["analytics_events", "organization_id"],
+  ["social_drafts", "organization_id"],
+  ["billing_subscriptions", "organization_id"],
+  ["organization_settings", "primary_color"],
+  ["organization_settings", "accent_color"],
+  ["organization_settings", "favicon_url"],
 ];
 
 const missingFiles = [];

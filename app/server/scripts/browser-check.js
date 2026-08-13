@@ -304,7 +304,7 @@ async function main() {
       console.log("      (sin credenciales válidas: se omite la auditoría del backoffice autenticado)");
     } else {
       const { token, user } = await session.json();
-      const modules = [["dashboard", "Resumen"], ["inventory", "Inventario"], ["leads", "Leads"], ["quotes", "Cotizaciones"], ["blog", "Blog"], ["offers", "Ofertas"], ["reports", "Reportes"], ["audit", "Actividad"], ["users", "Usuarios"], ["settings", "Configuración"]];
+      const modules = [["dashboard", "Resumen"], ["inventory", "Inventario"], ["leads", "Leads"], ["quotes", "Cotizaciones"], ["blog", "Blog"], ["offers", "Ofertas"], ["reports", "Reportes"], ["audit", "Actividad"], ["users", "Usuarios"], ["integrations", "Integraciones"], ["settings", "Configuración"]];
       for (const [width, height, label, mobile] of [[390, 844, "movil", true], [1280, 800, "escritorio", false]]) {
         await cdp.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile });
         // Inyecta la sesión antes de cargar para entrar directo al backoffice.
