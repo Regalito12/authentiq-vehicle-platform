@@ -17,6 +17,21 @@ html { scroll-behavior: smooth; }
 .app-error-boundary { min-height: 100vh; display: grid; place-content: center; gap: 1rem; padding: 2rem; text-align: center; background: #101111; color: #f4f0e8; }
 .app-error-boundary p { max-width: 34rem; margin: 0 auto 1rem; color: rgba(244,240,232,.68); }
 .legal-settings textarea { min-height: 150px; resize: vertical; font-family: inherit; line-height: 1.55; }
+.taxonomy-content { margin-bottom: 28px; }
+.taxonomy-tabs { display: flex; gap: 8px; margin: 18px 0; border-bottom: 1px solid rgba(80, 83, 78, .22); }
+.taxonomy-tabs button { border: 0; border-bottom: 2px solid transparent; padding: 11px 14px; background: transparent; color: inherit; font: 500 10px "IBM Plex Mono", monospace; letter-spacing: .08em; text-transform: uppercase; }
+.taxonomy-tabs button.active { border-bottom-color: var(--tenant-primary); color: var(--tenant-primary); }
+.taxonomy-layout { display: grid; grid-template-columns: minmax(220px, .7fr) minmax(0, 1.5fr); gap: 18px; align-items: start; }
+.taxonomy-form { display: grid; gap: 14px; }
+.taxonomy-list { overflow: hidden; }
+.taxonomy-list-head, .taxonomy-row { display: grid; grid-template-columns: minmax(180px, 1.5fr) 90px 100px 150px; gap: 12px; align-items: center; }
+.taxonomy-list-head { padding: 12px 14px; border-bottom: 1px solid rgba(80, 83, 78, .22); color: var(--auth-muted); font: 500 9px "IBM Plex Mono", monospace; letter-spacing: .08em; text-transform: uppercase; }
+.taxonomy-row { min-height: 68px; border-bottom: 1px solid rgba(80, 83, 78, .14); padding: 10px 14px; }
+.taxonomy-row:last-child { border-bottom: 0; }
+.taxonomy-name { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.taxonomy-name > div { display: grid; gap: 3px; }
+.taxonomy-name small { color: var(--auth-muted); font-size: 11px; }
+@media (max-width: 760px) { .taxonomy-layout { grid-template-columns: 1fr; } .taxonomy-list-head { display: none; } .taxonomy-row { grid-template-columns: 1fr auto; gap: 8px; } .taxonomy-row > span:nth-of-type(1), .taxonomy-row > span:nth-of-type(2) { font-size: 11px; } .taxonomy-row > button { grid-column: 2; grid-row: 1 / span 2; } }
 body { margin: 0; min-width: 320px; }
 button, select { font: inherit; }
 button { cursor: pointer; }

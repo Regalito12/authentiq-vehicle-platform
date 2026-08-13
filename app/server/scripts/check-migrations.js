@@ -16,6 +16,7 @@ const expectedFiles = [
   "035_organization_settings.sql",
   "036_local_integrations.sql",
   "037_white_label_branding.sql",
+  "038_taxonomy_multitenancy.sql",
 ];
 const expectedTables = ["appointment_blocks", "organizations", "organization_members", "organization_settings", "organization_integrations", "social_drafts", "billing_subscriptions"];
 const expectedColumns = [
@@ -39,6 +40,8 @@ const expectedColumns = [
   ["organization_settings", "primary_color"],
   ["organization_settings", "accent_color"],
   ["organization_settings", "favicon_url"],
+  ["vehicle_brands", "organization_id"],
+  ["vehicle_categories", "organization_id"],
 ];
 
 const missingFiles = [];

@@ -633,17 +633,64 @@ function createQuoteNumber() {
   return `AUTH-${new Date().getFullYear()}-${Date.now()}`;
 }
 
-async function upsertTaxonomy(client, table, name, logoUrl = null) {
+async function upsertTaxonomy(client, table, name, logoUrl = null, organizationId = null) {
   if (!name) return null;
   const isBrandTable = table === "vehicle_brands";
   const result = await client.query(
     isBrandTable
-      ? `INSERT INTO ${table} (name, logo_url) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET is_active = TRUE, logo_url = COALESCE(EXCLUDED.logo_url, ${table}.logo_url) RETURNING id`
-      : `INSERT INTO ${table} (name) VALUES ($1) ON CONFLICT (name) DO UPDATE SET is_active = TRUE RETURNING id`,
-    isBrandTable ? [name, logoUrl] : [name],
+      ? `INSERT INTO ${table} (organization_id, name, logo_url) VALUES ($1, $2, $3) ON CONFLICT (organization_id, name) DO UPDATE SET is_active = TRUE, logo_url = COALESCE(EXCLUDED.logo_url, ${table}.logo_url) RETURNING id`
+      : `INSERT INTO ${table} (organization_id, name) VALUES ($1, $2) ON CONFLICT (organization_id, name) DO UPDATE SET is_active = TRUE RETURNING id`,
+    isBrandTable ? [organizationId, name, logoUrl] : [organizationId, name],
   );
   return result.rows[0].id;
 }
+
+function taxonomyName(value) {
+  return String(value || "").trim().replace(/\s+/g, " ").slice(0, 80);
+}
+
+app.get("/api/admin/taxonomy", authenticate, requireRoles("admin", "editor"), async (req, res) => {
+  try {
+    const organizationId = adminOrganizationId(req);
+    const [brands, categories] = await Promise.all([
+      pool.query(`SELECT b.id, b.name, b.logo_url AS "logoUrl", b.is_active AS "isActive", b.created_at AS "createdAt", COUNT(v.id)::int AS "vehicleCount" FROM vehicle_brands b LEFT JOIN vehicles v ON v.brand_id=b.id AND v.organization_id=$1 WHERE b.organization_id=$1 GROUP BY b.id ORDER BY b.is_active DESC, b.name`, [organizationId]),
+      pool.query(`SELECT c.id, c.name, c.is_active AS "isActive", c.created_at AS "createdAt", COUNT(v.id)::int AS "vehicleCount" FROM vehicle_categories c LEFT JOIN vehicles v ON v.category_id=c.id AND v.organization_id=$1 WHERE c.organization_id=$1 GROUP BY c.id ORDER BY c.is_active DESC, c.name`, [organizationId]),
+    ]);
+    res.json({ data: { brands: brands.rows, categories: categories.rows } });
+  } catch (error) { console.error("Taxonomy query failed", error); res.status(500).json({ error: "No se pudo cargar marcas y categorías" }); }
+});
+
+app.post("/api/admin/taxonomy/:kind", authenticate, requireRoles("admin", "editor"), async (req, res) => {
+  const kind = req.params.kind === "brands" ? "brands" : req.params.kind === "categories" ? "categories" : null;
+  const name = taxonomyName(req.body?.name);
+  const logoUrl = String(req.body?.logoUrl || "").trim().slice(0, 2000) || null;
+  if (!kind || name.length < 2) return res.status(400).json({ error: "Indica un nombre válido" });
+  try {
+    const table = kind === "brands" ? "vehicle_brands" : "vehicle_categories";
+    const result = kind === "brands"
+      ? await pool.query(`INSERT INTO ${table} (organization_id, name, logo_url, is_active) VALUES ($1,$2,$3,TRUE) ON CONFLICT (organization_id, name) DO UPDATE SET logo_url=COALESCE(EXCLUDED.logo_url, ${table}.logo_url), is_active=TRUE RETURNING id, name, logo_url AS "logoUrl", is_active AS "isActive"`, [adminOrganizationId(req), name, logoUrl])
+      : await pool.query(`INSERT INTO ${table} (organization_id, name, is_active) VALUES ($1,$2,TRUE) ON CONFLICT (organization_id, name) DO UPDATE SET is_active=TRUE RETURNING id, name, is_active AS "isActive"`, [adminOrganizationId(req), name]);
+    await writeAudit(req, `taxonomy.${kind}.create`, kind.slice(0, -1), result.rows[0].id, { name });
+    res.status(201).json({ data: result.rows[0] });
+  } catch (error) { console.error("Taxonomy create failed", error); res.status(error.code === "23505" ? 409 : 500).json({ error: error.code === "23505" ? "Ese nombre ya existe" : "No se pudo guardar" }); }
+});
+
+app.patch("/api/admin/taxonomy/:kind/:id", authenticate, requireRoles("admin", "editor"), async (req, res) => {
+  const kind = req.params.kind === "brands" ? "brands" : req.params.kind === "categories" ? "categories" : null;
+  const name = taxonomyName(req.body?.name);
+  const logoUrl = String(req.body?.logoUrl || "").trim().slice(0, 2000) || null;
+  const isActive = req.body?.isActive !== false;
+  if (!kind || name.length < 2) return res.status(400).json({ error: "Indica un nombre válido" });
+  try {
+    const table = kind === "brands" ? "vehicle_brands" : "vehicle_categories";
+    const result = kind === "brands"
+      ? await pool.query(`UPDATE ${table} SET name=$1, logo_url=$2, is_active=$3 WHERE id=$4 AND organization_id=$5 RETURNING id, name, logo_url AS "logoUrl", is_active AS "isActive"`, [name, logoUrl, isActive, req.params.id, adminOrganizationId(req)])
+      : await pool.query(`UPDATE ${table} SET name=$1, is_active=$2 WHERE id=$3 AND organization_id=$4 RETURNING id, name, is_active AS "isActive"`, [name, isActive, req.params.id, adminOrganizationId(req)]);
+    if (!result.rowCount) return res.status(404).json({ error: "Registro no encontrado" });
+    await writeAudit(req, `taxonomy.${kind}.update`, kind.slice(0, -1), req.params.id, { name, isActive });
+    res.json({ data: result.rows[0] });
+  } catch (error) { console.error("Taxonomy update failed", error); res.status(error.code === "23505" ? 409 : 500).json({ error: error.code === "23505" ? "Ese nombre ya existe" : "No se pudo actualizar" }); }
+});
 
 // Sin paginación de catálogo en el frontend a propósito: AUTHENTIQ se posiciona como
 // selección curada ("no llenamos el catálogo, seleccionamos lo que merece ser conducido"),
@@ -1166,8 +1213,8 @@ app.post("/api/admin/vehicles", authenticate, requireRoles("admin", "editor"), a
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const brandId = await upsertTaxonomy(client, "vehicle_brands", vehicle.brand, vehicle.brandLogoUrl);
-    const categoryId = await upsertTaxonomy(client, "vehicle_categories", vehicle.category);
+    const brandId = await upsertTaxonomy(client, "vehicle_brands", vehicle.brand, vehicle.brandLogoUrl, adminOrganizationId(req));
+    const categoryId = await upsertTaxonomy(client, "vehicle_categories", vehicle.category, null, adminOrganizationId(req));
     const inserted = await client.query(
       `INSERT INTO vehicles (organization_id, brand_id, category_id, model, variant, year, condition, price_usd, engine, power, transmission, drive, fuel_type, exterior_color, interior_color, doors, seats, location, stock_number, warranty, features, mileage_km, description, seo_title, seo_description, stock, status, max_discount_percent)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28) RETURNING id`,
@@ -1220,8 +1267,8 @@ app.put("/api/admin/vehicles/:id", authenticate, requireRoles("admin", "editor")
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const brandId = await upsertTaxonomy(client, "vehicle_brands", vehicle.brand, vehicle.brandLogoUrl);
-    const categoryId = await upsertTaxonomy(client, "vehicle_categories", vehicle.category);
+    const brandId = await upsertTaxonomy(client, "vehicle_brands", vehicle.brand, vehicle.brandLogoUrl, adminOrganizationId(req));
+    const categoryId = await upsertTaxonomy(client, "vehicle_categories", vehicle.category, null, adminOrganizationId(req));
     const updated = await client.query(
        `UPDATE vehicles SET brand_id=$1, category_id=$2, model=$3, variant=$4, year=$5, condition=$6, price_usd=$7, engine=$8, power=$9, transmission=$10, drive=$11, fuel_type=$12, exterior_color=$13, interior_color=$14, doors=$15, seats=$16, location=$17, stock_number=$18, warranty=$19, features=$20, mileage_km=$21, description=$22, seo_title=$23, seo_description=$24, stock=$25, status=$26, max_discount_percent=$27, updated_at=NOW() WHERE id=$28 AND organization_id=$29 RETURNING id`,
       [brandId, categoryId, vehicle.model, vehicle.variant, vehicle.year, vehicle.condition, vehicle.priceUsd, vehicle.engine, vehicle.power, vehicle.transmission, vehicle.drive, vehicle.fuelType, vehicle.exteriorColor, vehicle.interiorColor, vehicle.doors, vehicle.seats, vehicle.location, vehicle.stockNumber, vehicle.warranty, vehicle.features, vehicle.mileageKm, vehicle.description, vehicle.seoTitle, vehicle.seoDescription, vehicle.stock, vehicle.status, vehicle.maxDiscountPercent, req.params.id, adminOrganizationId(req)],
