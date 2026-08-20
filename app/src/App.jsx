@@ -167,6 +167,8 @@ function NotFoundPage({ onBack }) {
 }
 
 function LandingPage({ onCreateShowroom, onDealerLogin, onViewDemo }) {
+  const reduceMotion = useReducedMotion();
+  const landingVideoUrl = String(import.meta.env.VITE_HERO_VIDEO_URL || "").trim();
   const pillars = [
     { title: "Tu marca, tu showroom", body: "Logo, colores y dominio propio. Cada dealer se ve como su propio negocio, no como una plantilla compartida." },
     { title: "Inventario y leads en un solo lugar", body: "Publica vehículos, recibe ofertas, agenda citas y da seguimiento a cada cliente desde un backoffice hecho para vender." },
@@ -184,8 +186,35 @@ function LandingPage({ onCreateShowroom, onDealerLogin, onViewDemo }) {
         </div>
         <button className="landing-demo-link text-button" type="button" onClick={onViewDemo}>Ver un showroom de ejemplo ↓</button>
       </section>
+      <section className="landing-showcase" aria-label="Demostración de AUTHENTIQ">
+        <div className="landing-showcase-copy">
+          <span className="eyebrow">DE LA PROMESA A LA EXPERIENCIA</span>
+          <h2>No tienes que explicar la plataforma. Puedes enseñarla.</h2>
+          <p>Abre un showroom de ejemplo y recorre lo que verá cada cliente: inventario, fichas de vehículo, comparación, citas, ofertas y una experiencia 3D preparada para cada modelo.</p>
+          <div className="landing-showcase-actions">
+            <button className="primary-action" type="button" onClick={onViewDemo}>Abrir showroom de ejemplo ↗</button>
+            <span className="landing-showcase-note"><b>01</b> Demo guiada · 02 Inventario · 03 Conversión</span>
+          </div>
+        </div>
+        <motion.div className="landing-showcase-frame" initial={reduceMotion ? false : { opacity: 0, y: 28 }} whileInView={reduceMotion ? undefined : { opacity: 1, y: 0 }} viewport={{ once: true, amount: .28 }} transition={{ duration: .75, ease: [0.22, 1, 0.36, 1] }}>
+          <div className="landing-showcase-topbar"><span><i /> SHOWROOM DEMO · ONLINE</span><span>AUTHENTIQ / 01</span></div>
+          <div className="landing-showcase-visual">
+            {landingVideoUrl ? <video autoPlay={!reduceMotion} muted loop playsInline preload="metadata" poster="/assets/authentiq-hero-v1.webp" aria-label="Presentación de un showroom de vehículos"><source src={landingVideoUrl} /></video> : <img src="/assets/authentiq-hero-v1.webp" alt="Vehículo premium dentro de un showroom digital" />}
+            <div className="landing-showcase-glow" />
+            <div className="landing-showcase-model"><span className="eyebrow">EXPERIENCIA 03D</span><strong>Gira. Compara.<br />Decide.</strong><small>Modelo interactivo · ficha · cita</small></div>
+            <div className="landing-showcase-cursor" aria-hidden="true">↗</div>
+          </div>
+          <div className="landing-showcase-footer"><span><b>03</b> modelos activos</span><span><b>360°</b> experiencia visual</span><span><b>1:1</b> atención privada</span></div>
+        </motion.div>
+      </section>
       <section className="landing-pillars">
         {pillars.map((pillar) => <article key={pillar.title}><h2>{pillar.title}</h2><p>{pillar.body}</p></article>)}
+      </section>
+      <section className="landing-flow" aria-label="Flujo de trabajo para dealers">
+        <div className="landing-flow-heading"><span className="eyebrow">UN CENTRO PARA CADA DEALER</span><h2>Todo lo que pasa entre publicar y vender.</h2></div>
+        <div className="landing-flow-list">
+          {[{ n: "01", title: "Tu marca", body: "Logo, colores, dominio y showroom propio desde el primer acceso." }, { n: "02", title: "Tu inventario", body: "Fotos, videos, ficha técnica y modelos interactivos en una sola vista." }, { n: "03", title: "Tus clientes", body: "Leads, ofertas, citas y seguimiento sin perder conversaciones." }].map((item) => <motion.article key={item.n} whileHover={reduceMotion ? undefined : { y: -6 }} transition={{ duration: .22 }}><span>{item.n}</span><h3>{item.title}</h3><p>{item.body}</p><i>↗</i></motion.article>)}
+        </div>
       </section>
       <section className="landing-cta">
         <h2>¿Tienes un lote de vehículos y quieres venderlos online?</h2>
