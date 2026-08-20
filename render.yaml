@@ -46,3 +46,13 @@ services:
         sync: false
       - key: VITE_TURNSTILE_SITE_KEY
         sync: false
+      - key: GOOGLE_CALENDAR_REQUIRED
+        value: "true"
+      - key: GOOGLE_CALENDAR_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CALENDAR_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_CALENDAR_REDIRECT_URI
+        sync: false
+      - key: GOOGLE_CALENDAR_TOKEN_ENCRYPTION_KEY
+        sync: false

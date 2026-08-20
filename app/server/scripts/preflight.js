@@ -36,6 +36,20 @@ if (process.env.NODE_ENV === "production") {
       process.exit(1);
     }
   }
+
+  if (String(process.env.GOOGLE_CALENDAR_REQUIRED || "").trim().toLowerCase() === "true") {
+    const calendarSettings = ["GOOGLE_CALENDAR_CLIENT_ID", "GOOGLE_CALENDAR_CLIENT_SECRET", "GOOGLE_CALENDAR_REDIRECT_URI", "GOOGLE_CALENDAR_TOKEN_ENCRYPTION_KEY"];
+    const missingCalendarSettings = calendarSettings.filter((key) => !String(process.env[key] || "").trim());
+    if (missingCalendarSettings.length) {
+      console.error(`PREFLIGHT FAIL · faltan variables de Google Calendar: ${missingCalendarSettings.join(", ")}`);
+      process.exit(1);
+    }
+
+    if (localUrl.test(String(process.env.GOOGLE_CALENDAR_REDIRECT_URI || ""))) {
+      console.error("PREFLIGHT FAIL · GOOGLE_CALENDAR_REDIRECT_URI no puede apuntar a localhost en producción");
+      process.exit(1);
+    }
+  }
 }
 
 try {
