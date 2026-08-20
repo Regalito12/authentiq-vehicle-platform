@@ -397,13 +397,6 @@ async function persistGenerated3dAsset(sourceUrl, organizationId, vehicleId, fil
 
 app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" },
-  permissionsPolicy: {
-    features: {
-      camera: ["'self'"],
-      microphone: [],
-      geolocation: [],
-    },
-  },
   contentSecurityPolicy: {
     directives: {
       // model-viewer usa WebAssembly para decodificar algunos modelos; esto
@@ -417,6 +410,10 @@ app.use(helmet({
     },
   },
 }));
+app.use((_req, res, next) => {
+  res.setHeader("Permissions-Policy", "camera=(self), microphone=(), geolocation=()");
+  next();
+});
 app.use(cors({ origin: frontendOrigin ? frontendOrigin.split(",").map((value) => value.trim()) : true, credentials: true }));
 app.use(express.json({ limit: "1mb" }));
 app.use("/uploads", express.static(uploadsDir, {
