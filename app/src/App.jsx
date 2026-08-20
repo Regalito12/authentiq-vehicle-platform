@@ -170,6 +170,9 @@ function NotFoundPage({ onBack }) {
 function LandingPage({ onCreateShowroom, onDealerLogin, onViewDemo }) {
   const reduceMotion = useReducedMotion();
   const landingVideoUrl = String(import.meta.env.VITE_HERO_VIDEO_URL || "").trim();
+  const landingVideoRef = useRef(null);
+  const [landingVideoPlaying, setLandingVideoPlaying] = useState(Boolean(landingVideoUrl) && !reduceMotion);
+  const [landingVideoProgress, setLandingVideoProgress] = useState(12);
   const pillars = [
     { title: "Tu marca, tu showroom", body: "Logo, colores y dominio propio. Cada dealer se ve como su propio negocio, no como una plantilla compartida." },
     { title: "Inventario y leads en un solo lugar", body: "Publica vehículos, recibe ofertas, agenda citas y da seguimiento a cada cliente desde un backoffice hecho para vender." },
@@ -192,10 +195,15 @@ function LandingPage({ onCreateShowroom, onDealerLogin, onViewDemo }) {
         </motion.div>
         <motion.div className="landing-hero-visual" initial={reduceMotion ? false : { opacity: 0, scale: .96 }} animate={reduceMotion ? undefined : { opacity: 1, scale: 1 }} transition={{ duration: .9, delay: .12, ease: [0.22, 1, 0.36, 1] }}>
           <div className="landing-visual-status"><span><i /> SHOWROOM EN VIVO</span><span>AUTHENTIQ / 2026</span></div>
-          <div className="landing-visual-media">{landingVideoUrl ? <video autoPlay={!reduceMotion} muted loop playsInline preload="metadata" poster="/assets/authentiq-hero-v1.webp" aria-label="Vehículo en movimiento dentro de un showroom digital"><source src={landingVideoUrl} /></video> : <img src="/assets/authentiq-hero-v1.webp" alt="Vehículo premium presentado en el showroom digital de AUTHENTIQ" />}<div className="landing-visual-wash" /></div>
+          <div className="landing-visual-media">{landingVideoUrl ? <video ref={landingVideoRef} autoPlay={!reduceMotion} muted loop playsInline preload="metadata" poster="/assets/authentiq-hero-v1.webp" aria-label="Vehículo en movimiento dentro de un showroom digital" onPlay={() => setLandingVideoPlaying(true)} onPause={() => setLandingVideoPlaying(false)} onTimeUpdate={(event) => { const duration = event.currentTarget.duration || 0; setLandingVideoProgress(duration ? (event.currentTarget.currentTime / duration) * 100 : 12); }}><source src={landingVideoUrl} /></video> : <img src="/assets/authentiq-hero-v1.webp" alt="Vehículo premium presentado en el showroom digital de AUTHENTIQ" />}<div className="landing-visual-wash" /></div>
           <div className="landing-visual-caption"><span className="eyebrow">EXPERIENCIA 360°</span><strong>Lo que vendes<br /><em>se siente.</em></strong><small>Fotos · video · 3D · ficha · cita</small></div>
           <div className="landing-visual-card"><span>MODELO DESTACADO</span><strong>Porsche<br />Taycan Turbo S</strong><small>Ver ficha <b>↗</b></small></div>
           <div className="landing-visual-ring" aria-hidden="true" />
+          <div className="landing-reel-controls">
+            <button type="button" aria-label={landingVideoUrl ? (landingVideoPlaying ? "Pausar video" : "Reproducir video") : "Abrir demo"} onClick={async () => { if (!landingVideoUrl) { onViewDemo(); return; } if (landingVideoRef.current?.paused) await landingVideoRef.current.play(); else landingVideoRef.current?.pause(); }}>{landingVideoUrl && landingVideoPlaying ? "Ⅱ" : "▶"}</button>
+            <div className="landing-reel-progress" aria-hidden="true"><span style={{ width: `${landingVideoProgress}%` }} /></div>
+            <span>{landingVideoUrl ? "SHOWROOM / REEL 01" : "SHOWROOM / PREVIEW"}</span>
+          </div>
         </motion.div>
       </section>
       <div className="landing-scroll-strip"><span>NO TE LO CONTAMOS</span><b>TE LO ENSEÑAMOS</b><span>SCROLL PARA EXPLORAR ↓</span></div>
