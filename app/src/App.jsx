@@ -177,17 +177,29 @@ function LandingPage({ onCreateShowroom, onDealerLogin, onViewDemo }) {
   ];
   return (
     <main className="landing-page">
-      <section className="landing-hero">
-        <span className="eyebrow">AUTHENTIQ · PLATAFORMA PARA DEALERS</span>
-        <h1>El espacio donde <em>varios concesionarios</em> venden con su propia marca.</h1>
-        <p>Cada dealer arma su showroom digital, personaliza su marca y gestiona su inventario y clientes — todo dentro de una plataforma administrada centralmente.</p>
-        <div className="landing-actions">
-          <button className="primary-action" type="button" onClick={onCreateShowroom}>Quiero mi showroom →</button>
-          <button className="secondary-action" type="button" onClick={onDealerLogin}>Ya soy dealer, iniciar sesión</button>
-        </div>
-        <button className="landing-demo-link text-button" type="button" onClick={onViewDemo}>Ver un showroom de ejemplo ↓</button>
+      <nav className="landing-nav" aria-label="Navegación de AUTHENTIQ">
+        <a href="#landing-top" className="landing-brand">AUTHENTIQ<span>°</span></a>
+        <div className="landing-nav-links"><a href="#landing-product">Producto</a><a href="#landing-flow">Cómo funciona</a><a href="#landing-demo">Demo</a></div>
+        <div className="landing-nav-actions"><button type="button" className="landing-nav-login" onClick={onDealerLogin}>Iniciar sesión</button><button type="button" className="landing-nav-cta" onClick={onCreateShowroom}>Crear showroom <span>↗</span></button></div>
+      </nav>
+      <section className="landing-hero" id="landing-top">
+        <motion.div className="landing-hero-copy" initial={reduceMotion ? false : { opacity: 0, y: 24 }} animate={reduceMotion ? undefined : { opacity: 1, y: 0 }} transition={{ duration: .7, ease: [0.22, 1, 0.36, 1] }}>
+          <span className="eyebrow">AUTHENTIQ · PLATAFORMA PARA DEALERS</span>
+          <h1>Cada dealer. <em>Su marca.</em><br />Un showroom que se mueve.</h1>
+          <p>Convierte tu inventario en una experiencia digital que los clientes entienden, exploran y recuerdan.</p>
+          <div className="landing-actions"><button className="primary-action" type="button" onClick={onCreateShowroom}>Quiero mi showroom <span>↗</span></button><button className="landing-quiet-action" type="button" onClick={onViewDemo}>Ver la demo del producto <span>↓</span></button></div>
+          <div className="landing-hero-proof"><span><b>01</b> Marca blanca</span><span><b>02</b> Inventario vivo</span><span><b>03</b> Leads y citas</span></div>
+        </motion.div>
+        <motion.div className="landing-hero-visual" initial={reduceMotion ? false : { opacity: 0, scale: .96 }} animate={reduceMotion ? undefined : { opacity: 1, scale: 1 }} transition={{ duration: .9, delay: .12, ease: [0.22, 1, 0.36, 1] }}>
+          <div className="landing-visual-status"><span><i /> SHOWROOM EN VIVO</span><span>AUTHENTIQ / 2026</span></div>
+          <div className="landing-visual-media">{landingVideoUrl ? <video autoPlay={!reduceMotion} muted loop playsInline preload="metadata" poster="/assets/authentiq-hero-v1.webp" aria-label="Vehículo en movimiento dentro de un showroom digital"><source src={landingVideoUrl} /></video> : <img src="/assets/authentiq-hero-v1.webp" alt="Vehículo premium presentado en el showroom digital de AUTHENTIQ" />}<div className="landing-visual-wash" /></div>
+          <div className="landing-visual-caption"><span className="eyebrow">EXPERIENCIA 360°</span><strong>Lo que vendes<br /><em>se siente.</em></strong><small>Fotos · video · 3D · ficha · cita</small></div>
+          <div className="landing-visual-card"><span>MODELO DESTACADO</span><strong>Porsche<br />Taycan Turbo S</strong><small>Ver ficha <b>↗</b></small></div>
+          <div className="landing-visual-ring" aria-hidden="true" />
+        </motion.div>
       </section>
-      <section className="landing-showcase" aria-label="Demostración de AUTHENTIQ">
+      <div className="landing-scroll-strip"><span>NO TE LO CONTAMOS</span><b>TE LO ENSEÑAMOS</b><span>SCROLL PARA EXPLORAR ↓</span></div>
+      <section className="landing-showcase" id="landing-product" aria-label="Demostración de AUTHENTIQ">
         <div className="landing-showcase-copy">
           <span className="eyebrow">DE LA PROMESA A LA EXPERIENCIA</span>
           <h2>No tienes que explicar la plataforma. Puedes enseñarla.</h2>
@@ -212,13 +224,13 @@ function LandingPage({ onCreateShowroom, onDealerLogin, onViewDemo }) {
       <section className="landing-pillars">
         {pillars.map((pillar) => <article key={pillar.title}><h2>{pillar.title}</h2><p>{pillar.body}</p></article>)}
       </section>
-      <section className="landing-flow" aria-label="Flujo de trabajo para dealers">
+      <section className="landing-flow" id="landing-flow" aria-label="Flujo de trabajo para dealers">
         <div className="landing-flow-heading"><span className="eyebrow">UN CENTRO PARA CADA DEALER</span><h2>Todo lo que pasa entre publicar y vender.</h2></div>
         <div className="landing-flow-list">
           {[{ n: "01", title: "Tu marca", body: "Logo, colores, dominio y showroom propio desde el primer acceso." }, { n: "02", title: "Tu inventario", body: "Fotos, videos, ficha técnica y modelos interactivos en una sola vista." }, { n: "03", title: "Tus clientes", body: "Leads, ofertas, citas y seguimiento sin perder conversaciones." }].map((item) => <motion.article key={item.n} whileHover={reduceMotion ? undefined : { y: -6 }} transition={{ duration: .22 }}><span>{item.n}</span><h3>{item.title}</h3><p>{item.body}</p><i>↗</i></motion.article>)}
         </div>
       </section>
-      <section className="landing-cta">
+      <section className="landing-cta" id="landing-demo">
         <h2>¿Tienes un lote de vehículos y quieres venderlos online?</h2>
         <p>Crea tu cuenta en minutos. Tu showroom queda listo para personalizar de inmediato.</p>
         <button className="primary-action" type="button" onClick={onCreateShowroom}>Crear mi showroom →</button>
