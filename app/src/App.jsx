@@ -193,6 +193,7 @@ function LandingPage({ onCreateShowroom, onDealerLogin, onViewDemo }) {
           <p>Abre un showroom de ejemplo y recorre lo que verá cada cliente: inventario, fichas de vehículo, comparación, citas, ofertas y una experiencia 3D preparada para cada modelo.</p>
           <div className="landing-showcase-actions">
             <button className="primary-action" type="button" onClick={onViewDemo}>Abrir showroom de ejemplo ↗</button>
+            <a className="landing-presentation-link" href="/presentacion">Iniciar presentación guiada <span>→</span></a>
             <span className="landing-showcase-note"><b>01</b> Demo guiada · 02 Inventario · 03 Conversión</span>
           </div>
         </div>

@@ -40,6 +40,10 @@ html { scroll-behavior: smooth; }
 .landing-showcase-copy h2 { max-width: 10ch; margin: 18px 0; font-size: clamp(38px, 5vw, 70px); font-weight: 300; letter-spacing: -.06em; line-height: .92; }
 .landing-showcase-copy p { max-width: 43ch; margin: 0; color: #b7b1a7; font-size: 16px; line-height: 1.65; }
 .landing-showcase-actions { display: grid; justify-items: start; gap: 17px; margin-top: 28px; }
+.landing-presentation-link { color: #e7e2d9; font: 500 10px "IBM Plex Mono", monospace; letter-spacing: .08em; text-decoration: none; text-transform: uppercase; transition: color .2s ease, transform .2s ease; }
+.landing-presentation-link span { display: inline-block; margin-left: 8px; color: var(--tenant-primary); transition: transform .2s ease; }
+.landing-presentation-link:hover, .landing-presentation-link:focus-visible { color: var(--tenant-primary-ink, var(--tenant-primary)); outline: none; }
+.landing-presentation-link:hover span, .landing-presentation-link:focus-visible span { transform: translateX(5px); }
 .landing-showcase-note { color: #817b72; font: 10px "IBM Plex Mono", monospace; letter-spacing: .06em; text-transform: uppercase; }
 .landing-showcase-note b, .landing-showcase-footer b { color: var(--tenant-primary-ink, var(--tenant-primary)); font-weight: 500; }
 .landing-showcase-frame { min-width: 0; border: 1px solid #34312a; background: #121313; box-shadow: 0 28px 80px rgba(0,0,0,.28); transform: rotate(1deg); }
