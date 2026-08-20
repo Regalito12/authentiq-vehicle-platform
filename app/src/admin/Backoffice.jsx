@@ -6,6 +6,8 @@ import PlatformCenter from "./PlatformCenter.jsx";
 import { generateQRCodeSVG, drawQRCodeToCanvas } from "../utils/qr.js";
 import { TurnstileField } from "../utils/turnstile.jsx";
 import { contrastSafeShade } from "../utils/color.js";
+import { SlidingNumber } from "../components/animate-ui/primitives/texts/sliding-number.jsx";
+import { AnimatedList } from "../ui/MotionPrimitives.jsx";
 
 // En local, conserva dealer-demo.localhost / velocity-demo.localhost en vez de
 // volver siempre a localhost; esto permite comprobar el aislamiento por dealer.
@@ -193,8 +195,10 @@ function AdminNav({ activeModule, onChange, onBack, onLogout, role, unreadNotifi
   );
 }
 
-function StatCard({ label, value, note }) {
-  return <article className="stat-card"><span>{label}</span><strong>{value}</strong><small>{note}</small></article>;
+function StatCard({ label, value, numericValue, prefix = "", suffix = "", note }) {
+  const candidate = numericValue !== undefined ? numericValue : value;
+  const isNumeric = Number.isFinite(Number(candidate)) && candidate !== "";
+  return <article className="stat-card"><span>{label}</span><strong>{isNumeric ? <span className="stat-card-number"><span>{prefix}</span><SlidingNumber number={Number(candidate)} thousandSeparator="," /><span>{suffix}</span></span> : value}</strong><small>{note}</small></article>;
 }
 
 function AdminEmptyState({ eyebrow = "SIN ACTIVIDAD", title, text, actionLabel, onAction }) {
@@ -224,7 +228,7 @@ function DashboardPulse({ data, leads, offers, appointments, onNavigate }) {
       <div className="panel-heading"><div><span className="eyebrow">PRIORIDAD HOY</span><h3>Lo que merece atencion.</h3></div><button className="text-button" type="button" onClick={() => onNavigate("leads")}>Abrir leads</button></div>
       {priorityLeads.length ? <div className="priority-list">{priorityLeads.map((lead, index) => <button className="priority-item" type="button" key={lead.id} onClick={() => onNavigate("leads")}><span className="priority-index">{String(index + 1).padStart(2, "0")}</span><span className="priority-copy"><strong>{lead.name}</strong><small>{lead.brand ? `${lead.brand} ${lead.model}` : "Contacto general"} · {formatDate(lead.createdAt)}</small></span><span className={`status-pill ${lead.status}`}>{lead.status}</span><span className="priority-arrow">→</span></button>)}</div> : <p className="empty-state">No hay leads pendientes de seguimiento.</p>}
     </article>
-    <div className="quick-action-grid">{actions.map(([key, label, count, hint], index) => <button className="quick-action" type="button" key={key} onClick={() => onNavigate(key)}><span className="quick-action-top"><span className="eyebrow">{String(index + 1).padStart(2, "0")}</span><strong>{count}</strong></span><span className="quick-action-label">{label}</span><small>{hint} <span>→</span></small></button>)}</div>
+    <div className="quick-action-grid">{actions.map(([key, label, count, hint], index) => <button className="quick-action" type="button" key={key} onClick={() => onNavigate(key)}><span className="quick-action-top"><span className="eyebrow">{String(index + 1).padStart(2, "0")}</span><strong><SlidingNumber number={count} thousandSeparator="," /></strong></span><span className="quick-action-label">{label}</span><small>{hint} <span>→</span></small></button>)}</div>
   </section>;
 }
 
@@ -347,17 +351,17 @@ function DashboardView({ data, leads, offers, appointments, loading, onNavigate,
       <DealerShareCard organization={organization} settings={settings} onNavigate={onNavigate} />
       <DashboardSetupCard onboarding={onboarding} onOpenOnboarding={onOpenOnboarding} onOpenPublic={onOpenPublic} />
       <div className="stats-grid">
-        <StatCard label="Vehículos" value={summary.totalVehicles || 0} note={`${summary.publishedVehicles || 0} publicados`} />
-        <StatCard label="Stock disponible" value={summary.availableStock || 0} note="Unidades publicadas" />
-        <StatCard label="Valor inventario" value={formatPrice(summary.inventoryValue)} note="Precio × stock" />
-        <StatCard label="Leads activos" value={summary.pendingLeads || 0} note={`${summary.pendingOffers || 0} ofertas pendientes`} />
+        <StatCard label="Vehículos" numericValue={summary.totalVehicles || 0} note={`${summary.publishedVehicles || 0} publicados`} />
+        <StatCard label="Stock disponible" numericValue={summary.availableStock || 0} note="Unidades publicadas" />
+        <StatCard label="Valor inventario" numericValue={summary.inventoryValue || 0} prefix="$" suffix=" USD" note="Precio × stock" />
+        <StatCard label="Leads activos" numericValue={summary.pendingLeads || 0} note={`${summary.pendingOffers || 0} ofertas pendientes`} />
       </div>
       <DashboardPulse data={data} leads={leads} offers={offers} appointments={appointments} onNavigate={onNavigate} />
       <div className="charts-grid">
         <article className="chart-panel"><div className="panel-heading"><div><span className="eyebrow">INVENTARIO</span><h3>Stock por marca</h3></div></div><div className="chart-box"><ResponsiveContainer width="100%" height="100%"><BarChart data={data.byBrand || []} margin={{ top: 8, right: 8, left: -22, bottom: 0 }}><XAxis dataKey="name" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} /><YAxis allowDecimals={false} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} /><Tooltip formatter={(value) => [`${value} unidades`, "Stock"]} /><Bar dataKey="stock" fill="#c8a24b" radius={[3, 3, 0, 0]} /></BarChart></ResponsiveContainer></div></article>
         <article className="chart-panel"><div className="panel-heading"><div><span className="eyebrow">ESTADO</span><h3>Distribución del inventario</h3></div></div><div className="chart-box status-chart"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={statusData} dataKey="count" nameKey="label" innerRadius={52} outerRadius={78} paddingAngle={3}>{statusData.map((item, index) => <Cell key={item.status} fill={chartColors[index % chartColors.length]} />)}</Pie><Tooltip formatter={(value, _name, item) => [`${value} vehículos`, item.payload.label]} /></PieChart></ResponsiveContainer><div className="chart-legend">{statusData.map((item, index) => <span key={item.status}><i style={{ background: chartColors[index % chartColors.length] }} />{item.label} · {item.count}</span>)}</div></div></article>
       </div>
-      <div className="dashboard-lower"><article className="activity-panel"><div className="panel-heading"><div><span className="eyebrow">OFERTAS</span><h3>Actividad reciente</h3></div><button className="text-button" type="button" onClick={() => onNavigate("offers")}>Ver todas →</button></div>{data.recentOffers?.length ? data.recentOffers.map((offer) => <div className="activity-row" key={offer.id}><div><strong>{offer.buyerName}</strong><span>{offer.brand} {offer.model} · {formatPrice(offer.amountUsd)}</span></div><span className={`status-pill ${offer.status}`}>{offer.status}</span></div>) : <AdminEmptyState eyebrow="OFERTAS" title="Todavía no hay ofertas." text="Cuando llegue la primera, aparecerá aquí para que puedas responderla." actionLabel="Ver leads" onAction={() => onNavigate("leads")} />}</article><article className="activity-panel"><div className="panel-heading"><div><span className="eyebrow">AGENDA</span><h3>Próximas citas</h3></div><button className="text-button" type="button" onClick={() => onNavigate("appointments")}>Abrir agenda →</button></div>{data.upcomingAppointments?.length ? data.upcomingAppointments.map((appointment) => <div className="activity-row" key={appointment.id}><div><strong>{appointment.customerName}</strong><span>{formatDate(appointment.date)} · {String(appointment.time || "").slice(0, 5)} · {appointment.brand} {appointment.model}</span></div><span className={`status-pill ${appointment.status}`}>{appointment.status}</span></div>) : <AdminEmptyState eyebrow="AGENDA" title="No hay citas próximas." text="Cuando un comprador solicite una visita, aparecerá aquí para preparar la atención." actionLabel="Configurar agenda" onAction={() => onNavigate("appointments")} />}</article></div>
+      <div className="dashboard-lower"><article className="activity-panel"><div className="panel-heading"><div><span className="eyebrow">OFERTAS</span><h3>Actividad reciente</h3></div><button className="text-button" type="button" onClick={() => onNavigate("offers")}>Ver todas →</button></div>{data.recentOffers?.length ? <AnimatedList items={data.recentOffers} className="activity-list-motion" itemClassName="activity-row" renderItem={(offer) => <><div><strong>{offer.buyerName}</strong><span>{offer.brand} {offer.model} · {formatPrice(offer.amountUsd)}</span></div><span className={`status-pill ${offer.status}`}>{offer.status}</span></>} /> : <AdminEmptyState eyebrow="OFERTAS" title="Todavía no hay ofertas." text="Cuando llegue la primera, aparecerá aquí para que puedas responderla." actionLabel="Ver leads" onAction={() => onNavigate("leads")} />}</article><article className="activity-panel"><div className="panel-heading"><div><span className="eyebrow">AGENDA</span><h3>Próximas citas</h3></div><button className="text-button" type="button" onClick={() => onNavigate("appointments")}>Abrir agenda →</button></div>{data.upcomingAppointments?.length ? <AnimatedList items={data.upcomingAppointments} className="activity-list-motion" itemClassName="activity-row" renderItem={(appointment) => <><div><strong>{appointment.customerName}</strong><span>{formatDate(appointment.date)} · {String(appointment.time || "").slice(0, 5)} · {appointment.brand} {appointment.model}</span></div><span className={`status-pill ${appointment.status}`}>{appointment.status}</span></>} /> : <AdminEmptyState eyebrow="AGENDA" title="No hay citas próximas." text="Cuando un comprador solicite una visita, aparecerá aquí para preparar la atención." actionLabel="Configurar agenda" onAction={() => onNavigate("appointments")} />}</article></div>
     </section>
   );
 }

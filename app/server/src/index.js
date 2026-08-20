@@ -397,6 +397,13 @@ async function persistGenerated3dAsset(sourceUrl, organizationId, vehicleId, fil
 
 app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" },
+  permissionsPolicy: {
+    features: {
+      camera: ["'self'"],
+      microphone: [],
+      geolocation: [],
+    },
+  },
   contentSecurityPolicy: {
     directives: {
       // model-viewer usa WebAssembly para decodificar algunos modelos; esto

@@ -9,6 +9,7 @@
     "backup:db": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/backup-db.ps1",
     "build": "vite build",
     "check:production": "node scripts/check-production-env.mjs",
+    "verify": "npm run check:production && npm run build && node scripts/smoke-check.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

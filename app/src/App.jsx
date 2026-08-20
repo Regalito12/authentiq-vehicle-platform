@@ -2,6 +2,7 @@ import { Component, lazy, Suspense, useEffect, useMemo, useRef, useState } from 
 import { AnimatePresence, motion, useInView, useReducedMotion } from "motion/react";
 import { TurnstileField, turnstileSiteKey } from "./utils/turnstile.jsx";
 import { contrastSafeShade } from "./utils/color.js";
+import { AnimatedNumber, BlurFade, Disclosure, ProgressiveBlur, TextReveal } from "./ui/MotionPrimitives.jsx";
 
 class SectionBoundary extends Component {
   constructor(props) { super(props); this.state = { failed: false }; }
@@ -82,9 +83,7 @@ function ensurePreload(url, as = "fetch") {
 }
 
 function Reveal({ children, className = "" }) {
-  const ref = useRef(null);
-  const visible = useInView(ref, { once: true, amount: 0.12 });
-  return <motion.div ref={ref} className={className} initial={{ opacity: 0, y: 14 }} animate={visible ? { opacity: 1, y: 0 } : { opacity: 0, y: 14 }} transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}>{children}</motion.div>;
+  return <BlurFade className={className}>{children}</BlurFade>;
 }
 
 function AnimatedMetric({ value, suffix = "", duration = 1100 }) {
@@ -391,23 +390,20 @@ function QuoteModal({ vehicle, financingTerms, onClose }) {
         <div className="quote-brand">{getBrandName()} <span>COTIZACIÓN DE VEHÍCULO</span></div>
         <div className="quote-heading">
           <span className="eyebrow">PROPUESTA COMERCIAL</span>
-          <h2>{vehicle.brand} <em>{vehicle.model}</em></h2>
+          <h2><TextReveal>{vehicle.brand}</TextReveal> <em><TextReveal delay={0.06}>{vehicle.model}</TextReveal></em></h2>
           <p>{vehicle.year} · {vehicle.condition === "new" ? "Nuevo" : "Certificado"}</p>
         </div>
         <div className="quote-price">
           <span>Precio de lista</span>
-          <strong>{formatPrice(vehicle.priceUsd)}</strong>
+          <strong><AnimatedNumber value={vehicle.priceUsd} format={(number) => `$${number.toLocaleString("en-US")} USD`} /></strong>
         </div>
-        {financingTerms && (
-          <div className="quote-financing-highlight" style={{ padding: "12px 16px", background: "var(--auth-soft, #f4f2ee)", margin: "14px 0", borderLeft: "3px solid var(--auth-gold, #c8a24b)" }}>
-            <span style={{ font: "500 10px 'IBM Plex Mono', monospace", color: "var(--auth-gold)", display: "block" }}>SIMULACIÓN FINANCIERA INCLUIDA</span>
-            <div style={{ display: "flex", justifyContent: "space-between", marginTop: "4px", fontSize: "13px" }}>
-              <span>Inicial: <strong>{formatPrice(financingTerms.downPayment)}</strong></span>
-              <span>Plazo: <strong>{financingTerms.months} meses</strong></span>
-              <span>Cuota: <strong>{formatPrice(financingTerms.monthlyPayment)}/mes</strong></span>
-            </div>
+        {financingTerms && <Disclosure title="Simulación financiera incluida" defaultOpen>
+          <div className="quote-financing-summary">
+            <span>Inicial: <strong><AnimatedNumber value={financingTerms.downPayment} format={(number) => `$${number.toLocaleString("en-US")} USD`} /></strong></span>
+            <span>Plazo: <strong><AnimatedNumber value={financingTerms.months} suffix=" meses" /></strong></span>
+            <span>Cuota: <strong><AnimatedNumber value={financingTerms.monthlyPayment} format={(number) => `$${number.toLocaleString("en-US")} USD`} />/mes</strong></span>
           </div>
-        )}
+        </Disclosure>}
         <div className="quote-specs">
           <span>Motor <b>{vehicle.engine || "—"}</b></span>
           <span>Potencia <b>{vehicle.power || "—"}</b></span>
@@ -1153,8 +1149,9 @@ function VehicleDetail({ vehicle, vehicles = [], onBack, isFavorite = false, onT
               />
             </AnimatePresence>
           </div>
-          <div className="thumbs">
-            {images.map((item, index) => (
+          <ProgressiveBlur className="detail-thumbs-frame">
+            <div className="thumbs">
+              {images.map((item, index) => (
               <button
                 key={item.id || item.url}
                 className={index === activeImage ? "thumb active" : "thumb"}
@@ -1164,9 +1161,10 @@ function VehicleDetail({ vehicle, vehicles = [], onBack, isFavorite = false, onT
                 aria-pressed={index === activeImage}
               >
                 <img src={item.url} alt="" />
-              </button>
-            ))}
-          </div>
+                </button>
+              ))}
+            </div>
+          </ProgressiveBlur>
           <DetailGalleryPanel vehicle={vehicle} imageCount={images.length} />
           <DetailGalleryEditorial vehicle={vehicle} />
         </div>
@@ -1375,7 +1373,6 @@ function ShowroomNav({ theme, setTheme, customer, onAccount, onBackoffice, onReg
     const onScroll = () => {
       const isScrolled = window.scrollY > 36;
       setScrolled(isScrolled);
-      if (window.scrollY > 120 && menuOpen) setMenuOpen(false);
     };
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
@@ -1447,6 +1444,7 @@ function PresentationMode({ vehicles, loading, onExit, onOpenVehicle, businessNa
 }
 
 function App() {
+  const prefersReducedMotion = useReducedMotion();
   const [vehicles, setVehicles] = useState([]);
   const [selected, setSelected] = useState(null);
   const [compareVehicles, setCompareVehicles] = useState([]);
@@ -1730,7 +1728,7 @@ function App() {
     <><a className="skip-link" href="#top">Saltar al contenido</a><main id="top">
       <ShowroomNav theme={theme} setTheme={setTheme} customer={customer} businessName={businessSettings.businessName} logoUrl={businessSettings.logoUrl} onAccount={() => { setAccountOpen(true); setAccountStatus({ loading: false, error: "" }); }} onBackoffice={() => { setAdminInitialMode("login"); setScreen("admin"); }} onRegisterDealer={() => { setAdminInitialMode("register"); setScreen("admin"); }} />
       <section className="hero">
-        {heroVideoUrl ? <video className="hero-background hero-video" autoPlay muted loop playsInline preload="metadata" poster={businessSettings.heroImageUrl || "/assets/authentiq-hero-v1.webp"} aria-label="Vehículo premium en movimiento"><source src={heroVideoUrl} /></video> : <img src={publicMediaUrl(businessSettings.heroImageUrl) || "/assets/authentiq-hero-v1.webp"} alt={`Vehículo destacado de ${getBrandName()}`} className="hero-background" loading="eager" fetchPriority="high" decoding="async" />}
+        {heroVideoUrl ? <video className="hero-background hero-video" autoPlay={!prefersReducedMotion} muted loop playsInline preload="metadata" poster={businessSettings.heroImageUrl || "/assets/authentiq-hero-v1.webp"} aria-label="Vehículo premium en movimiento"><source src={heroVideoUrl} /></video> : <img src={publicMediaUrl(businessSettings.heroImageUrl) || "/assets/authentiq-hero-v1.webp"} alt={`Vehículo destacado de ${getBrandName()}`} className="hero-background" loading="eager" fetchPriority="high" decoding="async" />}
         <div className="hero-overlay" />
         <div className="hero-content">
           <span className="eyebrow">{getBrandName()} / CURATED MOTION</span>
