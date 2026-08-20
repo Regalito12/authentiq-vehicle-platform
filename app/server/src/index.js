@@ -42,11 +42,15 @@ const billingProvider = String(process.env.BILLING_PROVIDER || "none").trim().to
 const billingCheckoutUrl = String(process.env.BILLING_CHECKOUT_URL || "").trim();
 const metaAppConfigured = Boolean(String(process.env.META_APP_ID || "").trim() && String(process.env.META_APP_SECRET || "").trim());
 const googleCalendarConfigured = Boolean(String(process.env.GOOGLE_CALENDAR_CLIENT_ID || "").trim() && String(process.env.GOOGLE_CALENDAR_CLIENT_SECRET || "").trim());
+const googleCalendarTokenKey = String(process.env.GOOGLE_CALENDAR_TOKEN_ENCRYPTION_KEY || "").trim();
+const googleCalendarRedirectUri = String(process.env.GOOGLE_CALENDAR_REDIRECT_URI || `${publicApiUrl || `http://localhost:${port}`}/api/integrations/google-calendar/callback`).trim();
+const googleCalendarScope = "https://www.googleapis.com/auth/calendar.events";
 if (process.env.NODE_ENV === "production") {
   if (jwtSecret.length < 32) throw new Error("JWT_SECRET debe tener al menos 32 caracteres en producción");
   if (!publicApiUrl || !publicSiteUrl || !frontendOrigin || /localhost|127\.0\.0\.1/i.test(`${publicApiUrl} ${publicSiteUrl} ${frontendOrigin}`)) throw new Error("PUBLIC_API_URL, PUBLIC_SITE_URL y FRONTEND_ORIGIN deben apuntar al dominio de producción");
   if (!remoteStorageEnabled) throw new Error("Supabase Storage es obligatorio en producción; no se permite almacenamiento temporal");
   if (botProtectionRequired && !turnstileSecretKey) throw new Error("TURNSTILE_SECRET_KEY es obligatorio cuando BOT_PROTECTION_REQUIRED=true");
+  if (googleCalendarConfigured && !googleCalendarTokenKey) throw new Error("GOOGLE_CALENDAR_TOKEN_ENCRYPTION_KEY es obligatorio cuando Google Calendar está configurado");
 }
 app.set("trust proxy", 1);
 await fs.mkdir(uploadsDir, { recursive: true });
@@ -1011,6 +1015,86 @@ function escapeHtml(value) {
   return String(value || "").replace(/[<>&'\"]/g, (char) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", "'": "&#39;", '"': "&quot;" })[char]);
 }
 
+function googleTokenKeyBuffer() {
+  if (!googleCalendarTokenKey) return null;
+  return /^[a-f0-9]{64}$/i.test(googleCalendarTokenKey) ? Buffer.from(googleCalendarTokenKey, "hex") : crypto.createHash("sha256").update(googleCalendarTokenKey).digest();
+}
+
+function encryptGoogleSecret(value) {
+  const key = googleTokenKeyBuffer();
+  if (!key || !value) return null;
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+  const encrypted = Buffer.concat([cipher.update(String(value), "utf8"), cipher.final()]);
+  return `${iv.toString("base64url")}.${cipher.getAuthTag().toString("base64url")}.${encrypted.toString("base64url")}`;
+}
+
+function decryptGoogleSecret(value) {
+  const key = googleTokenKeyBuffer();
+  const [ivValue, tagValue, encryptedValue] = String(value || "").split(".");
+  if (!key || !ivValue || !tagValue || !encryptedValue) return null;
+  try {
+    const decipher = crypto.createDecipheriv("aes-256-gcm", key, Buffer.from(ivValue, "base64url"));
+    decipher.setAuthTag(Buffer.from(tagValue, "base64url"));
+    return Buffer.concat([decipher.update(Buffer.from(encryptedValue, "base64url")), decipher.final()]).toString("utf8");
+  } catch { return null; }
+}
+
+function googleCalendarAuthorizationUrl(state) {
+  const params = new URLSearchParams({ client_id: process.env.GOOGLE_CALENDAR_CLIENT_ID, redirect_uri: googleCalendarRedirectUri, response_type: "code", access_type: "offline", prompt: "consent", include_granted_scopes: "true", scope: googleCalendarScope, state });
+  return `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
+}
+
+async function googleTokenRequest(params) {
+  const response = await fetch("https://oauth2.googleapis.com/token", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(params) });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.error_description || payload.error || "Google no pudo autorizar el calendario");
+  return payload;
+}
+
+async function getGoogleCalendarAccess(organizationId) {
+  const result = await pool.query("SELECT config FROM organization_integrations WHERE organization_id=$1 AND provider='google_calendar'", [organizationId]);
+  const config = result.rows[0]?.config || {};
+  const refreshToken = decryptGoogleSecret(config.refreshTokenEncrypted);
+  if (!refreshToken) return null;
+  const token = await googleTokenRequest({ client_id: process.env.GOOGLE_CALENDAR_CLIENT_ID, client_secret: process.env.GOOGLE_CALENDAR_CLIENT_SECRET, refresh_token: refreshToken, grant_type: "refresh_token" });
+  return { accessToken: token.access_token, calendarId: config.calendarId || "primary", timezone: config.timezone || "America/Santo_Domingo" };
+}
+
+async function syncAppointmentToGoogle(organizationId, appointmentId) {
+  if (!googleCalendarConfigured || !googleCalendarTokenKey) return { synced: false, reason: "not_configured" };
+  try {
+    const result = await pool.query(`
+      SELECT t.id, t.google_event_id AS "googleEventId", t.status, t.customer_name AS "customerName", t.customer_email AS "customerEmail", t.customer_phone AS "customerPhone", t.requested_date AS date, t.requested_time AS time, t.notes, t.vehicle_id AS "vehicleId", b.name AS brand, v.model, v.variant, os.appointment_timezone AS timezone
+      FROM test_drive_requests t LEFT JOIN vehicles v ON v.id=t.vehicle_id LEFT JOIN vehicle_brands b ON b.id=v.brand_id LEFT JOIN organization_settings os ON os.organization_id=t.organization_id
+      WHERE t.id=$1 AND t.organization_id=$2`, [appointmentId, organizationId]);
+    const appointment = result.rows[0];
+    if (!appointment) return { synced: false, reason: "appointment_not_found" };
+    const access = await getGoogleCalendarAccess(organizationId);
+    if (!access) return { synced: false, reason: "not_connected" };
+    const date = String(appointment.date).slice(0, 10);
+    const time = String(appointment.time).slice(0, 5);
+    const start = `${date}T${time}:00`;
+    const duration = 60;
+    const [hour, minute] = time.split(":").map(Number);
+    const endMinutes = hour * 60 + minute + duration;
+    const end = `${date}T${String(Math.floor(endMinutes / 60)).padStart(2, "0")}:${String(endMinutes % 60).padStart(2, "0")}:00`;
+    const vehicle = [appointment.brand, appointment.model, appointment.variant].filter(Boolean).join(" ") || "vehículo seleccionado";
+    const event = { summary: `Prueba de manejo · ${vehicle}`, description: [`Cliente: ${appointment.customerName}`, appointment.customerEmail && `Correo: ${appointment.customerEmail}`, appointment.customerPhone && `Teléfono: ${appointment.customerPhone}`, appointment.notes && `Notas: ${appointment.notes}`, "Creada desde AUTHENTIQ"].filter(Boolean).join("\n"), start: { dateTime: start, timeZone: appointment.timezone || access.timezone }, end: { dateTime: end, timeZone: appointment.timezone || access.timezone }, status: appointment.status === "cancelled" ? "cancelled" : appointment.status === "pending" ? "tentative" : "confirmed", extendedProperties: { private: { authentiqAppointmentId: String(appointment.id) } } };
+    const base = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(access.calendarId)}/events`;
+    const method = appointment.googleEventId ? "PATCH" : "POST";
+    const url = appointment.googleEventId ? `${base}/${encodeURIComponent(appointment.googleEventId)}` : base;
+    const response = await fetch(url, { method, headers: { Authorization: `Bearer ${access.accessToken}`, "Content-Type": "application/json" }, body: JSON.stringify(event) });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error?.message || `Google Calendar respondió ${response.status}`);
+    if (!appointment.googleEventId && payload.id) await pool.query("UPDATE test_drive_requests SET google_event_id=$1 WHERE id=$2 AND organization_id=$3", [payload.id, appointment.id, organizationId]);
+    return { synced: true, eventId: payload.id || appointment.googleEventId };
+  } catch (error) {
+    console.error("Google Calendar appointment sync failed", { organizationId, appointmentId, error: error.message });
+    return { synced: false, reason: "provider_error" };
+  }
+}
+
 async function sendTransactionalEmail({ to, subject, text, html }) {
   if (!emailDeliveryConfigured || !to) return { sent: false, reason: "not_configured" };
   try {
@@ -1897,6 +1981,7 @@ app.post("/api/admin/appointments", authenticate, requireRoles("admin", "editor"
       throw error;
     } finally { client.release(); }
     await notifyAdmins({ organizationId: adminOrganizationId(req), type: "appointment", title: "Cita agregada desde un interesado", body: `Se agendó una cita para ${date} a las ${time}.`, entityType: "appointment", entityId: appointment.id });
+    await syncAppointmentToGoogle(adminOrganizationId(req), appointment.id);
     res.status(201).json({ data: appointment });
   } catch (error) {
     console.error("Admin appointment creation failed", error);
@@ -1911,6 +1996,7 @@ app.patch("/api/admin/appointments/:id", authenticate, requireRoles("admin", "ed
   try {
     const result = await pool.query(`UPDATE test_drive_requests SET status=$1, notes=$2 WHERE id=$3 AND organization_id=$4 RETURNING id, status, notes, requested_date AS "date", requested_time AS "time"`, [status, notes, req.params.id, adminOrganizationId(req)]);
     if (!result.rowCount) return res.status(404).json({ error: "Cita no encontrada" });
+    await syncAppointmentToGoogle(adminOrganizationId(req), req.params.id);
     await writeAudit(req, "appointment.update", "appointment", req.params.id, { status });
     res.json({ data: result.rows[0] });
   } catch (error) { console.error("Appointment update failed", error); res.status(500).json({ error: "No se pudo actualizar la cita" }); }
@@ -2455,8 +2541,9 @@ app.get("/api/admin/integrations", authenticate, requireRoles("admin"), async (r
     const organization = await pool.query("SELECT name, custom_domain AS \"customDomain\" FROM organizations WHERE id=$1", [organizationId]);
     const customDomain = String(organization.rows[0]?.customDomain || "").trim().toLowerCase();
     const requestHost = String(req.hostname || "").trim().toLowerCase();
+    const safeIntegrations = integrations.rows.map((row) => ({ ...row, config: Object.fromEntries(Object.entries(row.config || {}).filter(([key]) => !["refreshTokenEncrypted"].includes(key))) }));
     res.json({ data: {
-      integrations: integrations.rows,
+      integrations: safeIntegrations,
       billing: billing.rows[0] || null,
       localMode: true,
       health: {
@@ -2469,6 +2556,42 @@ app.get("/api/admin/integrations", authenticate, requireRoles("admin"), async (r
       organization: { name: organization.rows[0]?.name || "", customDomain: customDomain || null },
     } });
   } catch (error) { console.error("Integrations query failed", error); res.status(500).json({ error: "No se pudo cargar el centro de integraciones" }); }
+});
+
+app.get("/api/admin/integrations/google-calendar/connect", authenticate, requireRoles("admin"), async (req, res) => {
+  if (!googleCalendarConfigured) return res.status(503).json({ error: "Google Calendar todavía no está configurado en el servidor" });
+  if (!googleCalendarTokenKey) return res.status(503).json({ error: "Falta la llave de cifrado de Google Calendar en el servidor" });
+  const state = jwt.sign({ purpose: "google_calendar_oauth", organizationId: adminOrganizationId(req), adminId: req.admin.id }, jwtSecret, { expiresIn: "10m" });
+  res.json({ data: { authorizationUrl: googleCalendarAuthorizationUrl(state) } });
+});
+
+app.get("/api/integrations/google-calendar/callback", async (req, res) => {
+  const redirectBase = publicSiteUrl || frontendOrigin || `http://localhost:5173`;
+  try {
+    const state = jwt.verify(String(req.query.state || ""), jwtSecret);
+    if (state.purpose !== "google_calendar_oauth" || !state.organizationId) throw new Error("Estado OAuth inválido");
+    if (req.query.error) throw new Error(String(req.query.error_description || req.query.error));
+    const token = await googleTokenRequest({ code: String(req.query.code || ""), client_id: process.env.GOOGLE_CALENDAR_CLIENT_ID, client_secret: process.env.GOOGLE_CALENDAR_CLIENT_SECRET, redirect_uri: googleCalendarRedirectUri, grant_type: "authorization_code" });
+    const accessResponse = await fetch("https://www.googleapis.com/calendar/v3/users/me/calendarList/primary", { headers: { Authorization: `Bearer ${token.access_token}` } });
+    const calendar = await accessResponse.json().catch(() => ({}));
+    if (!accessResponse.ok) throw new Error(calendar.error?.message || "No se pudo consultar el calendario principal");
+    const existing = await pool.query("SELECT config FROM organization_integrations WHERE organization_id=$1 AND provider='google_calendar'", [state.organizationId]);
+    const existingConfig = existing.rows[0]?.config || {};
+    const refreshTokenEncrypted = encryptGoogleSecret(token.refresh_token) || existingConfig.refreshTokenEncrypted;
+    if (!refreshTokenEncrypted) throw new Error("Google no devolvió un refresh token; desconecta la app en Google y vuelve a autorizarla");
+    const config = { ...existingConfig, calendarId: calendar.id || "primary", calendarName: calendar.summary || "Google Calendar", googleEmail: calendar.id || null, timezone: calendar.timeZone || "America/Santo_Domingo", refreshTokenEncrypted, tokenExpiresAt: token.expiry_date ? new Date(token.expiry_date).toISOString() : null };
+    await pool.query(`INSERT INTO organization_integrations (organization_id, provider, mode, status, config, connected_at, updated_at) VALUES ($1,'google_calendar','oauth','connected',$2::jsonb,NOW(),NOW()) ON CONFLICT (organization_id, provider) DO UPDATE SET mode='oauth', status='connected', config=EXCLUDED.config, connected_at=NOW(), updated_at=NOW()`, [state.organizationId, JSON.stringify(config)]);
+    await pool.query("INSERT INTO audit_logs (actor_id, action, entity_type, entity_id, metadata) VALUES ($1,'integration.google_calendar.connect','organization_integration',$2,$3::jsonb)", [state.adminId, state.organizationId, JSON.stringify({ provider: "google_calendar", calendarId: config.calendarId })]).catch(() => {});
+    res.redirect(`${redirectBase}/?integration=google_calendar&status=connected`);
+  } catch (error) {
+    console.error("Google Calendar OAuth callback failed", error);
+    res.redirect(`${redirectBase}/?integration=google_calendar&status=error&message=${encodeURIComponent(error.message || "No se pudo conectar Google Calendar")}`);
+  }
+});
+
+app.delete("/api/admin/integrations/google-calendar", authenticate, requireRoles("admin"), async (req, res) => {
+  await pool.query("UPDATE organization_integrations SET mode='local', status='local_export_ready', config=config - 'refreshTokenEncrypted' - 'calendarId' - 'googleEmail' - 'tokenExpiresAt', connected_at=NULL, updated_at=NOW() WHERE organization_id=$1 AND provider='google_calendar'", [adminOrganizationId(req)]);
+  res.json({ data: { status: "local_export_ready" } });
 });
 
 app.patch("/api/admin/integrations/:provider", authenticate, requireRoles("admin"), async (req, res) => {

@@ -22,6 +22,7 @@ const expectedFiles = [
   "041_dealer_approval_workflow.sql",
   "042_platform_admin_overrides.sql",
   "043_dealer_storefront_customization.sql",
+  "044_google_calendar.sql",
 ];
 const expectedTables = ["appointment_blocks", "organizations", "organization_members", "organization_settings", "organization_integrations", "social_drafts", "billing_subscriptions", "platform_plans", "vehicle_3d_jobs"];
 const expectedColumns = [
@@ -51,6 +52,7 @@ const expectedColumns = [
   ["organization_settings", "custom_css"],
   ["organization_settings", "hero_headline"],
   ["organization_settings", "show_financing"],
+  ["test_drive_requests", "google_event_id"],
 ];
 
 const missingFiles = [];
