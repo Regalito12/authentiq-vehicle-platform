@@ -2128,7 +2128,14 @@ html[data-theme="dark"] .catalog-view-switcher button:hover, html[data-theme="da
 .showroom-nav-links > a:hover::after, .showroom-nav-links > a:focus-visible::after { clip-path: inset(0 0 0 0); }
 .nav-icon { width: 17px; height: 17px; flex: 0 0 17px; }
 .showroom-nav .nav-admin-link { min-height: 38px; border-color: rgba(250,248,245,.45); color: rgba(250,248,245,.9); transition: transform 160ms ease-out, border-color 160ms ease-out, color 160ms ease-out; }
+.animated-theme-toggler-star { display: inline-flex; align-items: center; gap: 7px; min-height: 38px; border: 1px solid rgba(250,248,245,.45); padding: 0 11px 0 9px; background: rgba(8,9,9,.12); color: rgba(250,248,245,.9); cursor: pointer; font: 500 10px "IBM Plex Mono", monospace; letter-spacing: .07em; text-transform: uppercase; transition: border-color 180ms ease-out, color 180ms ease-out, background-color 180ms ease-out; }
+.animated-theme-toggler-star:hover, .animated-theme-toggler-star:focus-visible { border-color: var(--tenant-primary); color: var(--tenant-primary-ink, var(--tenant-primary)); outline: none; background: rgba(200,162,75,.08); }
+.animated-theme-toggler-star-core { display: grid; place-items: center; width: 18px; height: 18px; color: var(--tenant-primary-ink, var(--tenant-primary)); }
+.animated-theme-toggler-star-core svg { width: 17px; height: 17px; fill: currentColor; }
+.animated-theme-toggler-label { line-height: 1; }
 .showroom-nav.is-scrolled .nav-admin-link { border-color: var(--auth-line); color: var(--auth-ink); }
+.showroom-nav.is-scrolled .animated-theme-toggler-star { border-color: var(--auth-line); color: var(--auth-ink); background: transparent; }
+.showroom-nav.is-scrolled .animated-theme-toggler-star:hover, .showroom-nav.is-scrolled .animated-theme-toggler-star:focus-visible { border-color: var(--tenant-primary); color: var(--tenant-primary-ink, var(--tenant-primary)); background: rgba(200,162,75,.08); }
 .showroom-nav .nav-admin-link:active, .showroom-nav-toggle:active { transform: scale(.97); }
 .showroom-nav-toggle { display: none; min-width: 44px; min-height: 44px; border: 1px solid rgba(250,248,245,.45); background: transparent; color: #faf8f5; cursor: pointer; }
 .showroom-nav.is-scrolled .showroom-nav-toggle { border-color: var(--auth-line); color: var(--auth-ink); }
@@ -2141,11 +2148,12 @@ html { scroll-behavior: smooth; scroll-padding-top: 86px; }
   .showroom-nav { padding: 16px 22px; }
   .showroom-nav-links { position: absolute; top: calc(100% + 8px); left: 16px; right: 16px; display: grid; gap: 2px; padding: 10px; border: 1px solid rgba(250,248,245,.25); background: rgba(15,16,16,.97); box-shadow: 0 18px 40px rgba(0,0,0,.2); opacity: 0; pointer-events: none; transform: translateY(-10px) scale(.98); transform-origin: top right; transition: opacity 180ms ease-out, transform 220ms cubic-bezier(.23,1,.32,1); }
   .showroom-nav-links.is-open { opacity: 1; pointer-events: auto; transform: translateY(0) scale(1); }
-  .showroom-nav-links > a, .showroom-nav-links .nav-admin-link { width: 100%; justify-content: flex-start; color: #f8f6f1; }
+  .showroom-nav-links > a, .showroom-nav-links .nav-admin-link, .showroom-nav-links .animated-theme-toggler-star { width: 100%; justify-content: flex-start; color: #f8f6f1; }
   .showroom-nav-links .nav-admin-link { border-color: #3c3b37; text-align: left; }
+  .showroom-nav-links .animated-theme-toggler-star { border-color: #3c3b37; }
   .showroom-nav-toggle { display: inline-grid; place-items: center; }
 }
-@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } .showroom-nav, .showroom-nav-links, .showroom-nav-links > a, .showroom-nav-links > a::after { transition: none; } }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } .showroom-nav, .showroom-nav-links, .showroom-nav-links > a, .showroom-nav-links > a::after, .animated-theme-toggler-star { transition: none; } }
 
 /* Dark mode is a complete surface system, not only a dark header. */
 html[data-theme="dark"] {
