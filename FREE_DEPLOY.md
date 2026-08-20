@@ -17,15 +17,16 @@
 6. Usar `vehicle-media` como `SUPABASE_STORAGE_BUCKET`.
 7. Aplicar las migraciones SQL de `app/database` en orden antes del primer uso.
 
-Antes de iniciar en produccion, el servidor rechazara automaticamente un entorno si falta `JWT_SECRET`, si las URLs publicas apuntan a localhost o si Supabase Storage no esta configurado.
+Antes de iniciar en produccion, el servidor rechazara automaticamente un entorno si falta `JWT_SECRET`, si las URLs publicas apuntan a localhost, si Supabase Storage no esta configurado o si se exige protección anti-bot sin la clave secreta.
 
 ## Render
 
 1. Conectar el repositorio y seleccionar el Blueprint `render.yaml`.
 2. Mantener el servicio en plan `free`.
 3. Completar `DATABASE_URL`, `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` como variables secretas.
-4. Mantener `PUBLIC_API_URL` y `PUBLIC_SITE_URL` con la URL `onrender.com` que Render genere.
+4. Mantener `PUBLIC_API_URL`, `PUBLIC_SITE_URL` y `FRONTEND_ORIGIN` con la URL `onrender.com` que Render genere. En esta arquitectura deja `VITE_API_URL` vacío: frontend y API comparten el mismo dominio.
 5. No agregar Persistent Disk.
+6. En Cloudflare Turnstile, crear un widget para el dominio de cada entorno. Agregar su clave pública como `VITE_TURNSTILE_SITE_KEY` y la secreta como `TURNSTILE_SECRET_KEY`. Render debe reconstruir el frontend después de guardar la clave pública.
 
 ## Monitor gratuito
 
@@ -41,6 +42,8 @@ Crear en UptimeRobot un monitor HTTP para:
 - Confirmar que los endpoints `export/leads.csv`, `export/appointments.csv` y `export/quotes.csv` descarguen datos del tenant correcto.
 - Ejecutar `npm run backup:db` desde `app/server` en una máquina con `pg_dump` y conservar el `.dump` junto a su manifiesto SHA-256.
 - Confirmar dominio, DNS, SSL, telefono, WhatsApp y horario del concesionario.
+- Confirmar que cada dominio de dealer devuelve su propio `robots.txt`, `sitemap.xml`, canonical y tarjeta para compartir.
+- Crear y verificar el widget Turnstile desde un navegador real: contacto, oferta y cita deben rechazar envíos sin token.
 - Conectar proveedores externos solo cuando existan sus credenciales y webhooks.
 
 El plan Free permite monitores HTTP cada 5 minutos. Esto ayuda a mantener activo el servicio, pero no es una garantía absoluta: Render puede reiniciar servicios gratuitos y Supabase puede pausar proyectos sin actividad.

@@ -17,8 +17,13 @@ const expectedFiles = [
   "036_local_integrations.sql",
   "037_white_label_branding.sql",
   "038_taxonomy_multitenancy.sql",
+  "039_platform_dealer_hub.sql",
+  "040_vehicle_3d_generation.sql",
+  "041_dealer_approval_workflow.sql",
+  "042_platform_admin_overrides.sql",
+  "043_dealer_storefront_customization.sql",
 ];
-const expectedTables = ["appointment_blocks", "organizations", "organization_members", "organization_settings", "organization_integrations", "social_drafts", "billing_subscriptions"];
+const expectedTables = ["appointment_blocks", "organizations", "organization_members", "organization_settings", "organization_integrations", "social_drafts", "billing_subscriptions", "platform_plans", "vehicle_3d_jobs"];
 const expectedColumns = [
   ["organizations", "custom_domain"],
   ["business_settings", "appointment_capacity"],
@@ -42,6 +47,10 @@ const expectedColumns = [
   ["organization_settings", "favicon_url"],
   ["vehicle_brands", "organization_id"],
   ["vehicle_categories", "organization_id"],
+  ["organizations", "approval_status"],
+  ["organization_settings", "custom_css"],
+  ["organization_settings", "hero_headline"],
+  ["organization_settings", "show_financing"],
 ];
 
 const missingFiles = [];

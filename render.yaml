@@ -3,7 +3,7 @@ services:
     name: authentiq-app
     runtime: node
     rootDir: app
-    buildCommand: npm ci && npm run build && npm --prefix server ci
+    buildCommand: npm ci && npm run check:production && npm run build && npm --prefix server ci
     startCommand: npm --prefix server start
     healthCheckPath: /api/health
     autoDeployTrigger: commit
@@ -40,3 +40,9 @@ services:
         value: vehicle-media
       - key: PRIVACY_POLICY_VERSION
         value: 2026-08-09
+      - key: BOT_PROTECTION_REQUIRED
+        value: "true"
+      - key: TURNSTILE_SECRET_KEY
+        sync: false
+      - key: VITE_TURNSTILE_SITE_KEY
+        sync: false

@@ -7,6 +7,7 @@
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
     "create-admin": "node scripts/create-admin.js",
+    "create-platform-admin": "node scripts/create-platform-admin.js",
     "seed:local-tenants": "node scripts/seed-local-tenants.js",
     "smoke": "node scripts/smoke-test.js",
     "test:roles": "node scripts/role-matrix-test.js",

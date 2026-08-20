@@ -28,6 +28,14 @@ if (process.env.NODE_ENV === "production") {
     console.error(`PREFLIGHT FAIL · las URLs de producción no pueden apuntar a localhost: ${localUrls.join(", ")}`);
     process.exit(1);
   }
+
+  if (String(process.env.BOT_PROTECTION_REQUIRED || "").trim().toLowerCase() === "true") {
+    const missingBotSettings = ["TURNSTILE_SECRET_KEY", "VITE_TURNSTILE_SITE_KEY"].filter((key) => !String(process.env[key] || "").trim());
+    if (missingBotSettings.length) {
+      console.error(`PREFLIGHT FAIL · faltan variables de Turnstile: ${missingBotSettings.join(", ")}`);
+      process.exit(1);
+    }
+  }
 }
 
 try {

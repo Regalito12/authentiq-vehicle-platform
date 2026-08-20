@@ -1,5 +1,13 @@
 ﻿const apiUrl = String(process.env.VITE_API_URL || "").trim();
 
+const botProtectionRequired = String(process.env.BOT_PROTECTION_REQUIRED || "false").trim().toLowerCase() === "true";
+const turnstileSiteKey = String(process.env.VITE_TURNSTILE_SITE_KEY || "").trim();
+
+if (botProtectionRequired && !turnstileSiteKey) {
+  console.error("PRODUCTION ENV FAIL · VITE_TURNSTILE_SITE_KEY es obligatorio cuando BOT_PROTECTION_REQUIRED=true");
+  process.exit(1);
+}
+
 if (!apiUrl) {
   console.log("PRODUCTION ENV PASS · API same-origin (Render sirve frontend y API desde el mismo servicio)");
   process.exit(0);

@@ -15,6 +15,14 @@ import path from "node:path";
 const args = process.argv.slice(2);
 const siteUrl = (args.includes("--url") ? args[args.indexOf("--url") + 1] : process.env.SITE_URL || "http://127.0.0.1:5173").replace(/\/$/, "");
 const headful = args.includes("--headful");
+const siteOrigin = new URL(`${siteUrl}/`);
+const demoTenant = String(process.env.BROWSER_TENANT || (siteOrigin.hostname === "localhost" || siteOrigin.hostname === "127.0.0.1" ? "dealer-demo" : "")).trim().toLowerCase();
+const apiHeaders = demoTenant ? { "X-Authentiq-Tenant": demoTenant } : {};
+const appUrl = (pathname = "/") => {
+  const url = new URL(pathname, `${siteUrl}/`);
+  if (demoTenant) url.searchParams.set("dealer", demoTenant);
+  return url.toString();
+};
 const outputDir = path.resolve(process.cwd(), "browser-check");
 const port = 9333;
 
@@ -174,7 +182,7 @@ async function main() {
     console.log(`\n== CATÁLOGO · ${siteUrl} ==`);
     for (const viewport of viewports) {
       await setViewport(viewport);
-      await navigate(`${siteUrl}/`);
+      await navigate(appUrl("/"));
       const metrics = await cdp.evaluate(`(() => {
         const doc = document.documentElement;
         const overflow = Math.max(doc.scrollWidth, document.body.scrollWidth) - window.innerWidth;
@@ -204,7 +212,7 @@ async function main() {
     // ---- Presentación guiada ----------------------------------------------
     console.log("\n== PRESENTACIÓN GUIADA ==");
     await setViewport(viewports[3]);
-    await navigate(`${siteUrl}/presentacion`);
+    await navigate(appUrl("/presentacion"));
     const presentation = await cdp.evaluate(`(() => ({
       root: (document.getElementById('root')?.innerHTML || '').length,
       stage: Boolean(document.querySelector('.presentation-stage')),
@@ -224,12 +232,12 @@ async function main() {
     console.log("\n== FICHA DE VEHÍCULO (con 3D real) ==");
     await setViewport(viewports[3]);
     const apiUrl = process.env.API_BASE_URL || "http://127.0.0.1:3001";
-    const catalog = await (await fetch(`${apiUrl}/api/vehicles`)).json();
+    const catalog = await (await fetch(`${apiUrl}/api/vehicles`, { headers: apiHeaders })).json();
     const target = catalog.data.find((item) => item.media?.some((media) => media.type === "model_3d")) || catalog.data[0];
     const slugify = (value) => String(value).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
     const slug = `${slugify(`${target.brand}-${target.model}${target.variant ? `-${target.variant}` : ""}`)}-${String(target.id).replace(/-/g, "").slice(0, 8)}`;
 
-    await navigate(`${siteUrl}/vehiculos/${slug}`);
+    await navigate(appUrl(`/vehiculos/${slug}`));
     const detail = await cdp.evaluate(`(() => ({
       title: document.title,
       canonical: document.querySelector('link[rel=canonical]')?.href || '',
@@ -272,7 +280,7 @@ async function main() {
     await shoot("ficha-desktop-1440x900");
 
     await setViewport(viewports[0]);
-    await navigate(`${siteUrl}/vehiculos/${slug}`);
+    await navigate(appUrl(`/vehiculos/${slug}`));
     const mobileDetail = await cdp.evaluate("Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - window.innerWidth");
     check("Ficha en móvil sin desbordamiento horizontal", mobileDetail <= 1, `sobresale ${mobileDetail}px`);
     await shoot("ficha-movil-390x844");
@@ -280,7 +288,7 @@ async function main() {
     // ---- Backoffice -------------------------------------------------------
     console.log("\n== BACKOFFICE (login) ==");
     await setViewport(viewports[2]);
-    await navigate(`${siteUrl}/`);
+    await navigate(appUrl("/"));
     const backoffice = await cdp.evaluate(`(() => {
       const button = [...document.querySelectorAll('button')].find((el) => /BACKOFFICE/i.test(el.textContent));
       if (button) button.click();
@@ -297,9 +305,9 @@ async function main() {
     await shoot("backoffice-login-1280x800");
 
     // ---- Backoffice autenticado, módulo por módulo, en móvil y escritorio -----
-    const adminEmail = process.env.E2E_EMAIL || process.env.SMOKE_EMAIL || "admin@authentiq.local";
+    const adminEmail = process.env.E2E_EMAIL || process.env.SMOKE_EMAIL || (demoTenant === "dealer-demo" ? "demo@dealer.local" : "admin@authentiq.local");
     const adminPassword = process.env.E2E_PASSWORD || process.env.SMOKE_PASSWORD || "12345678";
-    const session = await fetch(`${apiUrl}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: adminEmail, password: adminPassword }) });
+    const session = await fetch(`${apiUrl}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json", ...apiHeaders }, body: JSON.stringify({ email: adminEmail, password: adminPassword }) });
     if (!session.ok) {
       console.log("      (sin credenciales válidas: se omite la auditoría del backoffice autenticado)");
     } else {
@@ -309,7 +317,7 @@ async function main() {
         await cdp.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile });
         // Inyecta la sesión antes de cargar para entrar directo al backoffice.
         await cdp.send("Page.addScriptToEvaluateOnNewDocument", { source: `try{localStorage.setItem('authentiq_admin_token',${JSON.stringify(token)});localStorage.setItem('authentiq_admin_user',${JSON.stringify(JSON.stringify(user))});}catch(e){}` });
-        await navigate(`${siteUrl}/`);
+        await navigate(appUrl("/"));
         await cdp.evaluate(`(() => { const b=[...document.querySelectorAll('button')].find(el=>/BACKOFFICE/i.test(el.textContent)); if(b) b.click(); return true; })()`);
         await wait(2500);
 

@@ -1,5 +1,4 @@
 import "dotenv/config";
-import "dotenv/config";
 import bcrypt from "bcryptjs";
 import cors from "cors";
 import crypto from "node:crypto";
@@ -32,10 +31,22 @@ const supabaseUrl = String(process.env.SUPABASE_URL || "").replace(/\/+$/, "");
 const supabaseServiceRoleKey = String(process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
 const supabaseStorageBucket = String(process.env.SUPABASE_STORAGE_BUCKET || "vehicle-media").trim();
 const remoteStorageEnabled = Boolean(supabaseUrl && supabaseServiceRoleKey && supabaseStorageBucket);
+const rodinApiKey = String(process.env.RODIN_API_KEY || "").trim();
+const rodinApiBaseUrl = String(process.env.RODIN_API_URL || "https://api.hyper3d.com/api/v2").replace(/\/+$/, "");
+const resendApiKey = String(process.env.RESEND_API_KEY || "").trim();
+const resendFromEmail = String(process.env.RESEND_FROM_EMAIL || "").trim();
+const emailDeliveryConfigured = Boolean(resendApiKey && resendFromEmail);
+const botProtectionRequired = String(process.env.BOT_PROTECTION_REQUIRED || "false").trim().toLowerCase() === "true";
+const turnstileSecretKey = String(process.env.TURNSTILE_SECRET_KEY || "").trim();
+const billingProvider = String(process.env.BILLING_PROVIDER || "none").trim().toLowerCase();
+const billingCheckoutUrl = String(process.env.BILLING_CHECKOUT_URL || "").trim();
+const metaAppConfigured = Boolean(String(process.env.META_APP_ID || "").trim() && String(process.env.META_APP_SECRET || "").trim());
+const googleCalendarConfigured = Boolean(String(process.env.GOOGLE_CALENDAR_CLIENT_ID || "").trim() && String(process.env.GOOGLE_CALENDAR_CLIENT_SECRET || "").trim());
 if (process.env.NODE_ENV === "production") {
   if (jwtSecret.length < 32) throw new Error("JWT_SECRET debe tener al menos 32 caracteres en producción");
   if (!publicApiUrl || !publicSiteUrl || !frontendOrigin || /localhost|127\.0\.0\.1/i.test(`${publicApiUrl} ${publicSiteUrl} ${frontendOrigin}`)) throw new Error("PUBLIC_API_URL, PUBLIC_SITE_URL y FRONTEND_ORIGIN deben apuntar al dominio de producción");
   if (!remoteStorageEnabled) throw new Error("Supabase Storage es obligatorio en producción; no se permite almacenamiento temporal");
+  if (botProtectionRequired && !turnstileSecretKey) throw new Error("TURNSTILE_SECRET_KEY es obligatorio cuando BOT_PROTECTION_REQUIRED=true");
 }
 app.set("trust proxy", 1);
 await fs.mkdir(uploadsDir, { recursive: true });
@@ -56,9 +67,12 @@ const mediaUpload = multer({
   limits: { fileSize: 120 * 1024 * 1024 },
   fileFilter: (_req, file, callback) => {
     const extension = path.extname(file.originalname).toLowerCase();
-    const allowedMimeTypes = ["image/jpeg", "image/png", "image/webp", "image/avif", "video/mp4", "video/webm", "video/quicktime", "model/gltf-binary", "model/gltf+json", "application/octet-stream"];
-    const allowedExtensions = [".jpg", ".jpeg", ".png", ".webp", ".avif", ".mp4", ".webm", ".mov", ".glb", ".gltf"];
-    callback(null, allowedMimeTypes.includes(file.mimetype) || allowedExtensions.includes(extension));
+    const allowedMimeTypesByExtension = {
+      ".jpg": ["image/jpeg"], ".jpeg": ["image/jpeg"], ".png": ["image/png"], ".webp": ["image/webp"], ".avif": ["image/avif"],
+      ".mp4": ["video/mp4", "application/octet-stream"], ".webm": ["video/webm", "application/octet-stream"], ".mov": ["video/quicktime", "application/octet-stream"],
+      ".glb": ["model/gltf-binary", "application/octet-stream"], ".gltf": ["model/gltf+json", "application/json", "text/plain", "application/octet-stream"],
+    };
+    callback(null, Boolean(allowedMimeTypesByExtension[extension]?.includes(file.mimetype)));
   },
 });
 const mediaPackageStorage = multer.diskStorage({
@@ -85,6 +99,14 @@ const mediaPackageUpload = multer({
     const allowedExtensions = [".gltf", ".glb", ".bin", ".png", ".jpg", ".jpeg", ".webp", ".avif"];
     callback(null, allowedExtensions.includes(extension));
   },
+});
+const vehicle3dGenerationUpload = multer({
+  storage: multer.diskStorage({
+    destination: uploadsDir,
+    filename: (_req, file, callback) => callback(null, `3d-source-${Date.now()}-${Math.random().toString(36).slice(2, 10)}${path.extname(file.originalname).toLowerCase()}`),
+  }),
+  limits: { fileSize: 8 * 1024 * 1024, files: 5 },
+  fileFilter: (_req, file, callback) => callback(null, ["image/jpeg", "image/png", "image/webp", "image/avif"].includes(file.mimetype)),
 });
 
 function sanitizeMediaRelativePath(value) {
@@ -207,6 +229,30 @@ async function isValidImageUpload(file) {
   }
 }
 
+async function isValidMediaUpload(file) {
+  if (!file || !(await isValidImageUpload(file))) return false;
+  const extension = path.extname(file.originalname || "").toLowerCase();
+  if ([".jpg", ".jpeg", ".png", ".webp", ".avif"].includes(extension)) return true;
+  try {
+    const handle = await fs.open(file.path, "r");
+    const header = Buffer.alloc(64);
+    const { bytesRead } = await handle.read(header, 0, header.length, 0);
+    await handle.close();
+    const sample = header.subarray(0, bytesRead);
+    if (extension === ".glb") return sample.subarray(0, 4).toString("ascii") === "glTF";
+    if (extension === ".gltf") {
+      const document = JSON.parse(await fs.readFile(file.path, "utf8"));
+      return String(document?.asset?.version || "").startsWith("2");
+    }
+    if ([".mp4", ".mov"].includes(extension)) return sample.subarray(4, 8).toString("ascii") === "ftyp";
+    if (extension === ".webm") return sample.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]));
+  } catch {
+    // Se elimina abajo para que un archivo inválido nunca quede disponible localmente.
+  }
+  await fs.unlink(file.path).catch(() => {});
+  return false;
+}
+
 async function removeMediaPackage(packageId) {
   if (packageId && /^[a-z0-9-]+$/i.test(packageId)) await fs.rm(path.join(uploadsDir, "packages", packageId), { recursive: true, force: true });
 }
@@ -254,13 +300,105 @@ async function removeSupabaseObject(objectPath) {
   await fetch(endpoint, { method: "DELETE", headers: { Authorization: `Bearer ${supabaseServiceRoleKey}`, apikey: supabaseServiceRoleKey } }).catch(() => {});
 }
 
+async function rodinRequest(endpoint, options = {}) {
+  if (!rodinApiKey) {
+    const error = new Error("El proveedor de generación 3D no está configurado. Añade RODIN_API_KEY al servidor.");
+    error.code = "3D_PROVIDER_NOT_CONFIGURED";
+    throw error;
+  }
+  const response = await fetch(`${rodinApiBaseUrl}${endpoint}`, {
+    ...options,
+    headers: { Authorization: `Bearer ${rodinApiKey}`, ...(options.headers || {}) },
+  });
+  const text = await response.text();
+  let payload = {};
+  try { payload = text ? JSON.parse(text) : {}; } catch { payload = { raw: text }; }
+  if (!response.ok) {
+    const detail = payload?.message || payload?.error || text;
+    const error = new Error(`El proveedor 3D respondió ${response.status}${detail ? `: ${String(detail).slice(0, 220)}` : ""}`);
+    error.code = "3D_PROVIDER_ERROR";
+    throw error;
+  }
+  return payload;
+}
+
+async function submitRodinGeneration(files) {
+  const body = new FormData();
+  for (const file of files) {
+    const buffer = await fs.readFile(file.path);
+    body.append("images", new Blob([buffer], { type: file.mimetype }), file.originalname);
+  }
+  body.append("geometry_file_format", "glb");
+  body.append("material", "PBR");
+  body.append("quality", "medium");
+  body.append("preview_render", "true");
+  const payload = await rodinRequest("/rodin", { method: "POST", body });
+  const data = payload?.data || payload;
+  const taskId = data?.uuid || data?.task_uuid || data?.taskUuid;
+  const subscriptionKey = data?.jobs?.subscription_key || data?.subscription_key || data?.subscriptionKey;
+  if (!taskId || !subscriptionKey) throw new Error("El proveedor 3D no devolvió los identificadores del trabajo");
+  return { taskId: String(taskId), subscriptionKey: String(subscriptionKey) };
+}
+
+async function checkRodinGeneration(subscriptionKey) {
+  const payload = await rodinRequest("/status", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ subscription_key: subscriptionKey }),
+  });
+  const data = payload?.data || payload;
+  return { status: String(data?.status || data?.jobs?.status || "").toLowerCase(), raw: data };
+}
+
+function providerDownloadLinks(payload) {
+  const links = [];
+  const visit = (value, key = "", depth = 0) => {
+    if (!value || depth > 5) return;
+    if (typeof value === "string" && /^https?:\/\//i.test(value)) {
+      links.push({ url: value, key: key.toLowerCase() });
+      return;
+    }
+    if (Array.isArray(value)) return value.forEach((item) => visit(item, key, depth + 1));
+    if (typeof value === "object") Object.entries(value).forEach(([childKey, childValue]) => visit(childValue, childKey, depth + 1));
+  };
+  visit(payload);
+  return [...new Map(links.map((item) => [item.url, item])).values()];
+}
+
+async function downloadRodinResults(taskId) {
+  const payload = await rodinRequest("/download", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ task_uuid: taskId }),
+  });
+  const links = providerDownloadLinks(payload);
+  const model = links.find((item) => /\.glb(?:[?#]|$)/i.test(item.url) || /glb|model|geometry/i.test(item.key));
+  const preview = links.find((item) => /\.(?:webp|png|jpe?g)(?:[?#]|$)/i.test(item.url) || /preview|thumbnail|render/i.test(item.key));
+  if (!model) throw new Error("El proveedor terminó el trabajo, pero no devolvió un archivo GLB");
+  return { modelUrl: model.url, previewUrl: preview?.url || "" };
+}
+
+async function persistGenerated3dAsset(sourceUrl, organizationId, vehicleId, filename, contentType) {
+  const response = await fetch(sourceUrl);
+  if (!response.ok) throw new Error(`No se pudo descargar el resultado 3D (${response.status})`);
+  const buffer = Buffer.from(await response.arrayBuffer());
+  const objectPath = `uploads/generated-3d/${organizationId}/${vehicleId}/${Date.now()}-${filename}`;
+  if (remoteStorageEnabled) return uploadBufferToSupabase(buffer, objectPath, contentType);
+  const relativePath = objectPath.replace(/^uploads\//, "");
+  const localPath = path.join(uploadsDir, relativePath);
+  await fs.mkdir(path.dirname(localPath), { recursive: true });
+  await fs.writeFile(localPath, buffer);
+  return `${publicApiUrl || ""}/uploads/${relativePath.split("/").map(encodeURIComponent).join("/")}`;
+}
+
 app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" },
   contentSecurityPolicy: {
     directives: {
       // model-viewer usa WebAssembly para decodificar algunos modelos; esto
       // permite wasm sin abrir la puerta general de unsafe-eval.
-      "script-src": ["'self'", "'wasm-unsafe-eval'"],
+      "script-src": ["'self'", "'wasm-unsafe-eval'", "https://challenges.cloudflare.com"],
+      "frame-src": ["'self'", "https://challenges.cloudflare.com"],
       "worker-src": ["'self'", "blob:"],
       "img-src": ["'self'", "data:", "blob:", "https:"],
       "connect-src": ["'self'", "https:"],
@@ -289,6 +427,7 @@ app.use("/api", (_req, res, next) => {
 app.use("/api/customer/auth/login", rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Demasiados intentos. Intenta nuevamente mas tarde." } }));
 app.use("/api/customer/auth/register", rateLimit({ windowMs: 60 * 60 * 1000, limit: 10, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Demasiados registros. Intenta nuevamente mas tarde." } }));
 app.use("/api/auth/login", rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Demasiados intentos. Intenta nuevamente más tarde." } }));
+app.use("/api/auth/register-dealer", rateLimit({ windowMs: 60 * 60 * 1000, limit: 10, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Demasiados registros de dealer. Intenta nuevamente más tarde." } }));
 app.use("/api/leads", rateLimit({ windowMs: 10 * 60 * 1000, limit: 30, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Demasiadas solicitudes. Intenta nuevamente más tarde." } }));
 app.use("/api/offers", rateLimit({ windowMs: 10 * 60 * 1000, limit: 20, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Demasiadas ofertas enviadas. Intenta nuevamente más tarde." } }));
 // La analítica escribe en base de datos sin autenticación: se limita para que no pueda inundarse.
@@ -388,14 +527,86 @@ function requestHostname(req) {
   return String(req.headers["x-forwarded-host"] || req.headers.host || "").split(",")[0].trim().split(":")[0].toLowerCase();
 }
 
+function publicOriginForOrganization(req, organization) {
+  if (organization?.customDomain) return `https://${String(organization.customDomain).replace(/^https?:\/\//i, "").replace(/\/+$/, "")}`;
+  const hostname = requestHostname(req);
+  if (!hostname || ["localhost", "127.0.0.1", "::1"].includes(hostname)) return publicSiteUrl || `${req.protocol}://${req.get("host")}`;
+  const forwardedProtocol = String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim().toLowerCase();
+  return `${forwardedProtocol === "https" || process.env.NODE_ENV === "production" ? "https" : req.protocol}://${hostname}`;
+}
+
+function absolutePublicAsset(origin, value) {
+  const clean = String(value || "").trim();
+  if (/^https?:\/\//i.test(clean)) return clean;
+  return `${origin}${clean.startsWith("/") ? clean : "/assets/hero-highway.webp"}`;
+}
+
+async function verifyPublicForm(req, res, next) {
+  const honeypot = String(req.body?.companyWebsite || req.body?.website || "").trim();
+  if (honeypot) return res.status(400).json({ error: "No se pudo validar el envío" });
+  if (!turnstileSecretKey) {
+    if (botProtectionRequired) return res.status(503).json({ error: "La protección del formulario no está disponible. Intenta más tarde." });
+    return next();
+  }
+  const token = String(req.body?.turnstileToken || "").trim();
+  if (!token) return res.status(400).json({ error: "Completa la verificación de seguridad antes de enviar" });
+  try {
+    const body = new URLSearchParams({ secret: turnstileSecretKey, response: token });
+    const remoteIp = String(req.headers["x-forwarded-for"] || req.ip || "").split(",")[0].trim();
+    if (remoteIp) body.set("remoteip", remoteIp);
+    const response = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body,
+      signal: AbortSignal.timeout(8000),
+    });
+    const result = await response.json().catch(() => ({}));
+    const expectedHostname = requestHostname(req);
+    if (!response.ok || !result?.success || (result.hostname && expectedHostname && String(result.hostname).toLowerCase() !== expectedHostname)) {
+      return res.status(400).json({ error: "No pudimos validar la verificación de seguridad. Intenta nuevamente." });
+    }
+    return next();
+  } catch (error) {
+    console.error("Turnstile verification failed", error);
+    return res.status(503).json({ error: "La verificación de seguridad no está disponible. Intenta más tarde." });
+  }
+}
+
+// Vista previa privada: el propio dealer autenticado puede ver su showroom aunque el
+// host no resuelva a su organización (sin dominio propio todavía, o pendiente de
+// aprobación). Se basa solo en el JWT de la sesión, nunca en un slug enviado por el
+// cliente, así que un dealer nunca puede previsualizar la organización de otro.
+function previewOrganizationId(req) {
+  if (String(req.headers["x-preview-mode"] || "") !== "1") return null;
+  const header = req.headers.authorization || "";
+  const token = header.startsWith("Bearer ") ? header.slice(7) : readCookie(req, ADMIN_SESSION_COOKIE);
+  if (!token) return null;
+  try { return jwt.verify(token, jwtSecret).organizationId || null; } catch { return null; }
+}
+
 async function getOrganizationContext(req) {
   if (req.organizationContext) return req.organizationContext;
+  const previewId = previewOrganizationId(req);
+  if (previewId) {
+    const preview = await pool.query(
+      `SELECT id, slug, name, logo_url AS "logoUrl", custom_domain AS "customDomain", is_active AS "isActive"
+       FROM organizations WHERE id = $1 AND is_active = TRUE LIMIT 1`,
+      [previewId],
+    );
+    if (preview.rowCount) { req.organizationContext = preview.rows[0]; return req.organizationContext; }
+  }
   const hostname = requestHostname(req);
-  const localSlug = /\.(?:localhost|test)$/.test(hostname) ? hostname.split(".")[0] : null;
+  // Los dominios reales se resuelven por host. El header solo existe para la
+  // demostración local en localhost; nunca habilita elegir un tenant remoto.
+  const localHost = ["localhost", "127.0.0.1", "::1"].includes(hostname);
+  const requestedLocalTenant = String(req.headers["x-authentiq-tenant"] || "").trim().toLowerCase();
+  const localTenantSlug = localHost && /^[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?$/.test(requestedLocalTenant) ? requestedLocalTenant : null;
+  const localSlug = localTenantSlug || (/\.(?:localhost|test)$/.test(hostname) ? hostname.split(".")[0] : null);
   const result = await pool.query(
     `SELECT id, slug, name, logo_url AS "logoUrl", custom_domain AS "customDomain", is_active AS "isActive"
      FROM organizations
-     WHERE is_active = TRUE AND (LOWER(custom_domain) = $1 OR slug = COALESCE($2, $3))
+     WHERE is_active = TRUE
+       AND ((LOWER(custom_domain) = $1 AND approval_status = 'approved') OR slug = COALESCE($2, $3))
      ORDER BY CASE WHEN LOWER(custom_domain) = $1 THEN 0 ELSE 1 END
      LIMIT 1`,
     [hostname, localSlug, DEFAULT_ORGANIZATION_SLUG],
@@ -413,15 +624,39 @@ function adminOrganizationId(req) {
   return req.admin?.organizationId || req.organizationContext?.id || null;
 }
 
+async function getOrganizationPlan(client, organizationId) {
+  const result = await client.query(`
+    SELECT COALESCE(bs.plan_code, 'starter') AS "planCode", COALESCE(bs.status, 'trialing') AS status,
+           pp.name, pp.vehicle_limit AS "vehicleLimit", pp.monthly_amount AS "monthlyAmount"
+    FROM organizations o
+    LEFT JOIN billing_subscriptions bs ON bs.organization_id=o.id
+    LEFT JOIN platform_plans pp ON pp.code=COALESCE(bs.plan_code, 'starter')
+    WHERE o.id=$1
+  `, [organizationId]);
+  return result.rows[0] || { planCode: "starter", status: "trialing", name: "Starter", vehicleLimit: 40, monthlyAmount: 99 };
+}
+
+async function vehiclePlanGuard(client, organizationId, extraVehicles = 1) {
+  const plan = await getOrganizationPlan(client, organizationId);
+  if (plan.status === "cancelled") return { code: "SUBSCRIPTION_INACTIVE", error: "La suscripción está cancelada. Contacta al administrador de AUTHENTIQ para reactivarla." };
+  const current = await client.query("SELECT COUNT(*)::int AS count FROM vehicles WHERE organization_id=$1 AND status <> 'inactive'", [organizationId]);
+  const count = Number(current.rows[0]?.count || 0);
+  const limit = plan.vehicleLimit === null || plan.vehicleLimit === undefined ? null : Number(plan.vehicleLimit);
+  if (limit !== null && count + extraVehicles > limit) return { code: "PLAN_LIMIT", error: `El plan ${plan.name || plan.planCode} permite ${limit} vehículos activos. Actualiza el plan para agregar más.`, planCode: plan.planCode, limit, current: count };
+  return null;
+}
+
 async function authenticate(req, res, next) {
   const header = req.headers.authorization || "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : readCookie(req, ADMIN_SESSION_COOKIE);
   if (!token) return res.status(401).json({ error: "Autenticación requerida" });
   try {
     req.admin = jwt.verify(token, jwtSecret);
-    const organization = await pool.query("SELECT organization_id AS \"organizationId\", is_active AS \"isActive\" FROM admin_users WHERE id=$1", [req.admin.id]);
-    if (!organization.rowCount || !organization.rows[0].isActive || !organization.rows[0].organizationId) return res.status(403).json({ error: "La cuenta no tiene una organización activa asignada" });
-    req.admin.organizationId = organization.rows[0].organizationId;
+    const organization = await pool.query("SELECT organization_id AS \"organizationId\", is_active AS \"isActive\", role FROM admin_users WHERE id=$1", [req.admin.id]);
+    if (!organization.rowCount || !organization.rows[0].isActive) return res.status(403).json({ error: "La cuenta administrativa no está activa" });
+    req.admin.role = organization.rows[0].role;
+    if (req.admin.role !== "platform_admin" && !organization.rows[0].organizationId) return res.status(403).json({ error: "La cuenta no tiene una organización activa asignada" });
+    req.admin.organizationId = organization.rows[0].organizationId || null;
     if (req.admin.mustChangePassword && req.path !== PASSWORD_CHANGE_PATH) {
       return res.status(403).json({ error: "Debes definir una nueva contraseña antes de continuar", code: "MUST_CHANGE_PASSWORD" });
     }
@@ -772,12 +1007,41 @@ async function appointmentAvailability(date, organizationId) {
   return { date, timezone: settings.timezone || "America/Santo_Domingo", durationMinutes: duration, slots, capacity: Number(settings.capacity || 1) };
 }
 
+function escapeHtml(value) {
+  return String(value || "").replace(/[<>&'\"]/g, (char) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", "'": "&#39;", '"': "&quot;" })[char]);
+}
+
+async function sendTransactionalEmail({ to, subject, text, html }) {
+  if (!emailDeliveryConfigured || !to) return { sent: false, reason: "not_configured" };
+  try {
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${resendApiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ from: resendFromEmail, to: [to], subject, text, html }),
+    });
+    if (!response.ok) throw new Error(`Resend respondió ${response.status}`);
+    return { sent: true };
+  } catch (error) {
+    console.error("Transactional email failed", { to, subject, error: error.message });
+    return { sent: false, reason: "provider_error" };
+  }
+}
+
 async function notifyAdmins({ organizationId, type = "lead", title, body, entityType = "lead", entityId = null }) {
+  const admins = await pool.query("SELECT email FROM admin_users WHERE organization_id=$1 AND is_active = TRUE AND email IS NOT NULL", [organizationId]);
   await pool.query(
     `INSERT INTO notifications (user_id, notification_type, title, body, entity_type, entity_id)
      SELECT id, $1, $2, $3, $4, $5 FROM admin_users WHERE organization_id=$6 AND is_active = TRUE`,
     [type, title, body, entityType, entityId, organizationId],
   );
+  if (emailDeliveryConfigured) {
+    await Promise.allSettled([...new Set(admins.rows.map((row) => String(row.email || "").trim().toLowerCase()).filter(Boolean))].map((email) => sendTransactionalEmail({
+      to: email,
+      subject: `[AUTHENTIQ] ${title}`,
+      text: body,
+      html: `<p><strong>${escapeHtml(title)}</strong></p><p>${escapeHtml(body)}</p><p>Revisa el backoffice de tu showroom para continuar.</p>`,
+    })));
+  }
   if (process.env.LEAD_WEBHOOK_URL) {
     try { await fetch(process.env.LEAD_WEBHOOK_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type, title, body, entityType, entityId }) }); }
     catch (error) { console.error("External lead notification failed", error); }
@@ -794,7 +1058,7 @@ async function notifyCustomer({ customerId, type = "activity", title, body, enti
 
 async function dispatchAppointmentReminders() {
   const webhookUrl = String(process.env.APPOINTMENT_REMINDER_WEBHOOK_URL || "").trim();
-  if (!webhookUrl) return;
+  if (!webhookUrl && !emailDeliveryConfigured) return;
   const result = await pool.query(`
     SELECT t.id, t.customer_name AS "customerName", t.customer_email AS "customerEmail", t.customer_phone AS "customerPhone", t.requested_date AS "date", t.requested_time AS "time", t.reminder_24h_sent_at AS "reminder24hSentAt", t.reminder_2h_sent_at AS "reminder2hSentAt", b.name AS brand, v.model
     FROM test_drive_requests t
@@ -810,8 +1074,22 @@ async function dispatchAppointmentReminders() {
     if (!sentColumn || appointment[reminderType === "24h" ? "reminder24hSentAt" : "reminder2hSentAt"]) continue;
     const body = { type: "appointment_reminder", reminder: reminderType, appointmentId: appointment.id, customer: { name: appointment.customerName, email: appointment.customerEmail, phone: appointment.customerPhone }, vehicle: `${appointment.brand} ${appointment.model}`, date: appointment.date, time: String(appointment.time).slice(0, 5) };
     try {
-      const response = await fetch(webhookUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      if (!response.ok) throw new Error(`Webhook respondió ${response.status}`);
+      let delivered = false;
+      if (webhookUrl) {
+        const response = await fetch(webhookUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+        if (!response.ok) throw new Error(`Webhook respondió ${response.status}`);
+        delivered = true;
+      }
+      if (emailDeliveryConfigured && appointment.customerEmail) {
+        const emailResult = await sendTransactionalEmail({
+          to: appointment.customerEmail,
+          subject: `Recordatorio de cita · ${appointment.vehicle}`,
+          text: `Te esperamos para ver tu ${appointment.vehicle} el ${appointment.date} a las ${String(appointment.time).slice(0, 5)}.`,
+          html: `<p>Te esperamos para ver tu <strong>${escapeHtml(appointment.vehicle)}</strong>.</p><p>Fecha: ${escapeHtml(appointment.date)} · Hora: ${escapeHtml(String(appointment.time).slice(0, 5))}</p>`,
+        });
+        delivered = delivered || emailResult.sent;
+      }
+      if (!delivered) throw new Error("No hubo un canal de entrega disponible");
       await pool.query(`UPDATE test_drive_requests SET ${sentColumn}=NOW() WHERE id=$1 AND ${sentColumn} IS NULL`, [appointment.id]);
     } catch (error) { console.error(`Appointment ${reminderType} reminder failed`, error); }
   }
@@ -833,7 +1111,7 @@ app.post("/api/auth/login", async (req, res) => {
   const password = String(req.body?.password || "");
   try {
     const organization = await getOrganizationContext(req);
-    const result = await pool.query("SELECT id, full_name, email, role, password_hash, must_change_password AS \"mustChangePassword\", organization_id AS \"organizationId\" FROM admin_users WHERE LOWER(email) = $1 AND organization_id = $2 AND is_active = TRUE", [email, organization.id]);
+    const result = await pool.query("SELECT id, full_name, email, role, password_hash, must_change_password AS \"mustChangePassword\", organization_id AS \"organizationId\" FROM admin_users WHERE LOWER(email) = $1 AND (organization_id = $2 OR role = 'platform_admin') AND is_active = TRUE", [email, organization.id]);
     const admin = result.rows[0];
     if (!admin || !(await bcrypt.compare(password, admin.password_hash))) return res.status(401).json({ error: "Correo o contraseña incorrectos" });
     // Una contraseña restablecida por un administrador solo sirve para volver a entrar:
@@ -847,7 +1125,115 @@ app.post("/api/auth/login", async (req, res) => {
   }
 });
 
-app.post("/api/customer/auth/register", async (req, res) => {
+app.post("/api/auth/register-dealer", verifyPublicForm, async (req, res) => {
+  const dealershipName = String(req.body?.dealershipName || req.body?.name || "").trim();
+  const rawSlug = String(req.body?.slug || "").trim().toLowerCase();
+  const generatedSlug = rawSlug || dealershipName.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  const slug = generatedSlug.slice(0, 80);
+  const adminName = String(req.body?.adminName || "").trim();
+  const adminEmail = String(req.body?.adminEmail || req.body?.email || "").trim().toLowerCase();
+  const adminPassword = String(req.body?.adminPassword || req.body?.password || "");
+  const phone = String(req.body?.phone || "").trim() || null;
+  const whatsapp = String(req.body?.whatsapp || "").trim() || phone;
+  const address = String(req.body?.address || "").trim() || null;
+
+  if (dealershipName.length < 2) return res.status(400).json({ error: "El nombre del concesionario debe tener al menos 2 caracteres" });
+  if (!slug || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) return res.status(400).json({ error: "El identificador (slug) debe contener solo letras minúsculas, números y guiones" });
+  if (adminName.length < 2) return res.status(400).json({ error: "El nombre del administrador debe tener al menos 2 caracteres" });
+  if (!/^\S+@\S+\.\S+$/.test(adminEmail)) return res.status(400).json({ error: "Introduce un correo electrónico válido" });
+  if (adminPassword.length < 8) return res.status(400).json({ error: "La contraseña debe tener al menos 8 caracteres" });
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const existingOrg = await client.query("SELECT id FROM organizations WHERE slug = $1", [slug]);
+    if (existingOrg.rowCount) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ error: `El identificador "${slug}" ya está en uso. Por favor elige otro nombre o slug.` });
+    }
+    const existingUser = await client.query("SELECT id FROM admin_users WHERE LOWER(email) = $1", [adminEmail]);
+    if (existingUser.rowCount) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ error: "Ya existe un usuario registrado con este correo electrónico." });
+    }
+
+    const passwordHash = await bcrypt.hash(adminPassword, 12);
+
+    const orgResult = await client.query(
+      `INSERT INTO organizations (slug, name, is_active, approval_status) VALUES ($1, $2, TRUE, 'pending')
+       RETURNING id, slug, name, logo_url AS "logoUrl", custom_domain AS "customDomain", is_active AS "isActive", approval_status AS "approvalStatus", created_at AS "createdAt"`,
+      [slug, dealershipName]
+    );
+    const organizationId = orgResult.rows[0].id;
+
+    await client.query(
+      `INSERT INTO organization_settings (
+        organization_id, business_name, phone, whatsapp, address, primary_color, accent_color,
+        appointment_timezone, appointment_start, appointment_end, appointment_duration_minutes, appointment_capacity, appointment_days
+      ) VALUES ($1, $2, $3, $4, $5, '#c8a24b', '#b28b37', 'America/Santo_Domingo', '09:00', '18:00', 60, 1, ARRAY[1,2,3,4,5,6]::integer[])`,
+      [organizationId, dealershipName, phone, whatsapp, address]
+    );
+
+    await client.query(
+      `INSERT INTO organization_integrations (organization_id, provider, mode, status, config)
+       VALUES ($1, 'google_calendar', 'local', 'local_export_ready', $2::jsonb),
+              ($1, 'meta_social', 'local', 'drafts_ready', $3::jsonb),
+              ($1, 'billing', 'local_demo', 'trialing', $4::jsonb)`,
+      [organizationId, JSON.stringify({ calendarName: `Agenda de ${dealershipName}` }), JSON.stringify({ publishing: "manual" }), JSON.stringify({ checkout: "pending_provider" })]
+    );
+
+    await client.query(
+      `INSERT INTO billing_subscriptions (organization_id, provider, mode, plan_code, status, monthly_amount, currency, current_period_end)
+       VALUES ($1, 'local', 'local_demo', 'starter', 'trialing', 99, 'USD', CURRENT_DATE + 14)`,
+      [organizationId]
+    );
+
+    const adminResult = await client.query(
+      `INSERT INTO admin_users (full_name, email, password_hash, role, organization_id, is_active)
+       VALUES ($1, $2, $3, 'admin', $4, TRUE)
+       RETURNING id, full_name AS "name", email, role, organization_id AS "organizationId"`,
+      [adminName, adminEmail, passwordHash, organizationId]
+    );
+    const admin = adminResult.rows[0];
+
+    await client.query("INSERT INTO organization_members (organization_id, admin_user_id, role) VALUES ($1, $2, 'admin')", [organizationId, admin.id]);
+
+    await client.query("COMMIT");
+
+    await pool.query("INSERT INTO audit_logs (actor_id, action, entity_type, entity_id, metadata) VALUES ($1, 'dealer.self_register', 'organization', $2, $3::jsonb)", [
+      admin.id, organizationId, JSON.stringify({ slug, name: dealershipName, email: adminEmail })
+    ]);
+
+    const token = jwt.sign({ id: admin.id, email: admin.email, role: "admin", name: admin.name, organizationId, mustChangePassword: false }, jwtSecret, { expiresIn: "8h" });
+    setSessionCookie(res, ADMIN_SESSION_COOKIE, token, 28800);
+
+    // "?dealer=" solo resuelve en localhost (demo local); en producción la única forma
+    // de ver el showroom antes de tener dominio propio es la vista previa privada
+    // autenticada (getOrganizationContext honra X-Preview-Mode con este mismo token).
+    const baseUrl = String(process.env.PUBLIC_SITE_URL || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
+    const dealerUrl = `${baseUrl}/?preview=1`;
+
+    res.status(201).json({
+      token,
+      user: { id: admin.id, name: admin.name, email: admin.email, role: "admin", organizationId, organizationSlug: slug, organizationName: dealershipName, mustChangePassword: false },
+      organization: { id: organizationId, slug, name: dealershipName, approvalStatus: "pending" },
+      dealerUrl,
+      message: "Concesionario registrado. Tu showroom queda en revisión y solo tú puedes verlo hasta que se apruebe.",
+    });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("Dealer registration failed", error);
+    if (error.code === "23505") {
+      return res.status(409).json({ error: "El identificador del concesionario o el correo electrónico ya está en uso." });
+    }
+    res.status(500).json({ error: "No se pudo registrar el concesionario" });
+  } finally {
+    client.release();
+  }
+});
+
+app.post("/api/customer/auth/register", verifyPublicForm, async (req, res) => {
   const fullName = String(req.body.fullName || req.body.name || "").trim();
   const email = String(req.body.email || "").trim().toLowerCase();
   const phone = String(req.body.phone || "").trim() || null;
@@ -958,8 +1344,9 @@ app.get("/api/vehicles", async (req, res) => {
 app.get("/api/settings", async (req, res) => {
   try {
     const organization = await getOrganizationContext(req);
-    const result = await pool.query('SELECT business_name AS "businessName", logo_url AS "logoUrl", primary_color AS "primaryColor", accent_color AS "accentColor", favicon_url AS "faviconUrl", phone, whatsapp, email, address, hours, instagram_url AS "instagramUrl", facebook_url AS "facebookUrl", currency, privacy_text AS "privacyText", terms_text AS "termsText" FROM organization_settings WHERE organization_id=$1', [organization.id]);
-    res.json({ data: result.rows[0] || null, privacyPolicyVersion });
+    const result = await pool.query('SELECT business_name AS "businessName", logo_url AS "logoUrl", primary_color AS "primaryColor", accent_color AS "accentColor", favicon_url AS "faviconUrl", phone, whatsapp, email, address, hours, instagram_url AS "instagramUrl", facebook_url AS "facebookUrl", currency, privacy_text AS "privacyText", terms_text AS "termsText", custom_css AS "customCss", hero_headline AS "heroHeadline", hero_subheadline AS "heroSubheadline", hero_image_url AS "heroImageUrl", show_financing AS "showFinancing", show_brand_rail AS "showBrandRail", show_model_line_rail AS "showModelLineRail", show_blog AS "showBlog" FROM organization_settings WHERE organization_id=$1', [organization.id]);
+    const isPlatformHome = organization.slug === DEFAULT_ORGANIZATION_SLUG;
+    res.json({ data: result.rows[0] ? { ...result.rows[0], isPlatformHome } : { isPlatformHome }, privacyPolicyVersion });
   } catch (error) { console.error("Public settings query failed", error); res.status(500).json({ error: "No se pudo cargar la informacion del negocio" }); }
 });
 
@@ -980,7 +1367,7 @@ app.get("/api/blog/:slug", async (req, res) => {
   } catch (error) { console.error("Blog article failed", error); res.status(500).json({ error: "No se pudo cargar el artículo" }); }
 });
 
-app.post("/api/offers", async (req, res) => {
+app.post("/api/offers", verifyPublicForm, async (req, res) => {
   const vehicleId = String(req.body.vehicleId || "");
   const buyerName = String(req.body.buyerName || "").trim();
   const buyerEmail = String(req.body.buyerEmail || "").trim() || null;
@@ -1005,6 +1392,12 @@ app.post("/api/offers", async (req, res) => {
     const lead = await createLead({ organizationId: organization.id, leadType: "offer", vehicleId, name: buyerName, email: buyerEmail, phone: buyerPhone, message, source: "vehicle-offer", privacyConsent });
     await pool.query("UPDATE offers SET lead_id=$1 WHERE id=$2", [lead.id, result.rows[0].id]);
     await notifyAdmins({ organizationId: organization.id, type: "offer", title: "Nueva oferta recibida", body: `${buyerName} envió una oferta para un vehículo.`, entityType: "offer", entityId: result.rows[0].id });
+    await sendTransactionalEmail({
+      to: buyerEmail,
+      subject: "Recibimos tu oferta",
+      text: `Gracias, ${buyerName}. El dealer recibió tu oferta y se pondrá en contacto contigo.`,
+      html: `<p>Gracias, <strong>${escapeHtml(buyerName)}</strong>.</p><p>El dealer recibió tu oferta y se pondrá en contacto contigo.</p>`,
+    });
     res.status(201).json({ data: { ...result.rows[0], leadId: lead.id } });
   } catch (error) {
     console.error("Offer creation failed", error);
@@ -1037,7 +1430,7 @@ app.get("/api/appointments/availability", async (req, res) => {
   }
 });
 
-app.post("/api/appointments", async (req, res) => {
+app.post("/api/appointments", rateLimit({ windowMs: 10 * 60 * 1000, limit: 15, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Demasiadas solicitudes de cita. Intenta nuevamente más tarde." } }), verifyPublicForm, async (req, res) => {
   const vehicleId = String(req.body.vehicleId || "").trim() || null;
   const name = String(req.body.name || "").trim();
   const email = String(req.body.email || "").trim() || null;
@@ -1083,6 +1476,12 @@ app.post("/api/appointments", async (req, res) => {
       throw error;
     } finally { client.release(); }
     await notifyAdmins({ organizationId: organization.id, title: "Nueva cita solicitada", body: `${name} solicitó una cita para ${date} a las ${time}.`, entityType: "appointment", entityId: appointment.id });
+    await sendTransactionalEmail({
+      to: email,
+      subject: "Recibimos tu solicitud de cita",
+      text: `Hola ${name}. Recibimos tu solicitud para el ${date} a las ${time}. El dealer confirmará la disponibilidad.`,
+      html: `<p>Hola <strong>${escapeHtml(name)}</strong>.</p><p>Recibimos tu solicitud para el <strong>${escapeHtml(date)}</strong> a las <strong>${escapeHtml(time)}</strong>.</p><p>El dealer confirmará la disponibilidad.</p>`,
+    });
     res.status(201).json({ data: { ...appointment, leadId: lead.id } });
   } catch (error) {
     console.error("Appointment creation failed", error);
@@ -1090,7 +1489,7 @@ app.post("/api/appointments", async (req, res) => {
   }
 });
 
-app.post("/api/leads", async (req, res) => {
+app.post("/api/leads", verifyPublicForm, async (req, res) => {
   const name = String(req.body.name || "").trim();
   const email = String(req.body.email || "").trim() || null;
   const phone = String(req.body.phone || "").trim() || null;
@@ -1108,6 +1507,12 @@ app.post("/api/leads", async (req, res) => {
     }
     const lead = await createLead({ organizationId: organization.id, leadType: vehicleId ? "interest" : "contact", vehicleId, name, email, phone, message, source: vehicleId ? "vehicle-interest" : "contact-form", privacyConsent });
     await notifyAdmins({ organizationId: organization.id, title: "Nuevo lead recibido", body: `${name} dejó sus datos desde el sitio web.`, entityType: "lead", entityId: lead.id });
+    await sendTransactionalEmail({
+      to: email,
+      subject: "Recibimos tu mensaje",
+      text: `Hola ${name}. Recibimos tu mensaje y un asesor del dealer se pondrá en contacto contigo.`,
+      html: `<p>Hola <strong>${escapeHtml(name)}</strong>.</p><p>Recibimos tu mensaje y un asesor del dealer se pondrá en contacto contigo.</p>`,
+    });
     res.status(201).json({ data: lead });
   } catch (error) {
     console.error("Lead creation failed", error);
@@ -1135,7 +1540,7 @@ app.post("/api/admin/media-upload", authenticate, requireRoles("admin", "editor"
     if (error instanceof multer.MulterError && error.code === "LIMIT_FILE_SIZE") return res.status(400).json({ error: "El archivo no puede superar 120 MB" });
     if (error) return res.status(400).json({ error: "Tipo de archivo no compatible. Usa JPG, PNG, WebP, MP4, WebM, GLB o GLTF" });
     if (!req.file) return res.status(400).json({ error: "Debes seleccionar un archivo" });
-    if (!(await isValidImageUpload(req.file))) return res.status(400).json({ error: "La imagen está corrupta o no coincide con su formato" });
+    if (!(await isValidMediaUpload(req.file))) return res.status(400).json({ error: "El archivo está corrupto o no coincide con su formato declarado" });
     req.file = await optimizeUploadedImage(req.file);
     if (path.extname(req.file.originalname).toLowerCase() === ".gltf") {
       try {
@@ -1198,6 +1603,87 @@ app.post("/api/admin/media-package-upload", authenticate, requireRoles("admin", 
   });
 });
 
+app.post("/api/admin/vehicles/:id/3d-generation", authenticate, requireRoles("admin", "editor"), (req, res) => {
+  vehicle3dGenerationUpload.array("images", 5)(req, res, async (error) => {
+    const files = Array.isArray(req.files) ? req.files : [];
+    const removeSources = () => Promise.all(files.map((file) => fs.unlink(file.path).catch(() => {})));
+    if (error instanceof multer.MulterError && error.code === "LIMIT_FILE_SIZE") { await removeSources(); return res.status(400).json({ error: "Cada foto para generar el modelo no puede superar 8 MB" }); }
+    if (error instanceof multer.MulterError && error.code === "LIMIT_FILE_COUNT") { await removeSources(); return res.status(400).json({ error: "Puedes enviar hasta 5 fotos por modelo 3D" }); }
+    if (error) { await removeSources(); return res.status(400).json({ error: "Solo se permiten fotos JPG, PNG, WebP o AVIF" }); }
+    if (!files.length) return res.status(400).json({ error: "Selecciona entre 1 y 5 fotos del vehículo" });
+    if (!rodinApiKey) { await removeSources(); return res.status(503).json({ error: "La generación 3D todavía no está configurada. Añade RODIN_API_KEY al servidor.", code: "3D_PROVIDER_NOT_CONFIGURED", provider: "rodin" }); }
+    try {
+      const vehicle = await pool.query("SELECT id FROM vehicles WHERE id=$1 AND organization_id=$2", [req.params.id, adminOrganizationId(req)]);
+      if (!vehicle.rowCount) { await removeSources(); return res.status(404).json({ error: "Vehículo no encontrado" }); }
+      for (const file of files) if (!(await isValidImageUpload(file))) return res.status(400).json({ error: "Una de las fotos está corrupta o no coincide con su formato" });
+      const submitted = await submitRodinGeneration(files);
+      const inserted = await pool.query(
+        `INSERT INTO vehicle_3d_jobs (organization_id, vehicle_id, provider, status, source_images, provider_task_id, provider_subscription_key, created_by)
+         VALUES ($1,$2,'rodin','processing',$3::jsonb,$4,$5,$6)
+         RETURNING id, vehicle_id AS "vehicleId", provider, status, created_at AS "createdAt"`,
+        [adminOrganizationId(req), req.params.id, JSON.stringify(files.map((file) => ({ name: file.originalname, mimeType: file.mimetype }))), submitted.taskId, submitted.subscriptionKey, req.admin.id],
+      );
+      await writeAudit(req, "vehicle.3d_generation_started", "vehicle_3d_job", inserted.rows[0].id, { vehicleId: req.params.id, provider: "rodin", imageCount: files.length });
+      return res.status(202).json({ data: { ...inserted.rows[0], message: "Modelo 3D en proceso. Puedes consultar el estado en unos segundos." } });
+    } catch (generationError) {
+      console.error("3D generation submission failed", generationError);
+      const status = generationError.code === "3D_PROVIDER_ERROR" ? 502 : 500;
+      return res.status(status).json({ error: generationError.message || "No se pudo iniciar la generación 3D", code: generationError.code || "3D_GENERATION_FAILED" });
+    } finally { await removeSources(); }
+  });
+});
+
+app.get("/api/admin/vehicles/:id/3d-generation", authenticate, requireRoles("admin", "editor"), async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT id, vehicle_id AS "vehicleId", provider, status, source_images AS "sourceImages", model_url AS "modelUrl", preview_url AS "previewUrl", error, created_at AS "createdAt", updated_at AS "updatedAt", completed_at AS "completedAt"
+       FROM vehicle_3d_jobs WHERE vehicle_id=$1 AND organization_id=$2 ORDER BY created_at DESC LIMIT 10`,
+      [req.params.id, adminOrganizationId(req)],
+    );
+    res.json({ data: result.rows });
+  } catch (listError) { console.error("3D generation listing failed", listError); res.status(500).json({ error: "No se pudieron cargar los trabajos 3D" }); }
+});
+
+app.get("/api/admin/vehicles/:id/3d-generation/:jobId/refresh", authenticate, requireRoles("admin", "editor"), async (req, res) => {
+  const jobResult = await pool.query(
+    `SELECT id, vehicle_id AS "vehicleId", provider, status, provider_task_id AS "taskId", provider_subscription_key AS "subscriptionKey", model_url AS "modelUrl", preview_url AS "previewUrl", error, created_at AS "createdAt", updated_at AS "updatedAt", completed_at AS "completedAt"
+     FROM vehicle_3d_jobs WHERE id=$1 AND vehicle_id=$2 AND organization_id=$3`,
+    [req.params.jobId, req.params.id, adminOrganizationId(req)],
+  );
+  if (!jobResult.rowCount) return res.status(404).json({ error: "Trabajo 3D no encontrado" });
+  const job = jobResult.rows[0];
+  if (["ready", "needs_review", "failed"].includes(job.status)) return res.json({ data: job });
+  try {
+    const providerState = await checkRodinGeneration(job.subscriptionKey);
+    const failed = ["failed", "error", "cancelled"].includes(providerState.status);
+    const complete = ["done", "completed", "success"].includes(providerState.status);
+    if (failed) {
+      const message = "El proveedor no pudo completar este modelo 3D";
+      await pool.query("UPDATE vehicle_3d_jobs SET status='failed', error=$1, updated_at=NOW() WHERE id=$2", [message, job.id]);
+      return res.json({ data: { ...job, status: "failed", error: message } });
+    }
+    if (!complete) {
+      await pool.query("UPDATE vehicle_3d_jobs SET status='processing', updated_at=NOW() WHERE id=$1", [job.id]);
+      return res.json({ data: { ...job, status: "processing" } });
+    }
+    const assets = await downloadRodinResults(job.taskId);
+    const modelUrl = await persistGenerated3dAsset(assets.modelUrl, adminOrganizationId(req), req.params.id, `${job.id}.glb`, "model/gltf-binary");
+    const previewUrl = assets.previewUrl ? await persistGenerated3dAsset(assets.previewUrl, adminOrganizationId(req), req.params.id, `${job.id}.webp`, "image/webp") : null;
+    const updated = await pool.query(
+      `UPDATE vehicle_3d_jobs SET status='needs_review', model_url=$1, preview_url=$2, error=NULL, updated_at=NOW(), completed_at=NOW()
+       WHERE id=$3 RETURNING id, vehicle_id AS "vehicleId", provider, status, model_url AS "modelUrl", preview_url AS "previewUrl", created_at AS "createdAt", updated_at AS "updatedAt", completed_at AS "completedAt"`,
+      [modelUrl, previewUrl, job.id],
+    );
+    await writeAudit(req, "vehicle.3d_generation_ready", "vehicle_3d_job", job.id, { vehicleId: req.params.id, modelUrl });
+    return res.json({ data: updated.rows[0] });
+  } catch (refreshError) {
+    console.error("3D generation refresh failed", refreshError);
+    if (refreshError.code === "3D_PROVIDER_ERROR") return res.status(502).json({ error: refreshError.message, code: refreshError.code });
+    await pool.query("UPDATE vehicle_3d_jobs SET status='failed', error=$1, updated_at=NOW() WHERE id=$2", [refreshError.message || "No se pudo descargar el modelo 3D", job.id]);
+    return res.status(500).json({ error: refreshError.message || "No se pudo finalizar el modelo 3D", code: "3D_RESULT_FAILED" });
+  }
+});
+
 app.get("/api/admin/vehicles", authenticate, requireRoles("admin", "editor", "seller"), async (req, res) => {
   try { res.json({ data: await listVehicles(true, adminOrganizationId(req)) }); }
   catch (error) { console.error("Admin vehicle listing failed", error); res.status(500).json({ error: "No se pudo cargar el inventario" }); }
@@ -1213,6 +1699,8 @@ app.post("/api/admin/vehicles", authenticate, requireRoles("admin", "editor"), a
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    const planError = await vehiclePlanGuard(client, adminOrganizationId(req), 1);
+    if (planError) { await client.query("ROLLBACK"); return res.status(planError.code === "SUBSCRIPTION_INACTIVE" ? 402 : 409).json(planError); }
     const brandId = await upsertTaxonomy(client, "vehicle_brands", vehicle.brand, vehicle.brandLogoUrl, adminOrganizationId(req));
     const categoryId = await upsertTaxonomy(client, "vehicle_categories", vehicle.category, null, adminOrganizationId(req));
     const inserted = await client.query(
@@ -1237,6 +1725,8 @@ app.post("/api/admin/vehicles/:id/duplicate", authenticate, requireRoles("admin"
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    const planError = await vehiclePlanGuard(client, adminOrganizationId(req), 1);
+    if (planError) { await client.query("ROLLBACK"); return res.status(planError.code === "SUBSCRIPTION_INACTIVE" ? 402 : 409).json(planError); }
     const source = await client.query("SELECT * FROM vehicles WHERE id=$1 AND organization_id=$2", [req.params.id, adminOrganizationId(req)]);
     if (!source.rowCount) { await client.query("ROLLBACK"); return res.status(404).json({ error: "Vehículo no encontrado" }); }
     const vehicle = source.rows[0];
@@ -1605,7 +2095,7 @@ app.patch("/api/admin/users/:id", authenticate, requireRoles("admin"), async (re
 
 app.get("/api/admin/settings", authenticate, requireRoles("admin", "editor", "content_editor"), async (req, res) => {
   try {
-    const result = await pool.query('SELECT organization_id AS "organizationId", business_name AS "businessName", logo_url AS "logoUrl", primary_color AS "primaryColor", accent_color AS "accentColor", favicon_url AS "faviconUrl", phone, whatsapp, email, address, hours, instagram_url AS "instagramUrl", facebook_url AS "facebookUrl", currency, privacy_text AS "privacyText", terms_text AS "termsText", appointment_timezone AS "appointmentTimezone", appointment_start AS "appointmentStart", appointment_end AS "appointmentEnd", appointment_duration_minutes AS "appointmentDurationMinutes", appointment_min_notice_hours AS "appointmentMinNoticeHours", appointment_max_days_ahead AS "appointmentMaxDaysAhead", appointment_days AS "appointmentDays", appointment_capacity AS "appointmentCapacity", updated_at AS "updatedAt" FROM organization_settings WHERE organization_id=$1', [adminOrganizationId(req)]);
+    const result = await pool.query('SELECT organization_id AS "organizationId", business_name AS "businessName", logo_url AS "logoUrl", primary_color AS "primaryColor", accent_color AS "accentColor", favicon_url AS "faviconUrl", phone, whatsapp, email, address, hours, instagram_url AS "instagramUrl", facebook_url AS "facebookUrl", currency, privacy_text AS "privacyText", terms_text AS "termsText", appointment_timezone AS "appointmentTimezone", appointment_start AS "appointmentStart", appointment_end AS "appointmentEnd", appointment_duration_minutes AS "appointmentDurationMinutes", appointment_min_notice_hours AS "appointmentMinNoticeHours", appointment_max_days_ahead AS "appointmentMaxDaysAhead", appointment_days AS "appointmentDays", appointment_capacity AS "appointmentCapacity", hero_headline AS "heroHeadline", hero_subheadline AS "heroSubheadline", hero_image_url AS "heroImageUrl", show_financing AS "showFinancing", show_brand_rail AS "showBrandRail", show_model_line_rail AS "showModelLineRail", show_blog AS "showBlog", updated_at AS "updatedAt" FROM organization_settings WHERE organization_id=$1', [adminOrganizationId(req)]);
     res.json({ data: result.rows[0] || null });
   } catch (error) { console.error("Business settings query failed", error); res.status(500).json({ error: "No se pudo cargar la configuración" }); }
 });
@@ -1626,6 +2116,8 @@ app.patch("/api/admin/settings", authenticate, requireRoles("admin"), async (req
     facebookUrl: String(req.body.facebookUrl || "").trim() || null, currency: String(req.body.currency || "USD").trim().toUpperCase(),
     privacyText: String(req.body.privacyText || "").trim() || null, termsText: String(req.body.termsText || "").trim() || null,
     appointmentTimezone: String(req.body.appointmentTimezone || "America/Santo_Domingo").trim(), appointmentStart: normalizeTime(req.body.appointmentStart, "09:00"), appointmentEnd: normalizeTime(req.body.appointmentEnd, "18:00"), appointmentDurationMinutes: Number(req.body.appointmentDurationMinutes || 60), appointmentMinNoticeHours: Number(req.body.appointmentMinNoticeHours || 2), appointmentMaxDaysAhead: Number(req.body.appointmentMaxDaysAhead || 30), appointmentDays: Array.isArray(req.body.appointmentDays) ? req.body.appointmentDays.map(Number).filter((day) => day >= 1 && day <= 7) : [1, 2, 3, 4, 5, 6], appointmentCapacity: Number(req.body.appointmentCapacity || 1),
+    heroHeadline: String(req.body.heroHeadline || "").trim().slice(0, 160) || null, heroSubheadline: String(req.body.heroSubheadline || "").trim().slice(0, 280) || null, heroImageUrl: String(req.body.heroImageUrl || "").trim() || null,
+    showFinancing: req.body.showFinancing !== false, showBrandRail: req.body.showBrandRail !== false, showModelLineRail: req.body.showModelLineRail !== false, showBlog: req.body.showBlog !== false,
   };
   if (!settings.businessName) return res.status(400).json({ error: "El nombre del negocio es obligatorio" });
   try {
@@ -1633,7 +2125,11 @@ app.patch("/api/admin/settings", authenticate, requireRoles("admin"), async (req
     const values = [settings.businessName, settings.logoUrl, settings.phone, settings.whatsapp, settings.email, settings.address, settings.hours, settings.instagramUrl, settings.facebookUrl, settings.currency, settings.privacyText, settings.termsText, settings.appointmentTimezone, settings.appointmentStart, settings.appointmentEnd, settings.appointmentDurationMinutes, settings.appointmentMinNoticeHours, settings.appointmentMaxDaysAhead, settings.appointmentDays, settings.appointmentCapacity];
      const result = await pool.query('UPDATE organization_settings SET business_name=$1, logo_url=$2, phone=$3, whatsapp=$4, email=$5, address=$6, hours=$7, instagram_url=$8, facebook_url=$9, currency=$10, privacy_text=$11, terms_text=$12, appointment_timezone=$13, appointment_start=$14, appointment_end=$15, appointment_duration_minutes=$16, appointment_min_notice_hours=$17, appointment_max_days_ahead=$18, appointment_days=$19, appointment_capacity=$20, updated_at=NOW() WHERE organization_id=$21 RETURNING organization_id AS "organizationId", business_name AS "businessName", logo_url AS "logoUrl", phone, whatsapp, email, address, hours, instagram_url AS "instagramUrl", facebook_url AS "facebookUrl", currency, privacy_text AS "privacyText", terms_text AS "termsText", appointment_timezone AS "appointmentTimezone", appointment_start AS "appointmentStart", appointment_end AS "appointmentEnd", appointment_duration_minutes AS "appointmentDurationMinutes", appointment_min_notice_hours AS "appointmentMinNoticeHours", appointment_max_days_ahead AS "appointmentMaxDaysAhead", appointment_days AS "appointmentDays", appointment_capacity AS "appointmentCapacity", updated_at AS "updatedAt"', [...values, adminOrganizationId(req)]);
     await pool.query("UPDATE organization_settings SET primary_color=$1, accent_color=$2, favicon_url=$3, updated_at=NOW() WHERE organization_id=$4", [settings.primaryColor, settings.accentColor, settings.faviconUrl, adminOrganizationId(req)]);
-    const branding = await pool.query('SELECT primary_color AS "primaryColor", accent_color AS "accentColor", favicon_url AS "faviconUrl" FROM organization_settings WHERE organization_id=$1', [adminOrganizationId(req)]);
+    await pool.query(
+      "UPDATE organization_settings SET hero_headline=$1, hero_subheadline=$2, hero_image_url=$3, show_financing=$4, show_brand_rail=$5, show_model_line_rail=$6, show_blog=$7, updated_at=NOW() WHERE organization_id=$8",
+      [settings.heroHeadline, settings.heroSubheadline, settings.heroImageUrl, settings.showFinancing, settings.showBrandRail, settings.showModelLineRail, settings.showBlog, adminOrganizationId(req)],
+    );
+    const branding = await pool.query('SELECT primary_color AS "primaryColor", accent_color AS "accentColor", favicon_url AS "faviconUrl", hero_headline AS "heroHeadline", hero_subheadline AS "heroSubheadline", hero_image_url AS "heroImageUrl", show_financing AS "showFinancing", show_brand_rail AS "showBrandRail", show_model_line_rail AS "showModelLineRail", show_blog AS "showBlog" FROM organization_settings WHERE organization_id=$1', [adminOrganizationId(req)]);
     await writeAudit(req, "settings.update", "business_settings", null, { businessName: settings.businessName, primaryColor: settings.primaryColor, accentColor: settings.accentColor });
     res.json({ data: { ...(result.rows[0] || {}), ...(branding.rows[0] || {}) } });
   } catch (error) { console.error("Business settings update failed", error); res.status(500).json({ error: "No se pudo guardar la configuración" }); }
@@ -1654,7 +2150,7 @@ app.patch("/api/admin/settings/branding", authenticate, requireRoles("admin"), a
 
 app.get("/api/admin/organization", authenticate, requireRoles("admin"), async (req, res) => {
   try {
-    const result = await pool.query(`SELECT o.id, o.slug, o.name, o.logo_url AS "logoUrl", o.custom_domain AS "customDomain", o.is_active AS "isActive", o.updated_at AS "updatedAt" FROM organizations o JOIN admin_users au ON au.organization_id=o.id WHERE au.id=$1`, [req.admin.id]);
+    const result = await pool.query(`SELECT o.id, o.slug, o.name, o.logo_url AS "logoUrl", o.custom_domain AS "customDomain", o.is_active AS "isActive", o.approval_status AS "approvalStatus", o.updated_at AS "updatedAt" FROM organizations o JOIN admin_users au ON au.organization_id=o.id WHERE au.id=$1`, [req.admin.id]);
     res.json({ data: result.rows[0] || null });
   } catch (error) { console.error("Organization query failed", error); res.status(500).json({ error: "No se pudo cargar el perfil del concesionario" }); }
 });
@@ -1714,6 +2210,166 @@ app.get("/api/admin/onboarding", authenticate, requireRoles("admin"), async (req
     const completed = steps.filter((step) => step.done).length;
     res.json({ data: { steps, completed, total: steps.length, progress: Math.round((completed / steps.length) * 100), activeUsers: Number(row.activeUsers) } });
   } catch (error) { console.error("Onboarding query failed", error); res.status(500).json({ error: "No se pudo cargar el estado de inicio" }); }
+});
+
+function platformSetupProgress(row) {
+  const steps = [Boolean(row.name && row.slug), Boolean(row.logoUrl), Boolean(row.phone || row.whatsapp || row.email), Number(row.publishedVehicles) > 0, Boolean(row.appointmentStart && row.appointmentEnd && row.appointmentDays?.length), Boolean(row.instagramUrl || row.facebookUrl), Boolean(row.privacyText && row.termsText), Boolean(row.customDomain)];
+  return Math.round((steps.filter(Boolean).length / steps.length) * 100);
+}
+
+app.get("/api/platform/overview", authenticate, requireRoles("platform_admin"), async (_req, res) => {
+  try {
+    const [plans, organizations] = await Promise.all([
+      pool.query("SELECT code, name, description, monthly_amount AS \"monthlyAmount\", vehicle_limit AS \"vehicleLimit\", features, is_active AS \"isActive\" FROM platform_plans WHERE is_active=TRUE ORDER BY monthly_amount, code"),
+      pool.query(`
+        SELECT o.id, o.slug, o.name, o.logo_url AS "logoUrl", o.custom_domain AS "customDomain", o.is_active AS "isActive", o.approval_status AS "approvalStatus", o.created_at AS "createdAt",
+               COALESCE(bs.plan_code, 'starter') AS "planCode", COALESCE(bs.status, 'trialing') AS "subscriptionStatus", COALESCE(bs.monthly_amount, 0)::numeric AS "monthlyAmount", bs.current_period_end AS "currentPeriodEnd",
+               (SELECT COUNT(*)::int FROM admin_users au WHERE au.organization_id=o.id AND au.is_active=TRUE) AS "activeUsers",
+               (SELECT COUNT(*)::int FROM vehicles v WHERE v.organization_id=o.id) AS "totalVehicles",
+               (SELECT COUNT(*)::int FROM vehicles v WHERE v.organization_id=o.id AND v.status IN ('published','reserved')) AS "publishedVehicles",
+               (SELECT COUNT(*)::int FROM leads l WHERE l.organization_id=o.id AND l.created_at >= NOW() - INTERVAL '30 days') AS "recentLeads",
+               os.business_name AS "businessName", os.phone, os.whatsapp, os.email, os.privacy_text AS "privacyText", os.terms_text AS "termsText",
+               os.instagram_url AS "instagramUrl", os.facebook_url AS "facebookUrl", os.appointment_start AS "appointmentStart", os.appointment_end AS "appointmentEnd", os.appointment_days AS "appointmentDays",
+               os.primary_color AS "primaryColor", os.accent_color AS "accentColor", os.custom_css AS "customCss"
+        FROM organizations o
+        LEFT JOIN organization_settings os ON os.organization_id=o.id
+        LEFT JOIN billing_subscriptions bs ON bs.organization_id=o.id
+        ORDER BY o.created_at DESC
+      `),
+    ]);
+    const items = organizations.rows.map((row) => ({ ...row, setupProgress: platformSetupProgress(row) }));
+    const active = items.filter((item) => item.isActive);
+    const pending = items.filter((item) => item.approvalStatus === "pending");
+    res.json({ data: { plans: plans.rows, organizations: items, pendingApproval: pending, summary: { total: items.length, active: active.length, paused: items.length - active.length, pendingApproval: pending.length, monthlyRecurring: active.reduce((total, item) => total + Number(item.monthlyAmount || 0), 0), attention: items.filter((item) => item.setupProgress < 75 || ["past_due", "cancelled"].includes(item.subscriptionStatus)).length } } });
+  } catch (error) { console.error("Platform overview failed", error); res.status(500).json({ error: "No se pudo cargar el centro de dealers" }); }
+});
+
+app.post("/api/platform/organizations", authenticate, requireRoles("platform_admin"), async (req, res) => {
+  const name = String(req.body?.name || "").trim();
+  const slug = String(req.body?.slug || "").trim().toLowerCase();
+  const adminName = String(req.body?.adminName || "").trim();
+  const adminEmail = String(req.body?.adminEmail || "").trim().toLowerCase();
+  const adminPassword = String(req.body?.adminPassword || "");
+  const planCode = String(req.body?.planCode || "starter").trim();
+  const logoUrl = String(req.body?.logoUrl || "").trim() || null;
+  const customDomain = String(req.body?.customDomain || "").trim().toLowerCase() || null;
+  const normalizeColor = (value, fallback) => /^#[0-9a-f]{6}$/i.test(String(value || "").trim()) ? String(value).trim().toLowerCase() : fallback;
+  const primaryColor = normalizeColor(req.body?.primaryColor, "#c8a24b");
+  const accentColor = normalizeColor(req.body?.accentColor, "#b28b37");
+  if (name.length < 2 || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) || adminName.length < 2 || !/^\S+@\S+\.\S+$/.test(adminEmail) || adminPassword.length < 8) return res.status(400).json({ error: "Nombre, slug, administrador, correo y contraseña válida son obligatorios" });
+  if (customDomain && (!/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(customDomain) || customDomain === "localhost")) return res.status(400).json({ error: "El dominio personalizado no es válido" });
+  try {
+    const plan = await pool.query("SELECT code, monthly_amount AS \"monthlyAmount\" FROM platform_plans WHERE code=$1 AND is_active=TRUE", [planCode]);
+    if (!plan.rowCount) return res.status(400).json({ error: "El plan seleccionado no existe" });
+    const passwordHash = await bcrypt.hash(adminPassword, 12);
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const organization = await client.query("INSERT INTO organizations (slug, name, logo_url, custom_domain, approval_status) VALUES ($1,$2,$3,$4,'approved') RETURNING id, slug, name, logo_url AS \"logoUrl\", custom_domain AS \"customDomain\", is_active AS \"isActive\", approval_status AS \"approvalStatus\", created_at AS \"createdAt\"", [slug, name, logoUrl, customDomain]);
+      const organizationId = organization.rows[0].id;
+      await client.query("INSERT INTO organization_settings (organization_id, business_name, logo_url, primary_color, accent_color) VALUES ($1,$2,$3,$4,$5)", [organizationId, name, logoUrl, primaryColor, accentColor]);
+      await client.query("INSERT INTO organization_integrations (organization_id, provider, mode, status, config) VALUES ($1,'google_calendar','local','local_export_ready',$2::jsonb),($1,'meta_social','local','drafts_ready',$3::jsonb),($1,'billing','local_demo','trialing',$4::jsonb)", [organizationId, JSON.stringify({ calendarName: `Agenda de ${name}` }), JSON.stringify({ publishing: "manual" }), JSON.stringify({ checkout: "pending_provider" })]);
+      await client.query("INSERT INTO billing_subscriptions (organization_id, provider, mode, plan_code, status, monthly_amount, currency, current_period_end) VALUES ($1,'local','local_demo',$2,'trialing',$3,'USD',CURRENT_DATE + 14)", [organizationId, planCode, plan.rows[0].monthlyAmount]);
+      const admin = await client.query("INSERT INTO admin_users (full_name, email, password_hash, role, organization_id) VALUES ($1,$2,$3,'admin',$4) RETURNING id, full_name AS \"name\", email, role", [adminName, adminEmail, passwordHash, organizationId]);
+      await client.query("INSERT INTO organization_members (organization_id, admin_user_id, role) VALUES ($1,$2,'admin')", [organizationId, admin.rows[0].id]);
+      await client.query("COMMIT");
+      await writeAudit(req, "platform.organization.create", "organization", organizationId, { slug, planCode, adminEmail, customDomain, hasLogo: Boolean(logoUrl), primaryColor, accentColor });
+      res.status(201).json({ data: { ...organization.rows[0], planCode, subscriptionStatus: "trialing", admin: admin.rows[0] } });
+    } catch (error) { await client.query("ROLLBACK"); if (error.code === "23505") return res.status(409).json({ error: "El slug, dominio o correo del administrador ya está en uso" }); throw error; } finally { client.release(); }
+  } catch (error) { console.error("Platform organization create failed", error); if (!res.headersSent) res.status(500).json({ error: "No se pudo crear el dealer" }); }
+});
+
+app.patch("/api/platform/organizations/:id/status", authenticate, requireRoles("platform_admin"), async (req, res) => {
+  const isActive = Boolean(req.body?.isActive);
+  try {
+    const result = await pool.query("UPDATE organizations SET is_active=$1, updated_at=NOW() WHERE id=$2 RETURNING id, slug, name, is_active AS \"isActive\"", [isActive, req.params.id]);
+    if (!result.rowCount) return res.status(404).json({ error: "Dealer no encontrado" });
+    await writeAudit(req, "platform.organization.status", "organization", req.params.id, { isActive });
+    res.json({ data: result.rows[0] });
+  } catch (error) { console.error("Platform organization status failed", error); res.status(500).json({ error: "No se pudo actualizar el estado del dealer" }); }
+});
+
+app.patch("/api/platform/organizations/:id/approval", authenticate, requireRoles("platform_admin"), async (req, res) => {
+  const decision = String(req.body?.decision || "").trim();
+  if (!["approved", "rejected"].includes(decision)) return res.status(400).json({ error: "Decisión inválida" });
+  try {
+    const result = await pool.query("UPDATE organizations SET approval_status=$1, updated_at=NOW() WHERE id=$2 RETURNING id, slug, name, approval_status AS \"approvalStatus\"", [decision, req.params.id]);
+    if (!result.rowCount) return res.status(404).json({ error: "Dealer no encontrado" });
+    await writeAudit(req, "platform.organization.approval", "organization", req.params.id, { decision });
+    res.json({ data: result.rows[0] });
+  } catch (error) { console.error("Platform organization approval failed", error); res.status(500).json({ error: "No se pudo actualizar la aprobación del dealer" }); }
+});
+
+app.post("/api/platform/organizations/:id/impersonate", authenticate, requireRoles("platform_admin"), async (req, res) => {
+  try {
+    const target = await pool.query(
+      `SELECT id, full_name AS "name", email, role, organization_id AS "organizationId"
+       FROM admin_users WHERE organization_id=$1 AND is_active=TRUE
+       ORDER BY CASE WHEN role='admin' THEN 0 ELSE 1 END, created_at ASC LIMIT 1`,
+      [req.params.id],
+    );
+    if (!target.rowCount) return res.status(404).json({ error: "Este dealer no tiene una cuenta administrativa activa" });
+    const admin = target.rows[0];
+    // Sesión de soporte de corta duración: nunca se persiste en el almacenamiento
+    // compartido del navegador del admin de plataforma (ver App.jsx / Backoffice.jsx).
+    const token = jwt.sign({ id: admin.id, email: admin.email, role: admin.role, name: admin.name, organizationId: admin.organizationId, mustChangePassword: false, impersonatedBy: req.admin.id }, jwtSecret, { expiresIn: "20m" });
+    await writeAudit(req, "platform.organization.impersonate", "organization", req.params.id, { targetAdminId: admin.id, targetEmail: admin.email });
+    res.json({ data: { token, user: { id: admin.id, name: admin.name, email: admin.email, role: admin.role, organizationId: admin.organizationId, mustChangePassword: false } } });
+  } catch (error) { console.error("Platform organization impersonate failed", error); res.status(500).json({ error: "No se pudo iniciar la vista de soporte" }); }
+});
+
+app.patch("/api/platform/organizations/:id/branding", authenticate, requireRoles("platform_admin"), async (req, res) => {
+  const logoUrl = String(req.body?.logoUrl || "").trim() || null;
+  const customDomain = String(req.body?.customDomain || "").trim().toLowerCase() || null;
+  const normalizeColor = (value, fallback) => /^#[0-9a-f]{6}$/i.test(String(value || "").trim()) ? String(value).trim().toLowerCase() : fallback;
+  const primaryColor = normalizeColor(req.body?.primaryColor, "#c8a24b");
+  const accentColor = normalizeColor(req.body?.accentColor, "#b28b37");
+  if (customDomain && (!/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(customDomain) || customDomain === "localhost")) return res.status(400).json({ error: "El dominio personalizado no es válido" });
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const organization = await client.query(
+      `UPDATE organizations SET logo_url=$1, custom_domain=$2, updated_at=NOW() WHERE id=$3
+       RETURNING id, slug, name, logo_url AS "logoUrl", custom_domain AS "customDomain"`,
+      [logoUrl, customDomain, req.params.id],
+    );
+    if (!organization.rowCount) { await client.query("ROLLBACK"); return res.status(404).json({ error: "Dealer no encontrado" }); }
+    await client.query(
+      `UPDATE organization_settings SET logo_url=$1, primary_color=$2, accent_color=$3, updated_at=NOW() WHERE organization_id=$4`,
+      [logoUrl, primaryColor, accentColor, req.params.id],
+    );
+    await client.query("COMMIT");
+    await writeAudit(req, "platform.organization.branding", "organization", req.params.id, { customDomain, primaryColor, accentColor, hasLogo: Boolean(logoUrl) });
+    res.json({ data: { ...organization.rows[0], primaryColor, accentColor } });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    if (error.code === "23505") return res.status(409).json({ error: "Ese dominio ya está en uso por otro dealer" });
+    console.error("Platform organization branding failed", error);
+    res.status(500).json({ error: "No se pudo actualizar la marca del dealer" });
+  } finally { client.release(); }
+});
+
+app.patch("/api/platform/organizations/:id/custom-css", authenticate, requireRoles("platform_admin"), async (req, res) => {
+  const customCss = String(req.body?.customCss || "").slice(0, 20000);
+  try {
+    const result = await pool.query("UPDATE organization_settings SET custom_css=$1, updated_at=NOW() WHERE organization_id=$2 RETURNING organization_id AS \"organizationId\"", [customCss || null, req.params.id]);
+    if (!result.rowCount) return res.status(404).json({ error: "Dealer no encontrado" });
+    await writeAudit(req, "platform.organization.custom_css", "organization", req.params.id, { length: customCss.length });
+    res.json({ data: { organizationId: req.params.id, customCss } });
+  } catch (error) { console.error("Platform organization custom CSS failed", error); res.status(500).json({ error: "No se pudo actualizar el CSS del dealer" }); }
+});
+
+app.patch("/api/platform/organizations/:id/subscription", authenticate, requireRoles("platform_admin"), async (req, res) => {
+  const planCode = String(req.body?.planCode || "starter").trim();
+  const status = ["trialing", "active", "past_due", "cancelled"].includes(req.body?.status) ? req.body.status : "trialing";
+  try {
+    const plan = await pool.query("SELECT code, monthly_amount AS \"monthlyAmount\" FROM platform_plans WHERE code=$1 AND is_active=TRUE", [planCode]);
+    if (!plan.rowCount) return res.status(400).json({ error: "El plan seleccionado no existe" });
+    const result = await pool.query("UPDATE billing_subscriptions SET plan_code=$1, status=$2, monthly_amount=$3, updated_at=NOW() WHERE organization_id=$4 RETURNING organization_id AS \"organizationId\", plan_code AS \"planCode\", status, monthly_amount AS \"monthlyAmount\", currency, current_period_end AS \"currentPeriodEnd\"", [planCode, status, plan.rows[0].monthlyAmount, req.params.id]);
+    if (!result.rowCount) return res.status(404).json({ error: "Suscripción no encontrada para este dealer" });
+    await writeAudit(req, "platform.subscription.update", "billing_subscription", req.params.id, { planCode, status });
+    res.json({ data: result.rows[0] });
+  } catch (error) { console.error("Platform subscription update failed", error); res.status(500).json({ error: "No se pudo actualizar la suscripción" }); }
 });
 
 function icsText(value) {
@@ -1794,9 +2450,24 @@ app.get("/api/admin/integrations", authenticate, requireRoles("admin"), async (r
     const organizationId = adminOrganizationId(req);
     const [integrations, billing] = await Promise.all([
       pool.query("SELECT provider, mode, status, config, connected_at AS \"connectedAt\", updated_at AS \"updatedAt\" FROM organization_integrations WHERE organization_id=$1 ORDER BY provider", [organizationId]),
-      pool.query("SELECT provider, mode, plan_code AS \"planCode\", status, monthly_amount AS \"monthlyAmount\", currency, current_period_end AS \"currentPeriodEnd\", updated_at AS \"updatedAt\" FROM billing_subscriptions WHERE organization_id=$1", [organizationId]),
+      pool.query("SELECT bs.provider, bs.mode, bs.plan_code AS \"planCode\", pp.name AS \"planName\", pp.vehicle_limit AS \"vehicleLimit\", bs.status, bs.monthly_amount AS \"monthlyAmount\", bs.currency, bs.current_period_end AS \"currentPeriodEnd\", bs.updated_at AS \"updatedAt\" FROM billing_subscriptions bs LEFT JOIN platform_plans pp ON pp.code=bs.plan_code WHERE bs.organization_id=$1", [organizationId]),
     ]);
-    res.json({ data: { integrations: integrations.rows, billing: billing.rows[0] || null, localMode: true } });
+    const organization = await pool.query("SELECT name, custom_domain AS \"customDomain\" FROM organizations WHERE id=$1", [organizationId]);
+    const customDomain = String(organization.rows[0]?.customDomain || "").trim().toLowerCase();
+    const requestHost = String(req.hostname || "").trim().toLowerCase();
+    res.json({ data: {
+      integrations: integrations.rows,
+      billing: billing.rows[0] || null,
+      localMode: true,
+      health: {
+        email: { provider: "resend", configured: emailDeliveryConfigured, status: emailDeliveryConfigured ? "ready" : "not_configured", detail: emailDeliveryConfigured ? "Emails transaccionales activos" : "Añade RESEND_API_KEY y RESEND_FROM_EMAIL" },
+        googleCalendar: { provider: "google_calendar", configured: googleCalendarConfigured, status: googleCalendarConfigured ? "oauth_ready" : "local_export_ready", detail: googleCalendarConfigured ? "OAuth listo para completar la autorización" : "Exportación .ics disponible; falta OAuth" },
+        metaSocial: { provider: "meta_social", configured: metaAppConfigured, status: metaAppConfigured ? "oauth_ready" : "drafts_ready", detail: metaAppConfigured ? "App Meta configurada; falta autorizar cada dealer" : "Borradores listos; falta App Meta y autorización" },
+        billing: { provider: billingProvider, configured: Boolean(billingCheckoutUrl), status: billingCheckoutUrl ? "checkout_ready" : "local_demo", detail: billingCheckoutUrl ? "Checkout externo configurado" : "Modo demo; falta proveedor y webhook" },
+        domain: { configured: Boolean(customDomain), status: !customDomain ? "not_configured" : requestHost === customDomain ? "verified" : "dns_pending", detail: !customDomain ? "Asigna un dominio desde Configuración" : requestHost === customDomain ? "La petición llegó por el dominio personalizado" : `Apunta DNS hacia el hosting y prueba ${customDomain}`, domain: customDomain || null },
+      },
+      organization: { name: organization.rows[0]?.name || "", customDomain: customDomain || null },
+    } });
   } catch (error) { console.error("Integrations query failed", error); res.status(500).json({ error: "No se pudo cargar el centro de integraciones" }); }
 });
 
@@ -1849,8 +2520,8 @@ app.post("/api/admin/social/drafts", authenticate, requireRoles("admin", "editor
 
 app.get("/api/admin/billing", authenticate, requireRoles("admin"), async (req, res) => {
   try {
-    const result = await pool.query("SELECT provider, mode, plan_code AS \"planCode\", status, monthly_amount AS \"monthlyAmount\", currency, current_period_end AS \"currentPeriodEnd\", updated_at AS \"updatedAt\" FROM billing_subscriptions WHERE organization_id=$1", [adminOrganizationId(req)]);
-    res.json({ data: { ...(result.rows[0] || { provider: "local", mode: "local_demo", planCode: "starter", status: "trialing", monthlyAmount: 0, currency: "USD" }), checkoutReady: false, message: "Modo local: conecta Stripe o el proveedor elegido antes de cobrar." } });
+    const result = await pool.query("SELECT bs.provider, bs.mode, bs.plan_code AS \"planCode\", pp.name AS \"planName\", pp.vehicle_limit AS \"vehicleLimit\", bs.status, bs.monthly_amount AS \"monthlyAmount\", bs.currency, bs.current_period_end AS \"currentPeriodEnd\", bs.updated_at AS \"updatedAt\", (SELECT COUNT(*)::int FROM vehicles v WHERE v.organization_id=bs.organization_id AND v.status <> 'inactive') AS \"vehicleUsage\" FROM billing_subscriptions bs LEFT JOIN platform_plans pp ON pp.code=bs.plan_code WHERE bs.organization_id=$1", [adminOrganizationId(req)]);
+    res.json({ data: { ...(result.rows[0] || { provider: "local", mode: "local_demo", planCode: "starter", planName: "Starter", status: "trialing", monthlyAmount: 0, currency: "USD", vehicleLimit: 40, vehicleUsage: 0 }), checkoutReady: Boolean(billingCheckoutUrl), providerConfigured: Boolean(billingCheckoutUrl), provider: billingProvider, message: billingCheckoutUrl ? "Checkout externo configurado; falta validar el webhook." : "Modo local: conecta Stripe o el proveedor elegido antes de cobrar." } });
   } catch (error) { console.error("Billing query failed", error); res.status(500).json({ error: "No se pudo cargar la suscripción" }); }
 });
 
@@ -1893,7 +2564,7 @@ app.delete("/api/admin/blog/:id", authenticate, requireRoles("admin", "editor", 
 
 app.get("/api/admin/dashboard", authenticate, requireRoles("admin", "editor", "seller", "content_editor"), async (req, res) => {
   try {
-    const [summary, brands, statuses, recentOffers] = await Promise.all([
+    const [summary, brands, statuses, recentOffers, upcomingAppointments] = await Promise.all([
       pool.query(`
         SELECT
           COUNT(*)::int AS "totalVehicles",
@@ -1901,7 +2572,8 @@ app.get("/api/admin/dashboard", authenticate, requireRoles("admin", "editor", "s
           COALESCE(SUM(stock) FILTER (WHERE status = 'published'), 0)::int AS "availableStock",
           COALESCE(SUM(price_usd * stock) FILTER (WHERE status = 'published'), 0)::numeric AS "inventoryValue",
            (SELECT COUNT(*)::int FROM leads WHERE organization_id=$1 AND status IN ('new', 'contacted', 'qualified')) AS "pendingLeads",
-           (SELECT COUNT(*)::int FROM offers WHERE organization_id=$1 AND status = 'pending') AS "pendingOffers"
+           (SELECT COUNT(*)::int FROM offers WHERE organization_id=$1 AND status = 'pending') AS "pendingOffers",
+           (SELECT COUNT(*)::int FROM vehicles WHERE organization_id=$1 AND status = 'pending_review') AS "pendingReview"
         FROM vehicles WHERE organization_id=$1
       `, [adminOrganizationId(req)]),
       pool.query(`
@@ -1926,8 +2598,18 @@ app.get("/api/admin/dashboard", authenticate, requireRoles("admin", "editor", "s
         ORDER BY o.created_at DESC
         LIMIT 5
        `, [adminOrganizationId(req)]),
+      pool.query(`
+        SELECT t.id, t.customer_name AS "customerName", t.requested_date AS date, t.requested_time AS time, t.status,
+               b.name AS brand, v.model, v.year
+        FROM test_drive_requests t
+        JOIN vehicles v ON v.id=t.vehicle_id AND v.organization_id=$1
+        JOIN vehicle_brands b ON b.id=v.brand_id
+        WHERE t.organization_id=$1 AND t.status IN ('pending', 'confirmed') AND t.requested_date >= CURRENT_DATE
+        ORDER BY t.requested_date ASC, t.requested_time ASC
+        LIMIT 5
+      `, [adminOrganizationId(req)]),
     ]);
-    res.json({ data: { summary: summary.rows[0], byBrand: brands.rows, byStatus: statuses.rows, recentOffers: recentOffers.rows } });
+    res.json({ data: { summary: summary.rows[0], byBrand: brands.rows, byStatus: statuses.rows, recentOffers: recentOffers.rows, upcomingAppointments: upcomingAppointments.rows } });
   } catch (error) {
     console.error("Dashboard query failed", error);
     res.status(500).json({ error: "No se pudo cargar el dashboard" });
@@ -2183,17 +2865,44 @@ app.get("/sitemap.xml", async (req, res) => {
   } catch (error) { res.status(500).type("text/plain").send("sitemap unavailable"); }
 });
 
-app.get("/robots.txt", (_req, res) => {
-  const baseUrl = String(process.env.PUBLIC_SITE_URL || "http://localhost:5173").replace(/\/$/, "");
-  res.type("text/plain").send(`User-agent: *\nAllow: /\nDisallow: /preview\nSitemap: ${baseUrl}/sitemap.xml\n`);
+app.get("/robots.txt", async (req, res) => {
+  try {
+    const organization = await getOrganizationContext(req);
+    const baseUrl = publicOriginForOrganization(req, organization).replace(/\/$/, "");
+    res.type("text/plain").send(`User-agent: *\nAllow: /\nDisallow: /preview\nDisallow: /backoffice\nSitemap: ${baseUrl}/sitemap.xml\n`);
+  } catch {
+    res.status(503).type("text/plain").send("User-agent: *\nDisallow: /\n");
+  }
 });
 
 const frontendDist = path.resolve(serverDir, "../../dist");
 const frontendIndex = path.join(frontendDist, "index.html");
-app.get(["/", "/index.html"], (_req, res) => {
-  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-  res.sendFile(frontendIndex);
-});
+async function sendTenantIndex(req, res, next) {
+  try {
+    const organization = await getOrganizationContext(req);
+    const settings = await pool.query(
+      'SELECT business_name AS "businessName", logo_url AS "logoUrl" FROM organization_settings WHERE organization_id=$1',
+      [organization.id],
+    );
+    const businessName = String(settings.rows[0]?.businessName || organization.name || "AUTHENTIQ").trim().slice(0, 120) || "AUTHENTIQ";
+    const origin = publicOriginForOrganization(req, organization).replace(/\/$/, "");
+    const canonicalPath = req.path === "/index.html" ? "/" : req.path;
+    const canonical = `${origin}${canonicalPath}`;
+    const title = `${businessName} · Vehículos seleccionados`;
+    const description = `Inventario de vehículos, atención comercial y citas de ${businessName}.`;
+    const image = absolutePublicAsset(origin, settings.rows[0]?.logoUrl || organization.logoUrl);
+    const html = await fs.readFile(frontendIndex, "utf8");
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    res.type("html").send(html
+      .replaceAll("__AUTHENTIQ_TITLE__", escapeHtml(title))
+      .replaceAll("__AUTHENTIQ_DESCRIPTION__", escapeHtml(description))
+      .replaceAll("__AUTHENTIQ_IMAGE__", escapeHtml(image))
+      .replaceAll("__AUTHENTIQ_CANONICAL__", escapeHtml(canonical)));
+  } catch (error) {
+    next(error);
+  }
+}
+app.get(["/", "/index.html"], sendTenantIndex);
 app.use(express.static(frontendDist, {
   maxAge: "1h",
   setHeaders: (response, filePath) => {
@@ -2205,7 +2914,7 @@ app.use(express.static(frontendDist, {
 app.use("/api", (_req, res) => res.status(404).json({ error: "Recurso no encontrado" }));
 app.use((req, res, next) => {
   if (req.method !== "GET" || req.path.startsWith("/uploads/") || req.path.startsWith("/api")) return next();
-  res.sendFile(frontendIndex, (error) => { if (error && !res.headersSent) next(error); });
+  sendTenantIndex(req, res, next);
 });
 
 // Último recurso: cualquier error no controlado responde JSON consistente y sin filtrar detalles internos.
