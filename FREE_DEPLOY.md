@@ -17,6 +17,22 @@
 6. Usar `vehicle-media` como `SUPABASE_STORAGE_BUCKET`.
 7. Aplicar las migraciones SQL de `app/database` en orden antes del primer uso.
 
+### Modelos 3D existentes
+
+Las carpetas GLTF locales no se versionan en Git y Render no tiene disco persistente. Antes de presentar el catálogo en producción, ejecuta desde `app/server`:
+
+```bash
+npm run migrate:3d
+```
+
+Ese primer comando solo hace una simulación: lista las referencias y archivos que migraría, sin subir ni modificar datos. Después de revisar el listado, configura las variables de Supabase en esa máquina y ejecuta:
+
+```bash
+npm run migrate:3d -- --apply
+```
+
+El proceso sube el paquete completo —GLTF, BIN, texturas y dependencias— a `vehicle-media` y actualiza únicamente las filas `vehicle_media` que apuntan a `/uploads/packages/`. No elimina las carpetas locales ni modifica imágenes, videos u otros medios.
+
 Antes de iniciar en produccion, el servidor rechazara automaticamente un entorno si falta `JWT_SECRET`, si las URLs publicas apuntan a localhost, si Supabase Storage no esta configurado o si se exige protección anti-bot sin la clave secreta.
 
 ## Render

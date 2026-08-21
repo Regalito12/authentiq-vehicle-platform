@@ -22,7 +22,8 @@ const Backoffice = lazy(() => import("./admin/Backoffice.jsx"));
 // API puede resolver la organización por host también durante una demostración.
 const localApiOrigin = `${window.location.protocol}//${window.location.hostname}:3001`;
 const apiUrl = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? localApiOrigin : window.location.origin);
-const localDemoTenant = import.meta.env.DEV ? new URLSearchParams(window.location.search).get("dealer")?.trim().toLowerCase() : "";
+const requestedDealerSlug = new URLSearchParams(window.location.search).get("dealer")?.trim().toLowerCase() || "";
+const localDemoTenant = import.meta.env.DEV ? requestedDealerSlug : "";
 // Vista previa privada: un dealer logueado puede abrir "/?preview=1" (mismo origen,
 // misma sesión) y ver su propio showroom aunque todavía no tenga dominio propio o
 // esté pendiente de aprobación. El servidor resuelve la organización por el JWT, no
@@ -41,17 +42,25 @@ if (impersonatePayload) window.history.replaceState({}, "", window.location.path
 const nativeFetch = window.fetch.bind(window);
 function fetch(input, options = {}) {
   const headers = new Headers(options.headers || {});
+  let target = input;
   let mutated = false;
   if (/^[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?$/.test(localDemoTenant || "")) { headers.set("X-Authentiq-Tenant", localDemoTenant); mutated = true; }
   if (isPreviewMode && !headers.has("Authorization")) {
     const previewToken = localStorage.getItem("authentiq_admin_token") || "";
     if (previewToken) { headers.set("X-Preview-Mode", "1"); headers.set("Authorization", `Bearer ${previewToken}`); mutated = true; }
   }
-  return mutated ? nativeFetch(input, { ...options, headers }) : nativeFetch(input, options);
+  if (/^[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?$/.test(requestedDealerSlug) && typeof input === "string") {
+    try {
+      const url = new URL(input, window.location.href);
+      if (url.pathname.startsWith("/api/") && !url.searchParams.has("dealer")) { url.searchParams.set("dealer", requestedDealerSlug); target = url.href; }
+    } catch { /* El navegador resolverá el destino original si no es una URL válida. */ }
+  }
+  return mutated || target !== input ? nativeFetch(target, { ...options, headers }) : nativeFetch(input, options);
 }
 
 function publicMediaUrl(url) {
   if (!url) return url;
+  if (String(url).startsWith("/uploads/")) return `${apiUrl}${url}`;
   // Los datos locales heredados guardaban el host de desarrollo. En una URL
   // pública el navegador del cliente no debe intentar cargar archivos desde
   // su propio localhost: se resuelven contra la API configurada.
@@ -63,6 +72,10 @@ function trackEvent(eventName, payload = {}) { fetch(`${apiUrl}/api/events`, { m
 
 function formatPrice(value) {
   return `$${Number(value).toLocaleString("en-US")} USD`;
+}
+
+function formatFinancePrice(value) {
+  return `$${Number(value || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD`;
 }
 
 let publicBrandName = "AUTHENTIQ";
@@ -159,7 +172,17 @@ function findVehicleByPath(vehicles, pathname) {
 
 function ShareAction({ vehicle }) {
   const [shared, setShared] = useState(false);
-  const share = async (event) => { event.stopPropagation(); const url = `${window.location.origin}${vehiclePath(vehicle)}`; try { if (navigator.share) await navigator.share({ title: `${vehicle.brand} ${vehicle.model}`, text: `Mira este ${vehicle.brand} ${vehicle.model} en ${getBrandName()}`, url }); else { await navigator.clipboard.writeText(url); setShared(true); window.setTimeout(() => setShared(false), 1600); } trackEvent("vehicle_share", { vehicleId: vehicle.id }); } catch { setShared(false); } };
+  const share = async (event) => {
+    event.stopPropagation();
+    const url = `${window.location.origin}${vehiclePath(vehicle)}`;
+    try {
+      if (navigator.share) await navigator.share({ title: `${vehicle.brand} ${vehicle.model}`, text: `Mira este ${vehicle.brand} ${vehicle.model} en ${getBrandName()}`, url });
+      else await navigator.clipboard.writeText(url);
+      setShared(true);
+      window.setTimeout(() => setShared(false), 1800);
+      trackEvent("vehicle_share", { vehicleId: vehicle.id });
+    } catch { setShared(false); }
+  };
   return <button className="detail-utility-action" type="button" onClick={share}>{shared ? "Enlace copiado ✓" : "Compartir vehículo ↗"}</button>;
 }
 
@@ -167,7 +190,11 @@ function NotFoundPage({ onBack }) {
   return <main className="article-page not-found-page"><span className="eyebrow">{getBrandName()} · 404</span><h1>Esta ruta no lleva a ningún vehículo.</h1><p>Puede que el enlace haya cambiado o que la página ya no esté disponible. Regresa al catálogo para continuar explorando.</p><button className="primary-action" type="button" onClick={onBack}>Volver al catálogo →</button></main>;
 }
 
-function LandingPage({ onCreateShowroom, onDealerLogin, onViewDemo }) {
+function TenantNotFoundPage() {
+  return <main className="article-page not-found-page"><span className="eyebrow">AUTHENTIQ · SHOWROOM</span><h1>Este showroom no existe.</h1><p>El enlace del dealer no es válido o el showroom todavía no está disponible. Revisa la dirección o vuelve al inicio.</p><a className="primary-action" href="/">Volver al inicio →</a></main>;
+}
+
+function LandingPage({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPrivacy, onOpenTerms }) {
   const reduceMotion = useReducedMotion();
   const landingVideoUrl = String(import.meta.env.VITE_HERO_VIDEO_URL || "").trim();
   const landingVideoRef = useRef(null);
@@ -223,7 +250,7 @@ function LandingPage({ onCreateShowroom, onDealerLogin, onViewDemo }) {
           <div className="landing-showcase-visual">
             {landingVideoUrl ? <video autoPlay={!reduceMotion} muted loop playsInline preload="metadata" poster="/assets/authentiq-hero-v1.webp" aria-label="Presentación de un showroom de vehículos"><source src={landingVideoUrl} /></video> : <img src="/assets/authentiq-hero-v1.webp" alt="Vehículo premium dentro de un showroom digital" />}
             <div className="landing-showcase-glow" />
-            <div className="landing-showcase-model"><span className="eyebrow">EXPERIENCIA 03D</span><strong>Gira. Compara.<br />Decide.</strong><small>Modelo interactivo · ficha · cita</small></div>
+            <div className="landing-showcase-model"><span className="eyebrow">EXPERIENCIA 3D</span><strong>Gira. Compara.<br />Decide.</strong><small>Modelo interactivo · ficha · cita</small></div>
             <div className="landing-showcase-cursor" aria-hidden="true">↗</div>
           </div>
           <div className="landing-showcase-footer"><span><b>03</b> modelos activos</span><span><b>360°</b> experiencia visual</span><span><b>1:1</b> atención privada</span></div>
@@ -243,6 +270,11 @@ function LandingPage({ onCreateShowroom, onDealerLogin, onViewDemo }) {
         <p>Crea tu cuenta en minutos. Tu showroom queda listo para personalizar de inmediato.</p>
         <button className="primary-action" type="button" onClick={onCreateShowroom}>Crear mi showroom →</button>
       </section>
+      <footer className="landing-footer">
+        <div><span className="brand-mark">AUTHENTIQ<span>°</span></span><p>Showrooms digitales para dealers que quieren vender mejor.</p></div>
+        <nav aria-label="Enlaces legales"><button type="button" onClick={onOpenPrivacy}>Privacidad</button><button type="button" onClick={onOpenTerms}>Términos</button><a href="mailto:hola@authentiq.app">Contacto</a></nav>
+        <small>© {new Date().getFullYear()} AUTHENTIQ · Plataforma para dealers</small>
+      </footer>
     </main>
   );
 }
@@ -270,7 +302,7 @@ function FinanceCalculator({ price, vehicle, onApplyFinancing }) {
           <div className="calc-field">
             <div className="calc-field-head">
               <span>Pago Inicial ({downPercent}%)</span>
-              <strong>{formatPrice(downPayment)}</strong>
+              <strong>{formatFinancePrice(downPayment)}</strong>
             </div>
             <input
               type="range"
@@ -323,22 +355,22 @@ function FinanceCalculator({ price, vehicle, onApplyFinancing }) {
       <div className="financing-result-box">
         <div className="financing-monthly-highlight">
           <span>Cuota mensual estimada</span>
-          <div className="financing-monthly-amount">{formatPrice(payment)}</div>
+          <div className="financing-monthly-amount">{formatFinancePrice(payment)}</div>
           <small style={{ color: "var(--auth-muted)", fontSize: "11px" }}>{months} pagos mensuales fijos</small>
         </div>
 
         <div className="financing-breakdown">
           <div className="financing-breakdown-row">
             <span>Monto a financiar:</span>
-            <strong>{formatPrice(principal)}</strong>
+            <strong>{formatFinancePrice(principal)}</strong>
           </div>
           <div className="financing-breakdown-row">
             <span>Interés total estimado:</span>
-            <strong>{formatPrice(totalInterest)}</strong>
+            <strong>{formatFinancePrice(totalInterest)}</strong>
           </div>
           <div className="financing-breakdown-row">
             <span>Costo total estimado:</span>
-            <strong>{formatPrice(downPayment + (payment * months))}</strong>
+            <strong>{formatFinancePrice(downPayment + (payment * months))}</strong>
           </div>
         </div>
 
@@ -498,7 +530,7 @@ function PublicQuotePage({ token }) {
   if (state === "loading") return <main className="public-quote-page"><p className="state-message">Preparando tu cotización…</p></main>;
   if (state === "error" || !quote) return <main className="public-quote-page"><section className="public-quote-error"><span className="eyebrow">AUTHENTIQ · PROPUESTA</span><h1>Este enlace ya no está disponible.</h1><p>La cotización pudo vencer, cancelarse o el enlace pudo expirar.</p></section></main>;
   const accepted = quote.status === "accepted" || (decisionState === "success" && decision === "accepted");
-  return <main className="public-quote-page"><article className="public-quote-card"><header><span className="brand-mark">AUTHENTIQ°</span><span className="eyebrow">PROPUESTA COMERCIAL · {quote.quoteNumber}</span></header>{quote.imageUrl && <img className="public-quote-image" src={publicMediaUrl(quote.imageUrl)} alt={`${quote.brand || "Vehículo"} ${quote.model || ""}`} /> }<div className="public-quote-heading"><span className="eyebrow">PREPARADA PARA {quote.customerName}</span><h1>{quote.brand ? `${quote.brand} ${quote.model}` : "Tu vehículo seleccionado"}</h1><p>{quote.year ? `${quote.year} · ` : ""}{quote.variant || "Propuesta AUTHENTIQ"}</p></div><div className="public-quote-price"><span>Total propuesto</span><strong>{formatPrice(quote.totalUsd)}</strong><small>Válida hasta {dateLabel(quote.validUntil)}</small></div><div className="public-quote-specs"><span>Precio base <b>{formatPrice(quote.basePriceUsd)}</b></span><span>Descuento <b>{Number(quote.discountUsd) ? `-${formatPrice(quote.discountUsd)}` : "Sin descuento"}</b></span><span>Condición <b>{accepted ? "Aceptada" : "Enviada"}</b></span></div>{quote.notes && <p className="public-quote-notes">{quote.notes}</p>}{accepted ? <section className="public-quote-feedback success" aria-live="polite"><strong>✓ Cotización aceptada</strong><p>Gracias. Nuestro equipo continuará contigo para coordinar los próximos pasos.</p></section> : decisionState === "success" && decision === "changes" ? <section className="public-quote-feedback success" aria-live="polite"><strong>✓ Solicitud recibida</strong><p>Registramos tus cambios. Un asesor se pondrá en contacto contigo.</p></section> : <section className="public-quote-decisions" aria-label="Decidir sobre la cotización"><div><span className="eyebrow">SIGUIENTE PASO</span><h2>¿Cómo quieres continuar?</h2><p>Acepta la propuesta o indícanos qué te gustaría ajustar.</p></div><div className="public-quote-decision-actions"><button className="primary-action" type="button" onClick={() => submitDecision("accepted")} disabled={decisionState === "sending"}>✓ Aceptar cotización</button><button className="secondary-action" type="button" onClick={() => setDecisionState("writing")} disabled={decisionState === "sending"}>Solicitar cambios</button></div>{decisionState === "writing" && <div className="public-quote-change-form"><label htmlFor="quote-change-message">¿Qué te gustaría ajustar? <span>Opcional</span></label><textarea id="quote-change-message" value={decisionMessage} maxLength={500} onChange={(event) => setDecisionMessage(event.target.value)} placeholder="Ej. Me gustaría revisar el descuento o la forma de pago." /><div><small>{decisionMessage.length}/500</small><button className="primary-action" type="button" onClick={() => submitDecision("changes")} disabled={decisionState === "sending"}>{decisionState === "sending" ? "Enviando…" : "Enviar solicitud"}</button></div></div>}{decisionError && <p className="public-quote-decision-error" role="alert">{decisionError}</p>}</section>}<footer><span>Informativa y sujeta a disponibilidad, inspección y aprobación comercial.</span><button className="primary-action" type="button" onClick={() => window.print()}>Imprimir / guardar PDF</button></footer></article></main>;
+  return <main className="public-quote-page"><article className="public-quote-card"><header><span className="brand-mark">AUTHENTIQ°</span><span className="eyebrow">PROPUESTA COMERCIAL · {quote.quoteNumber}</span></header>{quote.imageUrl && <img className="public-quote-image" src={publicMediaUrl(quote.imageUrl)} alt={`${quote.brand || "Vehículo"} ${quote.model || ""}`} /> }<div className="public-quote-heading"><span className="eyebrow">PREPARADA PARA {quote.customerName}</span><h1>{quote.brand ? `${quote.brand} ${quote.model}` : "Tu vehículo seleccionado"}</h1><p>{quote.year ? `${quote.year} · ` : ""}{quote.variant || "Propuesta AUTHENTIQ"}</p></div><div className="public-quote-price"><span>Total propuesto</span><strong>{formatPrice(quote.totalUsd)}</strong>{quote.validUntil && <small>Válida hasta {dateLabel(quote.validUntil)}</small>}</div><div className="public-quote-specs"><span>Precio base <b>{formatPrice(quote.basePriceUsd)}</b></span><span>Descuento <b>{Number(quote.discountUsd) ? `-${formatPrice(quote.discountUsd)}` : "Sin descuento"}</b></span><span>Condición <b>{accepted ? "Aceptada" : "Enviada"}</b></span></div>{quote.notes && <p className="public-quote-notes">{quote.notes}</p>}{accepted ? <section className="public-quote-feedback success" aria-live="polite"><strong>✓ Cotización aceptada</strong><p>Gracias. Nuestro equipo continuará contigo para coordinar los próximos pasos.</p></section> : decisionState === "success" && decision === "changes" ? <section className="public-quote-feedback success" aria-live="polite"><strong>✓ Solicitud recibida</strong><p>Registramos tus cambios. Un asesor se pondrá en contacto contigo.</p></section> : <section className="public-quote-decisions" aria-label="Decidir sobre la cotización"><div><span className="eyebrow">SIGUIENTE PASO</span><h2>¿Cómo quieres continuar?</h2><p>Acepta la propuesta o indícanos qué te gustaría ajustar.</p></div><div className="public-quote-decision-actions"><button className="primary-action" type="button" onClick={() => submitDecision("accepted")} disabled={decisionState === "sending"}>✓ Aceptar cotización</button><button className="secondary-action" type="button" onClick={() => setDecisionState("writing")} disabled={decisionState === "sending"}>Solicitar cambios</button></div>{decisionState === "writing" && <div className="public-quote-change-form"><label htmlFor="quote-change-message">¿Qué te gustaría ajustar? <span>Opcional</span></label><textarea id="quote-change-message" value={decisionMessage} maxLength={500} onChange={(event) => setDecisionMessage(event.target.value)} placeholder="Ej. Me gustaría revisar el descuento o la forma de pago." /><div><small>{decisionMessage.length}/500</small><button className="primary-action" type="button" onClick={() => submitDecision("changes")} disabled={decisionState === "sending"}>{decisionState === "sending" ? "Enviando…" : "Enviar solicitud"}</button></div></div>}{decisionError && <p className="public-quote-decision-error" role="alert">{decisionError}</p>}</section>}<footer><span>Informativa y sujeta a disponibilidad, inspección y aprobación comercial.</span><button className="primary-action" type="button" onClick={() => window.print()}>Imprimir / guardar PDF</button></footer></article></main>;
 }
 
 function Vehicle3DViewer({ vehicle, media }) {
@@ -692,7 +724,7 @@ function VehicleVideo({ vehicle, media }) {
   useEffect(() => { setFailed(false); }, [video?.url]);
   // Un video roto no debe dejar un reproductor vacío en la ficha: la sección desaparece.
   if (!video || failed) return null;
-  return <section className="vehicle-video-showcase" aria-label={`Video de ${vehicle.brand} ${vehicle.model}`}><div className="vehicle-studio-heading"><div><span className="eyebrow">AUTHENTIQ / MOTION FILM</span><h2>Verlo en movimiento.</h2></div><span className="vehicle-3d-status">VIDEO OFICIAL</span></div><div className="vehicle-video-frame"><video controls playsInline preload="metadata" poster={video.posterUrl || vehicle.images?.[0]?.url} aria-label={`Video de ${vehicle.brand} ${vehicle.model}`} onError={() => setFailed(true)}><source src={video.url} onError={() => setFailed(true)} /></video></div></section>;
+  return <section className="vehicle-video-showcase" aria-label={`Video de ${vehicle.brand} ${vehicle.model}`}><div className="vehicle-studio-heading"><div><span className="eyebrow">AUTHENTIQ / MOTION FILM</span><h2>Verlo en movimiento.</h2></div><span className="vehicle-3d-status">VIDEO OFICIAL</span></div><div className="vehicle-video-frame"><video controls playsInline preload="metadata" poster={publicMediaUrl(video.posterUrl || vehicle.images?.[0]?.url)} aria-label={`Video de ${vehicle.brand} ${vehicle.model}`} onError={() => setFailed(true)}><source src={publicMediaUrl(video.url)} onError={() => setFailed(true)} /></video></div></section>;
 }
 
 // Visor panorámico equirectangular. El backoffice ya permitía subir una "Vista 360"
@@ -830,7 +862,7 @@ function VehicleStudio({ vehicle, images }) {
   const dragStart = useRef(0);
   const tiltFrame = useRef(0);
   const pendingTilt = useRef({ x: 0, y: 0 });
-  const image = images[activeFrame]?.url || images[0]?.url;
+  const image = publicMediaUrl(images[activeFrame]?.url || images[0]?.url);
   const frameCount = images.length;
   const changeFrame = (direction) => setActiveFrame((current) => (current + direction + frameCount) % frameCount);
   const handleMove = (event) => {
@@ -862,7 +894,7 @@ function VehicleStudio({ vehicle, images }) {
       </motion.div>
       <span className="vehicle-studio-hint">{frameCount > 1 ? "Arrastra para explorar" : "Mueve el cursor para explorar"}</span>
     </div>
-    <div className="vehicle-studio-controls"><button className="icon-action" type="button" onClick={() => changeFrame(-1)} aria-label="Vista anterior">←</button><div className="vehicle-studio-frames">{images.map((item, index) => <button key={item.id || item.url} className={index === activeFrame ? "vehicle-studio-frame active" : "vehicle-studio-frame"} type="button" onClick={() => setActiveFrame(index)} aria-label={`Vista ${index + 1}`}><img src={item.url} alt="" /></button>)}</div><button className="icon-action" type="button" onClick={() => changeFrame(1)} aria-label="Vista siguiente">→</button></div>
+    <div className="vehicle-studio-controls"><button className="icon-action" type="button" onClick={() => changeFrame(-1)} aria-label="Vista anterior">←</button><div className="vehicle-studio-frames">{images.map((item, index) => <button key={item.id || item.url} className={index === activeFrame ? "vehicle-studio-frame active" : "vehicle-studio-frame"} type="button" onClick={() => setActiveFrame(index)} aria-label={`Vista ${index + 1}`}><img src={publicMediaUrl(item.url)} alt="" /></button>)}</div><button className="icon-action" type="button" onClick={() => changeFrame(1)} aria-label="Vista siguiente">→</button></div>
     </section>
   </>;
 }
@@ -886,7 +918,7 @@ function BrandLogo({ brand, logoUrl = "", size = "normal" }) {
 }
 
 function VehicleCard({ vehicle, onOpen, onToggleCompare, isCompared, isFavorite, onToggleFavorite, onQuickAction, imageLoading = "lazy" }) {
-  const image = vehicle.images?.[0]?.url || "/assets/hero-highway.webp";
+  const image = publicMediaUrl(vehicle.images?.[0]?.url) || "/assets/hero-highway.webp";
   // La vista de ficha se registra al cambiar de ruta (cubre también los enlaces directos),
   // así que aquí no se emite un segundo vehicle_view para no duplicar la métrica.
   const open = () => onOpen(vehicle);
@@ -925,7 +957,7 @@ function VehicleCard({ vehicle, onOpen, onToggleCompare, isCompared, isFavorite,
         <strong>{formatPrice(vehicle.priceUsd)}</strong>
         <span className="vehicle-card-cta">Abrir ficha <span>↗</span></span>
       </button>
-      {onQuickAction && <div className="vehicle-card-quick-actions"><button type="button" onClick={() => onQuickAction(vehicle, "appointment")}>Agendar cita</button><button type="button" onClick={() => onQuickAction(vehicle, "quote")}>Cotización</button><a href={`https://wa.me/?text=${encodeURIComponent(`Mira este ${vehicle.brand} ${vehicle.model} en AUTHENTIQ: ${window.location.origin}${vehiclePath(vehicle)}`)}`} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()}>WhatsApp</a></div>}
+      {onQuickAction && <div className="vehicle-card-quick-actions"><button type="button" onClick={(event) => { event.stopPropagation(); onQuickAction(vehicle, "appointment"); }}>Agendar cita</button><button type="button" onClick={(event) => { event.stopPropagation(); onQuickAction(vehicle, "quote"); }}>Cotización</button><a href={`https://wa.me/?text=${encodeURIComponent(`Mira este ${vehicle.brand} ${vehicle.model} en AUTHENTIQ: ${window.location.origin}${vehiclePath(vehicle)}`)}`} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()}>WhatsApp</a></div>}
     </motion.article>
   );
 }
@@ -944,7 +976,9 @@ function LeadForm({ vehicle, onClose, customerToken = "" }) {
   const [status, setStatus] = useState({ loading: false, error: "", success: false });
   const change = (field, value) => setForm((current) => ({ ...current, [field]: value }));
   const submit = async (event) => {
-    event.preventDefault(); setStatus({ loading: true, error: "", success: false });
+    event.preventDefault();
+    if (form.buyerEmail.trim() && !/^\S+@\S+\.\S+$/.test(form.buyerEmail.trim())) { setStatus({ loading: false, error: "Revisa el correo electrónico: falta un formato válido (ej. nombre@correo.com).", success: false }); return; }
+    setStatus({ loading: true, error: "", success: false });
     const body = { vehicleId: vehicle.id, ...form, amountUsd: Number(form.amountUsd), turnstileToken };
     try {
       const response = await fetch(`${apiUrl}/api/offers`, { method: "POST", headers: { "Content-Type": "application/json", ...(customerToken ? { Authorization: `Bearer ${customerToken}` } : {}) }, body: JSON.stringify(body) });
@@ -954,7 +988,7 @@ function LeadForm({ vehicle, onClose, customerToken = "" }) {
       setStatus({ loading: false, error: "", success: true });
     } catch (error) { setStatus({ loading: false, error: error.message, success: false }); }
   };
-  return <motion.div className="lead-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}><motion.section className="lead-modal" role="dialog" aria-modal="true" aria-labelledby="lead-title" initial={{ y: 14, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ duration: .2, ease: "easeOut" }}><button className="modal-close" type="button" onClick={onClose} aria-label="Cerrar">×</button>{status.success ? <div className="lead-success"><span className="eyebrow">OFERTA RECIBIDA</span><h2>Tu oferta está en revisión.</h2><p>El equipo de {getBrandName()} revisará los datos y se pondrá en contacto contigo.</p><button className="primary-action" type="button" onClick={onClose}>Cerrar</button></div> : <><span className="eyebrow">CONTACTO COMERCIAL</span><h2 id="lead-title">Hacer una oferta.</h2><p className="modal-vehicle">{vehicle.brand} {vehicle.model} · {formatPrice(vehicle.priceUsd)}</p><form className="lead-form" onSubmit={submit}><label>Nombre<input value={form.buyerName} onChange={(event) => change("buyerName", event.target.value)} required /></label><div className="lead-form-grid"><label>Correo<input type="email" value={form.buyerEmail} onChange={(event) => change("buyerEmail", event.target.value)} /></label><label>Teléfono<input value={form.buyerPhone} onChange={(event) => change("buyerPhone", event.target.value)} /></label></div><label>Monto de oferta USD<input type="number" min="1" step="0.01" value={form.amountUsd} onChange={(event) => change("amountUsd", event.target.value)} required /></label><label>Mensaje<textarea value={form.message} onChange={(event) => change("message", event.target.value)} placeholder="Cuéntanos algo sobre tu propuesta..." /></label><TurnstileField onTokenChange={setTurnstileToken} /><label className="consent-check"><input type="checkbox" checked={form.privacyConsent} onChange={(event) => change("privacyConsent", event.target.checked)} required /><span>Acepto la política de privacidad y autorizo el uso de mis datos para esta solicitud.</span></label>{status.error && <p className="state-message error">{status.error}</p>}<button className="primary-action" type="submit" disabled={status.loading}>{status.loading ? "Enviando…" : "Enviar oferta"}</button></form></>}</motion.section></motion.div>;
+  return <motion.div className="lead-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}><motion.section className="lead-modal" role="dialog" aria-modal="true" aria-labelledby="lead-title" initial={{ y: 14, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ duration: .2, ease: "easeOut" }}><button className="modal-close" type="button" onClick={onClose} aria-label="Cerrar">×</button>{status.success ? <div className="lead-success"><span className="eyebrow">OFERTA RECIBIDA</span><h2>Tu oferta está en revisión.</h2><p>El equipo de {getBrandName()} revisará los datos y se pondrá en contacto contigo.</p><button className="primary-action" type="button" onClick={onClose}>Cerrar</button></div> : <><span className="eyebrow">CONTACTO COMERCIAL</span><h2 id="lead-title">Hacer una oferta.</h2><p className="modal-vehicle">{vehicle.brand} {vehicle.model} · {formatPrice(vehicle.priceUsd)}</p><form className="lead-form" onSubmit={submit}><label>Nombre<input value={form.buyerName} onChange={(event) => change("buyerName", event.target.value)} required /></label><div className="lead-form-grid"><label>Correo<input type="text" inputMode="email" autoComplete="email" value={form.buyerEmail} onChange={(event) => change("buyerEmail", event.target.value)} /></label><label>Teléfono<input value={form.buyerPhone} onChange={(event) => change("buyerPhone", event.target.value)} /></label></div><label>Monto de oferta USD<input type="number" min="1" step="0.01" value={form.amountUsd} onChange={(event) => change("amountUsd", event.target.value)} required /></label><label>Mensaje<textarea value={form.message} onChange={(event) => change("message", event.target.value)} placeholder="Cuéntanos algo sobre tu propuesta..." /></label><TurnstileField onTokenChange={setTurnstileToken} /><label className="consent-check"><input type="checkbox" checked={form.privacyConsent} onChange={(event) => change("privacyConsent", event.target.checked)} required /><span>Acepto la política de privacidad y autorizo el uso de mis datos para esta solicitud.</span></label>{status.error && <p className="state-message error">{status.error}</p>}<button className="primary-action" type="submit" disabled={status.loading}>{status.loading ? "Enviando…" : "Enviar oferta"}</button></form></>}</motion.section></motion.div>;
 }
 
 function TestDriveModal({ vehicle, onClose }) {
@@ -1081,7 +1115,7 @@ function BlogArticle({ slug, onBack }) {
   }, [post, status]);
   if (status === "loading") return <main className="article-page"><button className="back-button" onClick={onBack}>← Volver al catálogo</button><p className="state-message">Cargando artículo…</p></main>;
   if (status === "error" || !post) return <main className="article-page"><button className="back-button" onClick={onBack}>← Volver al catálogo</button><section className="article-empty"><span className="eyebrow">AUTHENTIQ · JOURNAL</span><h1>Este artículo ya no está disponible.</h1><p>Puede haber sido archivado o la dirección puede haber cambiado.</p></section></main>;
-  return <main className="article-page"><button className="back-button" onClick={onBack}>← Volver al catálogo</button><article className="article-body"><header><span className="eyebrow">{post.publishedAt ? new Date(post.publishedAt).toLocaleDateString("es-DO", { day: "2-digit", month: "long", year: "numeric" }) : "AUTHENTIQ · JOURNAL"}</span><h1>{post.title}</h1>{post.summary && <p className="article-summary">{post.summary}</p>}</header>{post.coverImageUrl && <img className="article-cover" src={post.coverImageUrl} alt={post.title} /> }<div className="article-content">{post.content.split(/\r?\n/).map((paragraph, index) => paragraph.trim() ? <p key={`${post.id}-${index}`}>{paragraph}</p> : <br key={`${post.id}-space-${index}`} />)}</div></article></main>;
+  return <main className="article-page"><button className="back-button" onClick={onBack}>← Volver al catálogo</button><article className="article-body"><header><span className="eyebrow">{post.publishedAt ? new Date(post.publishedAt).toLocaleDateString("es-DO", { day: "2-digit", month: "long", year: "numeric" }) : "AUTHENTIQ · JOURNAL"}</span><h1>{post.title}</h1>{post.summary && <p className="article-summary">{post.summary}</p>}</header>{post.coverImageUrl && <img className="article-cover" src={publicMediaUrl(post.coverImageUrl)} alt={post.title} /> }<div className="article-content">{post.content.split(/\r?\n/).map((paragraph, index) => paragraph.trim() ? <p key={`${post.id}-${index}`}>{paragraph}</p> : <br key={`${post.id}-space-${index}`} />)}</div></article></main>;
 }
 
 function DetailTrustStrip() {
@@ -1094,11 +1128,11 @@ function similarityScore(source, candidate) {
   const candidatePrice = Number(candidate.priceUsd) || 0;
   const priceDistance = sourcePrice ? Math.abs(candidatePrice - sourcePrice) / sourcePrice : 1;
   const yearDistance = Math.abs(Number(source.year || 0) - Number(candidate.year || 0));
-  return (source.category && source.category === candidate.category ? 5 : 0)
+  return (source.category && source.category === candidate.category ? 8 : 0)
     + (source.brand && source.brand === candidate.brand ? 3 : 0)
     + (source.fuelType && source.fuelType === candidate.fuelType ? 1 : 0)
     + (source.transmission && source.transmission === candidate.transmission ? 1 : 0)
-    + (priceDistance <= 0.15 ? 4 : priceDistance <= 0.25 ? 2 : 0)
+    + (priceDistance <= 0.15 ? 3 : priceDistance <= 0.25 ? 1 : 0)
     + (yearDistance <= 2 ? 1 : 0);
 }
 
@@ -1156,8 +1190,9 @@ function VehicleDetail({ vehicle, vehicles = [], onBack, isFavorite = false, onT
   const [appliedFinancing, setAppliedFinancing] = useState(null);
   const [quickVehicle, setQuickVehicle] = useState(null);
   const images = vehicle.images?.length ? vehicle.images : [{ url: "/assets/hero-highway.webp" }];
-  const image = images[activeImage]?.url || images[0].url;
-  const structuredData = JSON.stringify({ "@context": "https://schema.org", "@type": "Vehicle", name: `${vehicle.brand} ${vehicle.model}`, model: vehicle.model, vehicleConfiguration: vehicle.variant || undefined, fuelType: vehicle.fuelType || undefined, color: vehicle.exteriorColor || undefined, brand: { "@type": "Brand", name: vehicle.brand }, vehicleModelDate: String(vehicle.year), image: images.map((item) => new URL(item.url, window.location.origin).href), mileageFromOdometer: { "@type": "QuantitativeValue", value: Number(vehicle.mileageKm), unitCode: "KMT" }, offers: { "@type": "Offer", priceCurrency: "USD", price: Number(vehicle.priceUsd), availability: vehicle.status === "published" ? "https://schema.org/InStock" : "https://schema.org/LimitedAvailability" } }).replace(/</g, "\\u003c");
+  const image = publicMediaUrl(images[activeImage]?.url || images[0].url);
+  const imageAlt = images[activeImage]?.altText || images[0]?.altText || `${vehicle.brand} ${vehicle.model}`;
+  const structuredData = JSON.stringify({ "@context": "https://schema.org", "@type": "Vehicle", name: `${vehicle.brand} ${vehicle.model}`, model: vehicle.model, vehicleConfiguration: vehicle.variant || undefined, fuelType: vehicle.fuelType || undefined, color: vehicle.exteriorColor || undefined, brand: { "@type": "Brand", name: vehicle.brand }, vehicleModelDate: String(vehicle.year), image: images.map((item) => new URL(publicMediaUrl(item.url), window.location.origin).href), mileageFromOdometer: { "@type": "QuantitativeValue", value: Number(vehicle.mileageKm), unitCode: "KMT" }, offers: { "@type": "Offer", priceCurrency: "USD", price: Number(vehicle.priceUsd), availability: vehicle.status === "published" ? "https://schema.org/InStock" : "https://schema.org/LimitedAvailability" } }).replace(/</g, "\\u003c");
   useEffect(() => {
     const model = vehicle.media?.find((item) => item.type === "model_3d");
     if (model?.posterUrl) ensurePreload(publicMediaUrl(model.posterUrl), "image");
@@ -1187,8 +1222,8 @@ function VehicleDetail({ vehicle, vehicles = [], onBack, isFavorite = false, onT
             <AnimatePresence mode="wait" initial={false}>
               <motion.img
                 key={image}
-                src={image}
-                alt={`${vehicle.brand} ${vehicle.model}`}
+                src={publicMediaUrl(image)}
+                alt={imageAlt}
                 className="detail-image"
                 loading="eager"
                 fetchPriority="high"
@@ -1211,7 +1246,7 @@ function VehicleDetail({ vehicle, vehicles = [], onBack, isFavorite = false, onT
                 aria-label={`Ver imagen ${index + 1} de ${vehicle.brand} ${vehicle.model}`}
                 aria-pressed={index === activeImage}
               >
-                <img src={item.url} alt="" />
+                <img src={publicMediaUrl(item.url)} alt="" />
                 </button>
               ))}
             </div>
@@ -1249,8 +1284,10 @@ function VehicleDetail({ vehicle, vehicles = [], onBack, isFavorite = false, onT
               setQuoteOpen(true);
             }}
           />
-          <button className="detail-utility-action test-drive-link" type="button" onClick={() => { setQuickVehicle(null); setLeadType("test-drive"); }}>Agenda tu cita →</button>
-          <button className="detail-utility-action studio-jump" type="button" onClick={() => document.getElementById(vehicle.media?.some((item) => item.type === "model_3d") ? "vehicle-3d-viewer" : "vehicle-studio")?.scrollIntoView({ behavior: "smooth", block: "start" })}>{vehicle.media?.some((item) => item.type === "model_3d") ? "Explorar modelo 3D ↓" : "Explorar Studio ↓"}</button>
+          <div className="detail-experience-actions">
+            <button className="detail-utility-action test-drive-link" type="button" onClick={() => { setQuickVehicle(null); setLeadType("test-drive"); }}>Agenda tu cita →</button>
+            <button className="detail-utility-action studio-jump" type="button" onClick={() => document.getElementById(vehicle.media?.some((item) => item.type === "model_3d") ? "vehicle-3d-viewer" : "vehicle-studio")?.scrollIntoView({ behavior: "smooth", block: "start" })}>{vehicle.media?.some((item) => item.type === "model_3d") ? "Explorar modelo 3D ↓" : "Explorar Studio ↓"}</button>
+          </div>
           <div className="detail-actions">
             <button className="primary-action" type="button" onClick={() => { setQuickVehicle(null); setLeadType("offer"); }} disabled={vehicle.status === "reserved"}>{vehicle.status === "reserved" ? "Vehículo reservado" : "Hacer una oferta"}</button>
             <button className="secondary-action" type="button" onClick={() => { setQuickVehicle(null); setQuoteOpen(true); }}>Generar cotización PDF</button>
@@ -1527,11 +1564,16 @@ function App() {
   const [minYear, setMinYear] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [tenantNotFound, setTenantNotFound] = useState(false);
   const [screen, setScreen] = useState(() => impersonatePayload ? "admin" : "catalog");
   const [showDemoCatalog, setShowDemoCatalog] = useState(false);
   const [adminInitialMode, setAdminInitialMode] = useState("login");
   const [posts, setPosts] = useState([]);
   const [businessSettings, setBusinessSettings] = useState({ businessName: "AUTHENTIQ", logoUrl: "", primaryColor: "#c8a24b", accentColor: "#b28b37", faviconUrl: "", phone: "", whatsapp: "", email: "", address: "", hours: "", instagramUrl: "", facebookUrl: "", privacyText: "", termsText: "", heroHeadline: "", heroSubheadline: "", heroImageUrl: "" });
+  // Evita el destello de contenido incorrecto en "/": hasta que /api/settings confirme si
+  // este host es la landing de la plataforma o el showroom de un dealer, no hay forma de
+  // saber qué renderizar. Sin esta bandera se veía brevemente el catálogo por defecto.
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [theme, setTheme] = useState(() => localStorage.getItem("authentiq_theme") || "light");
   publicBrandName = businessSettings.businessName || "AUTHENTIQ";
   useEffect(() => {
@@ -1613,7 +1655,7 @@ function App() {
   }, []);
 
   const navigate = (path) => {
-    const demoSearch = import.meta.env.DEV && localDemoTenant ? `?dealer=${encodeURIComponent(localDemoTenant)}` : "";
+    const demoSearch = requestedDealerSlug ? `?dealer=${encodeURIComponent(requestedDealerSlug)}` : "";
     window.history.pushState({}, "", `${path}${demoSearch}`);
     setPathname(path);
     setSelected(null);
@@ -1623,6 +1665,7 @@ function App() {
   const refreshVehicles = async () => {
     try {
       const response = await fetch(`${apiUrl}/api/vehicles`, { cache: "no-store" });
+      if (response.status === 404 && requestedDealerSlug) { setTenantNotFound(true); setError(""); return; }
       if (!response.ok) throw new Error("No se pudo cargar el catálogo");
       const payload = await response.json();
       setVehicles(payload.data || []);
@@ -1637,7 +1680,7 @@ function App() {
     return () => window.removeEventListener("focus", handleFocus);
   }, []);
   useEffect(() => { fetch(`${apiUrl}/api/blog`).then((response) => response.ok ? response.json() : { data: [] }).then((payload) => setPosts(payload.data || [])).catch(() => setPosts([])); }, []);
-  useEffect(() => { fetch(`${apiUrl}/api/settings`).then((response) => response.ok ? response.json() : { data: null }).then((payload) => payload.data && setBusinessSettings((current) => ({ ...current, ...payload.data }))).catch(() => {}); }, []);
+  useEffect(() => { fetch(`${apiUrl}/api/settings`).then((response) => { if (response.status === 404 && requestedDealerSlug) { setTenantNotFound(true); return { data: null }; } return response.ok ? response.json() : { data: null }; }).then((payload) => payload.data && setBusinessSettings((current) => ({ ...current, ...payload.data }))).catch(() => {}).finally(() => setSettingsLoaded(true)); }, []);
   const routeVehicle = useMemo(() => findVehicleByPath(vehicles, pathname), [pathname, vehicles]);
   const activeVehicle = selected || routeVehicle;
   useEffect(() => {
@@ -1762,7 +1805,8 @@ function App() {
   };
 
   if (screen === "admin") return <Suspense fallback={<main className="admin-page"><p className="state-message">Cargando backoffice…</p></main>}><Backoffice initialMode={adminInitialMode} impersonation={impersonatePayload} onBack={() => { setScreen("catalog"); setAdminInitialMode("login"); refreshVehicles(); }} onVehiclesChanged={syncCatalogVehicle} /></Suspense>;
-  if (pathname === "/presentacion") return <PresentationMode vehicles={vehicles} loading={loading} businessName={businessSettings.businessName} logoUrl={businessSettings.logoUrl} onExit={() => navigate("/")} onOpenVehicle={(vehicle) => navigate(vehiclePath(vehicle))} />;
+  if (tenantNotFound) return <TenantNotFoundPage />;
+  if (pathname === "/presentacion") return <PresentationMode vehicles={vehicles} loading={loading} businessName={businessSettings.businessName} logoUrl={businessSettings.logoUrl} onExit={() => { if (requestedDealerSlug) navigate(`/?dealer=${encodeURIComponent(requestedDealerSlug)}`); else { setShowDemoCatalog(true); navigate("/"); } }} onOpenVehicle={(vehicle) => navigate(vehiclePath(vehicle))} />;
   if (pathname.startsWith("/cotizaciones/") && pathname.slice("/cotizaciones/".length)) return <PublicQuotePage token={pathname.slice("/cotizaciones/".length)} />;
   if (pathname === "/preview") return previewVehicle ? <VehicleDetail vehicle={{ ...previewVehicle, status: "draft" }} onBack={() => navigate("/")} /> : <main className="article-page"><button className="back-button" onClick={() => navigate("/")}>← Volver al catálogo</button><section className="article-empty"><span className="eyebrow">AUTHENTIQ · PREVIEW</span><h1>No hay una ficha para previsualizar.</h1><p>Regresa al backoffice, completa el formulario y vuelve a abrir la vista previa.</p></section></main>;
   if (pathname.startsWith("/blog/")) return <BlogArticle slug={pathname.slice("/blog/".length)} onBack={() => navigate("/")} />;
@@ -1772,7 +1816,8 @@ function App() {
   if (!knownPath) return <NotFoundPage onBack={() => navigate("/")} />;
   if (["contact", "location", "privacy", "terms"].includes(screen)) return <InstitutionalPage type={screen} settings={businessSettings} onBack={() => setScreen("catalog")} />;
   if (activeVehicle) return <VehicleDetail vehicle={activeVehicle} vehicles={vehicles} onBack={() => navigate("/")} isFavorite={favoriteIds.includes(activeVehicle.id)} onToggleFavorite={toggleFavorite} customerToken={customerToken} compareVehicles={compareVehicles} favoriteIds={favoriteIds} onOpenVehicle={(vehicle) => navigate(vehiclePath(vehicle))} onToggleCompare={toggleCompare} />;
-  if (pathname === "/" && businessSettings.isPlatformHome && !showDemoCatalog) return <LandingPage onCreateShowroom={() => { setAdminInitialMode("register"); setScreen("admin"); }} onDealerLogin={() => { setAdminInitialMode("login"); setScreen("admin"); }} onViewDemo={() => setShowDemoCatalog(true)} />;
+  if (pathname === "/" && !settingsLoaded && !showDemoCatalog && !requestedDealerSlug) return <main className="app-boot-shell" aria-hidden="true" />;
+  if (pathname === "/" && businessSettings.isPlatformHome && !showDemoCatalog && !requestedDealerSlug) return <LandingPage onCreateShowroom={() => { setAdminInitialMode("register"); setScreen("admin"); }} onDealerLogin={() => { setAdminInitialMode("login"); setScreen("admin"); }} onViewDemo={() => setShowDemoCatalog(true)} onOpenPrivacy={() => setScreen("privacy")} onOpenTerms={() => setScreen("terms")} />;
 
   const heroVideoUrl = String(import.meta.env.VITE_HERO_VIDEO_URL || "").trim();
   return (
@@ -1785,7 +1830,7 @@ function App() {
           <span className="eyebrow">{getBrandName()} / CURATED MOTION</span>
           {businessSettings.heroHeadline ? <h1>{businessSettings.heroHeadline}</h1> : <h1>Elige lo que <em>te mueve.</em></h1>}
           <p>{businessSettings.heroSubheadline || "Vehículos con carácter, información clara y una atención diseñada alrededor de tu próxima historia."}</p>
-          <div className="hero-actions"><a href="#catalog" className="hero-link primary-action hero-primary-action">Explorar inventario ↓</a><a href={`/presentacion${import.meta.env.DEV && localDemoTenant ? `?dealer=${encodeURIComponent(localDemoTenant)}` : ""}`} className="hero-link hero-secondary-action">Ver presentación →</a></div>
+          <div className="hero-actions"><a href="#catalog" className="hero-link primary-action hero-primary-action">Explorar inventario ↓</a><a href={`/presentacion${requestedDealerSlug ? `?dealer=${encodeURIComponent(requestedDealerSlug)}` : ""}`} className="hero-link hero-secondary-action">Ver presentación →</a></div>
         </div>
         <div className="hero-proof" aria-label={`Pilares de ${getBrandName()}`}><span><strong><AnimatedMetric value={1} suffix="" /></strong> selección con criterio</span><span><strong><AnimatedMetric value={100} suffix="%" /></strong> inventario verificado</span><span><strong><AnimatedMetric value={1} suffix=":1" /></strong> atención privada</span></div>
         <a className="hero-scroll-cue" href="#catalog" aria-label="Bajar al catálogo"><span /> SCROLL</a>

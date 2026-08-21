@@ -13,6 +13,7 @@
     "test:roles": "node scripts/role-matrix-test.js",
     "test:tenants": "node scripts/tenant-isolation-test.js",
     "test:e2e": "node scripts/e2e-test.js",
+    "migrate:3d": "node scripts/migrate-local-3d-to-supabase.mjs",
     "check:components": "node scripts/check-components.js",
     "test:browser": "node scripts/browser-check.js",
     "verify": "node scripts/check-components.js && node scripts/preflight.js && node scripts/smoke-test.js && node scripts/role-matrix-test.js && node scripts/e2e-test.js",

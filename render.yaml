@@ -46,6 +46,8 @@ services:
         sync: false
       - key: VITE_TURNSTILE_SITE_KEY
         sync: false
+      - key: VITE_HERO_VIDEO_URL
+        sync: false
       - key: GOOGLE_CALENDAR_REQUIRED
         value: "true"
       - key: GOOGLE_CALENDAR_CLIENT_ID

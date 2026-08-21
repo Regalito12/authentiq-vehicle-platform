@@ -605,19 +605,29 @@ async function getOrganizationContext(req) {
   }
   const hostname = requestHostname(req);
   // Los dominios reales se resuelven por host. El header solo existe para la
-  // demostración local en localhost; nunca habilita elegir un tenant remoto.
+  // demostración local en localhost. En el dominio central sí permitimos el
+  // selector público ?dealer=slug, pero únicamente contra dealers activos y
+  // aprobados; un dominio propio nunca puede cambiar de tenant por querystring.
   const localHost = ["localhost", "127.0.0.1", "::1"].includes(hostname);
   const requestedLocalTenant = String(req.headers["x-authentiq-tenant"] || "").trim().toLowerCase();
   const localTenantSlug = localHost && /^[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?$/.test(requestedLocalTenant) ? requestedLocalTenant : null;
   const localSlug = localTenantSlug || (/\.(?:localhost|test)$/.test(hostname) ? hostname.split(".")[0] : null);
+  let configuredPublicHostname = "";
+  try { configuredPublicHostname = new URL(publicSiteUrl).hostname.toLowerCase(); } catch { configuredPublicHostname = ""; }
+  const canSelectPublicDealer = Boolean(localHost || (configuredPublicHostname && hostname === configuredPublicHostname));
+  const requestedPublicTenant = canSelectPublicDealer && /^[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?$/.test(String(req.query?.dealer || "").trim().toLowerCase())
+    ? String(req.query.dealer).trim().toLowerCase()
+    : null;
+  const resolvedSlug = localSlug || requestedPublicTenant;
+  const allowUnapprovedSlug = Boolean(localSlug || (requestedPublicTenant && requestedPublicTenant === DEFAULT_ORGANIZATION_SLUG));
   const result = await pool.query(
     `SELECT id, slug, name, logo_url AS "logoUrl", custom_domain AS "customDomain", is_active AS "isActive"
      FROM organizations
-     WHERE is_active = TRUE
-       AND ((LOWER(custom_domain) = $1 AND approval_status = 'approved') OR slug = COALESCE($2, $3))
-     ORDER BY CASE WHEN LOWER(custom_domain) = $1 THEN 0 ELSE 1 END
-     LIMIT 1`,
-    [hostname, localSlug, DEFAULT_ORGANIZATION_SLUG],
+      WHERE is_active = TRUE
+        AND ((LOWER(custom_domain) = $1 AND approval_status = 'approved') OR (slug = COALESCE($2, $3) AND (approval_status = 'approved' OR $4::boolean)))
+      ORDER BY CASE WHEN LOWER(custom_domain) = $1 THEN 0 ELSE 1 END
+      LIMIT 1`,
+    [hostname, resolvedSlug, DEFAULT_ORGANIZATION_SLUG, allowUnapprovedSlug],
   );
   if (!result.rowCount) {
     const error = new Error("Organización no encontrada");
@@ -626,6 +636,14 @@ async function getOrganizationContext(req) {
   }
   req.organizationContext = result.rows[0];
   return req.organizationContext;
+}
+
+function isOrganizationNotFound(error) {
+  return error?.code === "ORGANIZATION_NOT_FOUND";
+}
+
+function sendOrganizationNotFound(res) {
+  return res.status(404).json({ error: "Dealer no encontrado", code: "ORGANIZATION_NOT_FOUND" });
 }
 
 function adminOrganizationId(req) {
@@ -1208,6 +1226,7 @@ app.post("/api/auth/login", async (req, res) => {
     setSessionCookie(res, ADMIN_SESSION_COOKIE, token, admin.mustChangePassword ? 900 : 28800);
     res.json({ token, user: { id: admin.id, name: admin.full_name, email: admin.email, role: admin.role, organizationId: admin.organizationId, mustChangePassword: admin.mustChangePassword } });
   } catch (error) {
+    if (isOrganizationNotFound(error)) return sendOrganizationNotFound(res);
     console.error("Admin login failed", error);
     res.status(503).json({ error: "El servicio no está disponible en este momento. Intenta nuevamente." });
   }
@@ -1296,9 +1315,9 @@ app.post("/api/auth/register-dealer", verifyPublicForm, async (req, res) => {
     const token = jwt.sign({ id: admin.id, email: admin.email, role: "admin", name: admin.name, organizationId, mustChangePassword: false }, jwtSecret, { expiresIn: "8h" });
     setSessionCookie(res, ADMIN_SESSION_COOKIE, token, 28800);
 
-    // "?dealer=" solo resuelve en localhost (demo local); en producción la única forma
-    // de ver el showroom antes de tener dominio propio es la vista previa privada
-    // autenticada (getOrganizationContext honra X-Preview-Mode con este mismo token).
+    // El showroom recién registrado sigue siendo privado hasta aprobación. La vista
+    // previa usa el JWT; el enlace público por ?dealer= solo se habilita para dealers
+    // activos/aprobados desde el dominio central.
     const baseUrl = String(process.env.PUBLIC_SITE_URL || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
     const dealerUrl = `${baseUrl}/?preview=1`;
 
@@ -1426,7 +1445,7 @@ app.patch("/api/customer/notifications/read", authenticateCustomer, async (req, 
 
 app.get("/api/vehicles", async (req, res) => {
   try { const organization = await getOrganizationContext(req); res.json({ data: await listVehicles(false, organization.id) }); }
-  catch (error) { console.error("Vehicle listing failed", error); res.status(500).json({ error: "No se pudo cargar el catálogo" }); }
+  catch (error) { if (isOrganizationNotFound(error)) return sendOrganizationNotFound(res); console.error("Vehicle listing failed", error); res.status(500).json({ error: "No se pudo cargar el catálogo" }); }
 });
 
 app.get("/api/settings", async (req, res) => {
@@ -1435,7 +1454,7 @@ app.get("/api/settings", async (req, res) => {
     const result = await pool.query('SELECT business_name AS "businessName", logo_url AS "logoUrl", primary_color AS "primaryColor", accent_color AS "accentColor", favicon_url AS "faviconUrl", phone, whatsapp, email, address, hours, instagram_url AS "instagramUrl", facebook_url AS "facebookUrl", currency, privacy_text AS "privacyText", terms_text AS "termsText", custom_css AS "customCss", hero_headline AS "heroHeadline", hero_subheadline AS "heroSubheadline", hero_image_url AS "heroImageUrl", show_financing AS "showFinancing", show_brand_rail AS "showBrandRail", show_model_line_rail AS "showModelLineRail", show_blog AS "showBlog" FROM organization_settings WHERE organization_id=$1', [organization.id]);
     const isPlatformHome = organization.slug === DEFAULT_ORGANIZATION_SLUG;
     res.json({ data: result.rows[0] ? { ...result.rows[0], isPlatformHome } : { isPlatformHome }, privacyPolicyVersion });
-  } catch (error) { console.error("Public settings query failed", error); res.status(500).json({ error: "No se pudo cargar la informacion del negocio" }); }
+  } catch (error) { if (isOrganizationNotFound(error)) return sendOrganizationNotFound(res); console.error("Public settings query failed", error); res.status(500).json({ error: "No se pudo cargar la informacion del negocio" }); }
 });
 
 app.get("/api/blog", async (req, res) => {
@@ -1443,7 +1462,7 @@ app.get("/api/blog", async (req, res) => {
     const organization = await getOrganizationContext(req);
     const result = await pool.query(`SELECT id, title, slug, summary, category, tags, cover_image_url AS "coverImageUrl", published_at AS "publishedAt", seo_title AS "seoTitle", seo_description AS "seoDescription" FROM blog_posts WHERE organization_id=$1 AND status='published' ORDER BY published_at DESC NULLS LAST, created_at DESC`, [organization.id]);
     res.json({ data: result.rows });
-  } catch (error) { console.error("Blog listing failed", error); res.status(500).json({ error: "No se pudo cargar el blog" }); }
+  } catch (error) { if (isOrganizationNotFound(error)) return sendOrganizationNotFound(res); console.error("Blog listing failed", error); res.status(500).json({ error: "No se pudo cargar el blog" }); }
 });
 
 app.get("/api/blog/:slug", async (req, res) => {
@@ -1452,7 +1471,7 @@ app.get("/api/blog/:slug", async (req, res) => {
     const result = await pool.query(`SELECT id, title, slug, summary, content, category, tags, cover_image_url AS "coverImageUrl", published_at AS "publishedAt", seo_title AS "seoTitle", seo_description AS "seoDescription" FROM blog_posts WHERE organization_id=$1 AND slug=$2 AND status='published'`, [organization.id, req.params.slug]);
     if (!result.rowCount) return res.status(404).json({ error: "Artículo no encontrado" });
     res.json({ data: result.rows[0] });
-  } catch (error) { console.error("Blog article failed", error); res.status(500).json({ error: "No se pudo cargar el artículo" }); }
+  } catch (error) { if (isOrganizationNotFound(error)) return sendOrganizationNotFound(res); console.error("Blog article failed", error); res.status(500).json({ error: "No se pudo cargar el artículo" }); }
 });
 
 app.post("/api/offers", verifyPublicForm, async (req, res) => {
@@ -1513,6 +1532,7 @@ app.get("/api/appointments/availability", async (req, res) => {
     const organization = await getOrganizationContext(req);
     res.json({ data: await appointmentAvailability(date, organization.id) });
   } catch (error) {
+    if (isOrganizationNotFound(error)) return sendOrganizationNotFound(res);
     console.error("Appointment availability failed", error);
     res.status(500).json({ error: "No se pudo consultar la disponibilidad" });
   }
@@ -1572,6 +1592,7 @@ app.post("/api/appointments", rateLimit({ windowMs: 10 * 60 * 1000, limit: 15, s
     });
     res.status(201).json({ data: { ...appointment, leadId: lead.id } });
   } catch (error) {
+    if (isOrganizationNotFound(error)) return sendOrganizationNotFound(res);
     console.error("Appointment creation failed", error);
     res.status(500).json({ error: "No se pudo registrar la cita" });
   }
@@ -1603,6 +1624,7 @@ app.post("/api/leads", verifyPublicForm, async (req, res) => {
     });
     res.status(201).json({ data: lead });
   } catch (error) {
+    if (isOrganizationNotFound(error)) return sendOrganizationNotFound(res);
     console.error("Lead creation failed", error);
     res.status(500).json({ error: "No se pudo registrar el contacto" });
   }
@@ -2122,8 +2144,14 @@ app.post("/api/auth/logout", (_req, res) => { clearSessionCookie(res, ADMIN_SESS
 app.post("/api/customer/auth/logout", (_req, res) => { clearSessionCookie(res, CUSTOMER_SESSION_COOKIE); res.status(204).end(); });
 
 app.get("/api/admin/users", authenticate, requireRoles("admin", "editor", "seller"), async (req, res) => {
+  // seller solo necesita nombres para asignar leads/citas, no el directorio completo
+  // (correo, rol) del resto del equipo.
+  const canSeeDirectory = ["admin", "editor"].includes(req.admin.role);
   try {
-     const result = await pool.query("SELECT id, full_name AS \"name\", email, role FROM admin_users WHERE organization_id=$1 AND is_active=TRUE ORDER BY full_name", [adminOrganizationId(req)]);
+     const result = await pool.query(
+       `SELECT id, full_name AS "name"${canSeeDirectory ? ', email, role' : ''} FROM admin_users WHERE organization_id=$1 AND is_active=TRUE ORDER BY full_name`,
+       [adminOrganizationId(req)],
+     );
     res.json({ data: result.rows });
   } catch (error) { console.error("Admin users query failed", error); res.status(500).json({ error: "No se pudieron cargar los usuarios" }); }
 });
@@ -2181,6 +2209,22 @@ app.patch("/api/admin/users/:id", authenticate, requireRoles("admin"), async (re
     await writeAudit(req, "user.update", "admin_user", req.params.id, { role, isActive });
     res.json({ data: result.rows[0] });
   } catch (error) { console.error("Admin user update failed", error); res.status(500).json({ error: "No se pudo actualizar el usuario" }); }
+});
+
+app.delete("/api/admin/users/:id", authenticate, requireRoles("admin"), async (req, res) => {
+  if (req.params.id === req.admin.id) return res.status(400).json({ error: "No puedes eliminar tu propia cuenta" });
+  try {
+    const result = await pool.query('DELETE FROM admin_users WHERE id=$1 AND organization_id=$2 RETURNING id, email', [req.params.id, adminOrganizationId(req)]);
+    if (!result.rowCount) return res.status(404).json({ error: "Usuario no encontrado" });
+    await writeAudit(req, "user.delete", "admin_user", req.params.id, { email: result.rows[0].email });
+    res.status(204).end();
+  } catch (error) {
+    // FK sin ON DELETE CASCADE/SET NULL (p. ej. vehículos que este usuario revisó): no se puede
+    // borrar sin perder ese historial. Desactivar sigue siendo la opción segura en ese caso.
+    if (error.code === "23503") return res.status(409).json({ error: "Este usuario tiene actividad registrada (revisiones, etc.) y no se puede eliminar. Desactívalo en su lugar." });
+    console.error("Admin user delete failed", error);
+    res.status(500).json({ error: "No se pudo eliminar el usuario" });
+  }
 });
 
 app.get("/api/admin/settings", authenticate, requireRoles("admin", "editor", "content_editor"), async (req, res) => {
@@ -2303,8 +2347,30 @@ app.get("/api/admin/onboarding", authenticate, requireRoles("admin"), async (req
 });
 
 function platformSetupProgress(row) {
-  const steps = [Boolean(row.name && row.slug), Boolean(row.logoUrl), Boolean(row.phone || row.whatsapp || row.email), Number(row.publishedVehicles) > 0, Boolean(row.appointmentStart && row.appointmentEnd && row.appointmentDays?.length), Boolean(row.instagramUrl || row.facebookUrl), Boolean(row.privacyText && row.termsText), Boolean(row.customDomain)];
+  const steps = [
+    Boolean(row.name && row.slug),
+    Boolean(row.logoUrl),
+    Boolean(row.phone || row.whatsapp || row.email),
+    Number(row.publishedVehicles) > 0,
+    Boolean(row.appointmentStart && row.appointmentEnd && row.appointmentDays?.length),
+    Boolean(row.instagramUrl || row.facebookUrl),
+    Boolean(row.privacyText && row.termsText && !/borrador|pendiente de revisión/i.test(`${row.privacyText} ${row.termsText}`)),
+    Boolean(row.customDomain),
+  ];
   return Math.round((steps.filter(Boolean).length / steps.length) * 100);
+}
+
+function dealerApprovalCheck(row) {
+  const blockers = [];
+  const recommendations = [];
+  if (!row.logoUrl) blockers.push("logo del concesionario");
+  if (!(row.phone || row.whatsapp || row.email)) blockers.push("canal de contacto");
+  if (Number(row.publishedVehicles) <= 0) blockers.push("al menos un vehículo publicado");
+  if (!(row.appointmentStart && row.appointmentEnd && row.appointmentDays?.length)) blockers.push("horarios de citas");
+  if (!(row.privacyText && row.termsText && !/borrador|pendiente de revisión/i.test(`${row.privacyText} ${row.termsText}`))) blockers.push("políticas de privacidad y términos");
+  if (!(row.instagramUrl || row.facebookUrl)) recommendations.push("conectar Instagram o Facebook");
+  if (!row.customDomain) recommendations.push("configurar el dominio personalizado");
+  return { blockers, recommendations, ready: blockers.length === 0 };
 }
 
 app.get("/api/platform/overview", authenticate, requireRoles("platform_admin"), async (_req, res) => {
@@ -2327,7 +2393,10 @@ app.get("/api/platform/overview", authenticate, requireRoles("platform_admin"), 
         ORDER BY o.created_at DESC
       `),
     ]);
-    const items = organizations.rows.map((row) => ({ ...row, setupProgress: platformSetupProgress(row) }));
+    const items = organizations.rows.map((row) => {
+      const approval = dealerApprovalCheck(row);
+      return { ...row, setupProgress: platformSetupProgress(row), approvalReady: approval.ready, approvalBlockers: approval.blockers, approvalRecommendations: approval.recommendations };
+    });
     const active = items.filter((item) => item.isActive);
     const pending = items.filter((item) => item.approvalStatus === "pending");
     res.json({ data: { plans: plans.rows, organizations: items, pendingApproval: pending, summary: { total: items.length, active: active.length, paused: items.length - active.length, pendingApproval: pending.length, monthlyRecurring: active.reduce((total, item) => total + Number(item.monthlyAmount || 0), 0), attention: items.filter((item) => item.setupProgress < 75 || ["past_due", "cancelled"].includes(item.subscriptionStatus)).length } } });
@@ -2383,6 +2452,21 @@ app.patch("/api/platform/organizations/:id/approval", authenticate, requireRoles
   const decision = String(req.body?.decision || "").trim();
   if (!["approved", "rejected"].includes(decision)) return res.status(400).json({ error: "Decisión inválida" });
   try {
+    if (decision === "approved") {
+      const organization = await pool.query(`
+        SELECT o.id, o.name, o.slug, o.logo_url AS "logoUrl",
+               os.phone, os.whatsapp, os.email, os.privacy_text AS "privacyText", os.terms_text AS "termsText",
+               os.appointment_start AS "appointmentStart", os.appointment_end AS "appointmentEnd", os.appointment_days AS "appointmentDays",
+               os.instagram_url AS "instagramUrl", os.facebook_url AS "facebookUrl",
+               (SELECT COUNT(*)::int FROM vehicles v WHERE v.organization_id=o.id AND v.status IN ('published','reserved')) AS "publishedVehicles"
+        FROM organizations o
+        LEFT JOIN organization_settings os ON os.organization_id=o.id
+        WHERE o.id=$1
+      `, [req.params.id]);
+      if (!organization.rowCount) return res.status(404).json({ error: "Dealer no encontrado" });
+      const approval = dealerApprovalCheck(organization.rows[0]);
+      if (!approval.ready) return res.status(409).json({ error: "Completa el onboarding antes de aprobar este dealer", code: "DEALER_SETUP_INCOMPLETE", blockers: approval.blockers, recommendations: approval.recommendations });
+    }
     const result = await pool.query("UPDATE organizations SET approval_status=$1, updated_at=NOW() WHERE id=$2 RETURNING id, slug, name, approval_status AS \"approvalStatus\"", [decision, req.params.id]);
     if (!result.rowCount) return res.status(404).json({ error: "Dealer no encontrado" });
     await writeAudit(req, "platform.organization.approval", "organization", req.params.id, { decision });
@@ -2697,7 +2781,7 @@ app.get("/api/admin/dashboard", authenticate, requireRoles("admin", "editor", "s
           COUNT(*)::int AS "totalVehicles",
           COUNT(*) FILTER (WHERE status = 'published')::int AS "publishedVehicles",
           COALESCE(SUM(stock) FILTER (WHERE status = 'published'), 0)::int AS "availableStock",
-          COALESCE(SUM(price_usd * stock) FILTER (WHERE status = 'published'), 0)::numeric AS "inventoryValue",
+          COALESCE(SUM(price_usd) FILTER (WHERE status = 'published'), 0)::numeric AS "inventoryValue",
            (SELECT COUNT(*)::int FROM leads WHERE organization_id=$1 AND status IN ('new', 'contacted', 'qualified')) AS "pendingLeads",
            (SELECT COUNT(*)::int FROM offers WHERE organization_id=$1 AND status = 'pending') AS "pendingOffers",
            (SELECT COUNT(*)::int FROM vehicles WHERE organization_id=$1 AND status = 'pending_review') AS "pendingReview"
@@ -2989,7 +3073,7 @@ app.get("/sitemap.xml", async (req, res) => {
     ];
     const escapeXml = (value) => String(value).replace(/[<>&'"]/g, (char) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", "'": "&apos;", '"': "&quot;" })[char]);
     res.type("application/xml").send(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls.map(({ loc, lastmod }) => `<url><loc>${escapeXml(baseUrl + loc)}</loc>${lastmod ? `<lastmod>${new Date(lastmod).toISOString().slice(0, 10)}</lastmod>` : ""}</url>`).join("")}</urlset>`);
-  } catch (error) { res.status(500).type("text/plain").send("sitemap unavailable"); }
+  } catch (error) { if (isOrganizationNotFound(error)) return res.status(404).type("text/plain").send("sitemap unavailable"); res.status(500).type("text/plain").send("sitemap unavailable"); }
 });
 
 app.get("/robots.txt", async (req, res) => {
@@ -3004,6 +3088,51 @@ app.get("/robots.txt", async (req, res) => {
 
 const frontendDist = path.resolve(serverDir, "../../dist");
 const frontendIndex = path.join(frontendDist, "index.html");
+function metadataDescription(value, fallback) {
+  const normalized = String(value || "").replace(/\s+/g, " ").trim();
+  return (normalized || fallback).slice(0, 180);
+}
+
+function publicNotFoundHtml({ businessName = "AUTHENTIQ", origin = "", title = "Página no encontrada", message = "Revisa el enlace o vuelve al showroom para continuar." } = {}) {
+  const home = origin ? `${origin}/` : "/";
+  return `<!doctype html><html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>${escapeHtml(title)} · ${escapeHtml(businessName)}</title><meta name="robots" content="noindex, nofollow"><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#101212;color:#f2efe9;font-family:Arial,sans-serif}main{width:min(560px,calc(100% - 40px));padding:40px;border:1px solid #c8a24b;background:#171a1a}small{letter-spacing:.12em;color:#c8a24b}p{color:#b8bdb8;line-height:1.6}a{display:inline-block;margin-top:18px;padding:13px 18px;background:#c8a24b;color:#101212;text-decoration:none;font-weight:700}</style></head><body><main><small>${escapeHtml(businessName)} · SHOWROOM</small><h1>${escapeHtml(title)}</h1><p>${escapeHtml(message)}</p><a href="${escapeHtml(home)}">Volver al showroom</a></main></body></html>`;
+}
+
+async function publicRouteMetadata(req, organization, { businessName, origin, defaultImage }) {
+  const match = req.path.match(/^\/(vehiculos|blog)\/([^/]+)\/?$/i);
+  const base = { title: `${businessName} · Vehículos seleccionados`, description: `Inventario de vehículos, atención comercial y citas de ${businessName}.`, image: defaultImage, ogType: "website", robots: "index, follow" };
+  if (!match) return base;
+  let slug;
+  try { slug = decodeURIComponent(match[2]); } catch { return { ...base, notFound: true }; }
+  if (!slug) return { ...base, notFound: true };
+
+  if (match[1].toLowerCase() === "vehiculos") {
+    const result = await pool.query(`${vehicleSelect} WHERE v.organization_id=$1 AND v.status IN ('published','reserved') GROUP BY v.id, b.name, b.logo_url, c.name ORDER BY v.created_at DESC LIMIT ${CATALOG_SAFETY_LIMIT}`, [organization.id]);
+    const vehicle = result.rows.find((candidate) => vehicleSlug(candidate) === slug);
+    if (!vehicle) return { ...base, notFound: true, notFoundTitle: "Vehículo no encontrado", notFoundMessage: "Este vehículo ya no está disponible en el showroom o el enlace está incompleto." };
+    const vehicleName = [vehicle.brand, vehicle.model, vehicle.variant].filter(Boolean).join(" ");
+    const firstImage = vehicle.images?.find((image) => image?.url)?.url || vehicle.media?.find((media) => media?.posterUrl)?.posterUrl || defaultImage;
+    return {
+      title: `${vehicleName}${vehicle.year ? ` ${vehicle.year}` : ""} · ${businessName}`,
+      description: metadataDescription(vehicle.seoDescription || vehicle.description, `${vehicleName} disponible en ${businessName}. Consulta precio, especificaciones y agenda una visita.`),
+      image: absolutePublicAsset(origin, firstImage),
+      ogType: "product",
+      robots: "index, follow",
+    };
+  }
+
+  const result = await pool.query('SELECT title, summary, cover_image_url AS "coverImageUrl", seo_title AS "seoTitle", seo_description AS "seoDescription" FROM blog_posts WHERE organization_id=$1 AND slug=$2 AND status=\'published\'', [organization.id, slug]);
+  if (!result.rowCount) return { ...base, notFound: true, notFoundTitle: "Artículo no encontrado", notFoundMessage: "Este artículo ya no está publicado o el enlace está incompleto." };
+  const post = result.rows[0];
+  return {
+    title: metadataDescription(post.seoTitle || post.title, `${businessName} · Noticias`),
+    description: metadataDescription(post.seoDescription || post.summary, `Noticias y novedades de ${businessName}.`),
+    image: absolutePublicAsset(origin, post.coverImageUrl || defaultImage),
+    ogType: "article",
+    robots: "index, follow",
+  };
+}
+
 async function sendTenantIndex(req, res, next) {
   try {
     const organization = await getOrganizationContext(req);
@@ -3015,17 +3144,27 @@ async function sendTenantIndex(req, res, next) {
     const origin = publicOriginForOrganization(req, organization).replace(/\/$/, "");
     const canonicalPath = req.path === "/index.html" ? "/" : req.path;
     const canonical = `${origin}${canonicalPath}`;
-    const title = `${businessName} · Vehículos seleccionados`;
-    const description = `Inventario de vehículos, atención comercial y citas de ${businessName}.`;
-    const image = absolutePublicAsset(origin, settings.rows[0]?.logoUrl || organization.logoUrl);
+    const defaultImage = absolutePublicAsset(origin, settings.rows[0]?.logoUrl || organization.logoUrl);
+    const metadata = await publicRouteMetadata(req, organization, { businessName, origin, defaultImage });
+    if (metadata.notFound) {
+      res.status(404).type("html").send(publicNotFoundHtml({ businessName, origin, title: metadata.notFoundTitle || "Página no encontrada", message: metadata.notFoundMessage }));
+      return;
+    }
     const html = await fs.readFile(frontendIndex, "utf8");
     res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
     res.type("html").send(html
-      .replaceAll("__AUTHENTIQ_TITLE__", escapeHtml(title))
-      .replaceAll("__AUTHENTIQ_DESCRIPTION__", escapeHtml(description))
-      .replaceAll("__AUTHENTIQ_IMAGE__", escapeHtml(image))
-      .replaceAll("__AUTHENTIQ_CANONICAL__", escapeHtml(canonical)));
+      .replaceAll("__AUTHENTIQ_TITLE__", escapeHtml(metadata.title))
+      .replaceAll("__AUTHENTIQ_DESCRIPTION__", escapeHtml(metadata.description))
+      .replaceAll("__AUTHENTIQ_IMAGE__", escapeHtml(metadata.image))
+      .replaceAll("__AUTHENTIQ_CANONICAL__", escapeHtml(canonical))
+      .replaceAll("__AUTHENTIQ_ROBOTS__", escapeHtml(metadata.robots))
+      .replaceAll("__AUTHENTIQ_OG_TYPE__", escapeHtml(metadata.ogType))
+      .replaceAll("__AUTHENTIQ_SITE_NAME__", escapeHtml(businessName)));
   } catch (error) {
+    if (isOrganizationNotFound(error)) {
+      res.status(404).type("html").send(publicNotFoundHtml({ title: "Showroom no encontrado", message: "Revisa el enlace o vuelve al espacio principal para explorar los dealers disponibles." }));
+      return;
+    }
     next(error);
   }
 }

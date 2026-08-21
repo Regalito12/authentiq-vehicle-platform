@@ -1,4 +1,5 @@
 import "dotenv/config";
+import pg from "pg";
 
 const baseUrl = String(process.env.API_BASE_URL || `http://127.0.0.1:${process.env.PORT || 3001}`).replace(/\/$/, "");
 const required = ["DATABASE_URL"];
@@ -62,6 +63,19 @@ try {
   }
   console.log(`PREFLIGHT PASS · API ${baseUrl}`);
   console.log(`database=${payload.database} storage=${payload.storage} publicApiConfigured=${payload.publicApiConfigured}`);
+  if (process.env.NODE_ENV === "production") {
+    const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+    try {
+      const result = await pool.query("SELECT COUNT(*)::int AS count FROM vehicle_media WHERE media_type='model_3d' AND is_active=TRUE AND url ~* 'https?://(localhost|127\\.0\\.0\\.1)(:[0-9]+)?/'");
+      if (Number(result.rows[0]?.count || 0) > 0) {
+        console.error(`PREFLIGHT FAIL · hay ${result.rows[0].count} referencias 3D apuntando a localhost. Ejecuta npm run migrate:3d -- --apply con Storage configurado antes de publicar.`);
+        process.exit(1);
+      }
+      console.log("3dReferences=production-safe");
+    } finally {
+      await pool.end();
+    }
+  }
 } catch (error) {
   console.error(`PREFLIGHT FAIL · no se pudo consultar ${baseUrl}: ${error.message}`);
   process.exit(1);
