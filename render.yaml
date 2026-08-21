@@ -38,6 +38,11 @@ services:
         sync: false
       - key: SUPABASE_STORAGE_BUCKET
         value: vehicle-media
+      # Opcional: activa el subdominio automático por dealer (automotor.tudominio.com).
+      # Déjala vacía/sin agregar hasta comprar el dominio, apuntar el DNS comodín (*)
+      # a este servicio, y agregar ese dominio comodín en Render → Custom Domains.
+      - key: PLATFORM_BASE_DOMAIN
+        sync: false
       - key: PRIVACY_POLICY_VERSION
         value: 2026-08-09
       - key: BOT_PROTECTION_REQUIRED

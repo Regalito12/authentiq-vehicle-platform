@@ -27,6 +27,13 @@ const uploadsDir = path.resolve(serverDir, process.env.UPLOADS_DIR || "../upload
 const publicApiUrl = String(process.env.PUBLIC_API_URL || "").replace(/\/+$/, "");
 const publicSiteUrl = String(process.env.PUBLIC_SITE_URL || "").replace(/\/+$/, "");
 const frontendOrigin = String(process.env.FRONTEND_ORIGIN || "").trim();
+// Dominio base blanco-etiqueta: cada dealer recibe automáticamente <slug>.<PLATFORM_BASE_DOMAIN>
+// sin comprar ni configurar nada. Requiere un registro DNS comodín (*.dominio) apuntando a este
+// servicio y el dominio comodín agregado en Render — eso es manual, fuera de este código.
+const platformBaseDomain = String(process.env.PLATFORM_BASE_DOMAIN || "").trim().toLowerCase().replace(/^\.+/, "");
+function subdomainForSlug(slug) {
+  return platformBaseDomain ? `${slug}.${platformBaseDomain}` : null;
+}
 const supabaseUrl = String(process.env.SUPABASE_URL || "").replace(/\/+$/, "");
 const supabaseServiceRoleKey = String(process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
 const supabaseStorageBucket = String(process.env.SUPABASE_STORAGE_BUCKET || "vehicle-media").trim();
@@ -620,14 +627,25 @@ async function getOrganizationContext(req) {
     : null;
   const resolvedSlug = localSlug || requestedPublicTenant;
   const allowUnapprovedSlug = Boolean(localSlug || (requestedPublicTenant && requestedPublicTenant === DEFAULT_ORGANIZATION_SLUG));
+  // Subdominio blanco-etiqueta automático: <slug>.<PLATFORM_BASE_DOMAIN>, sin dominio propio.
+  // Igual que un dominio propio, exige approval_status='approved' — un dealer pendiente no
+  // se ve ahí, solo por vista previa privada.
+  const subdomainSlug = platformBaseDomain && hostname.endsWith(`.${platformBaseDomain}`)
+    ? hostname.slice(0, -(platformBaseDomain.length + 1))
+    : null;
+  const validSubdomainSlug = subdomainSlug && /^[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?$/.test(subdomainSlug) ? subdomainSlug : null;
   const result = await pool.query(
     `SELECT id, slug, name, logo_url AS "logoUrl", custom_domain AS "customDomain", is_active AS "isActive"
      FROM organizations
       WHERE is_active = TRUE
-        AND ((LOWER(custom_domain) = $1 AND approval_status = 'approved') OR (slug = COALESCE($2, $3) AND (approval_status = 'approved' OR $4::boolean)))
-      ORDER BY CASE WHEN LOWER(custom_domain) = $1 THEN 0 ELSE 1 END
+        AND (
+          (LOWER(custom_domain) = $1 AND approval_status = 'approved')
+          OR (slug = $5 AND approval_status = 'approved')
+          OR (slug = COALESCE($2, $3) AND (approval_status = 'approved' OR $4::boolean))
+        )
+      ORDER BY CASE WHEN LOWER(custom_domain) = $1 THEN 0 WHEN slug = $5 THEN 1 ELSE 2 END
       LIMIT 1`,
-    [hostname, resolvedSlug, DEFAULT_ORGANIZATION_SLUG, allowUnapprovedSlug],
+    [hostname, resolvedSlug, DEFAULT_ORGANIZATION_SLUG, allowUnapprovedSlug, validSubdomainSlug],
   );
   if (!result.rowCount) {
     const error = new Error("Organización no encontrada");
@@ -1320,12 +1338,14 @@ app.post("/api/auth/register-dealer", verifyPublicForm, async (req, res) => {
     // activos/aprobados desde el dominio central.
     const baseUrl = String(process.env.PUBLIC_SITE_URL || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
     const dealerUrl = `${baseUrl}/?preview=1`;
+    const futureSubdomain = subdomainForSlug(slug);
 
     res.status(201).json({
       token,
       user: { id: admin.id, name: admin.name, email: admin.email, role: "admin", organizationId, organizationSlug: slug, organizationName: dealershipName, mustChangePassword: false },
       organization: { id: organizationId, slug, name: dealershipName, approvalStatus: "pending" },
       dealerUrl,
+      futurePublicUrl: futureSubdomain ? `https://${futureSubdomain}` : null,
       message: "Concesionario registrado. Tu showroom queda en revisión y solo tú puedes verlo hasta que se apruebe.",
     });
   } catch (error) {
@@ -2285,7 +2305,9 @@ app.patch("/api/admin/settings/branding", authenticate, requireRoles("admin"), a
 app.get("/api/admin/organization", authenticate, requireRoles("admin"), async (req, res) => {
   try {
     const result = await pool.query(`SELECT o.id, o.slug, o.name, o.logo_url AS "logoUrl", o.custom_domain AS "customDomain", o.is_active AS "isActive", o.approval_status AS "approvalStatus", o.updated_at AS "updatedAt" FROM organizations o JOIN admin_users au ON au.organization_id=o.id WHERE au.id=$1`, [req.admin.id]);
-    res.json({ data: result.rows[0] || null });
+    const organization = result.rows[0];
+    if (organization) organization.subdomain = subdomainForSlug(organization.slug);
+    res.json({ data: organization || null });
   } catch (error) { console.error("Organization query failed", error); res.status(500).json({ error: "No se pudo cargar el perfil del concesionario" }); }
 });
 
@@ -2395,7 +2417,7 @@ app.get("/api/platform/overview", authenticate, requireRoles("platform_admin"), 
     ]);
     const items = organizations.rows.map((row) => {
       const approval = dealerApprovalCheck(row);
-      return { ...row, setupProgress: platformSetupProgress(row), approvalReady: approval.ready, approvalBlockers: approval.blockers, approvalRecommendations: approval.recommendations };
+      return { ...row, subdomain: subdomainForSlug(row.slug), setupProgress: platformSetupProgress(row), approvalReady: approval.ready, approvalBlockers: approval.blockers, approvalRecommendations: approval.recommendations };
     });
     const active = items.filter((item) => item.isActive);
     const pending = items.filter((item) => item.approvalStatus === "pending");
