@@ -74,6 +74,15 @@ El E2E crea sus propios registros y los elimina al terminar.
 
 `preflight` se ejecuta con el API levantado y confirma conexión a PostgreSQL, almacenamiento disponible y variables esenciales. En producción también exige un `JWT_SECRET` de mínimo 32 caracteres.
 
+Después del deploy, ejecuta desde `app`:
+
+```powershell
+$env:LIVE_URL = "https://TU-SERVICIO.onrender.com"
+npm.cmd run check:live
+```
+
+El chequeo live valida `/api/health`, la portada, `robots.txt`, `sitemap.xml`, la presentación y que la base de datos y el almacenamiento estén disponibles.
+
 En producción comprobar:
 
 - `/api/health` devuelve `database: connected` y `storage: available`.
