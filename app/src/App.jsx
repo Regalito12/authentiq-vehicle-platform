@@ -465,6 +465,33 @@ function PriceAlertModal({ vehicle, onClose }) {
   );
 }
 
+function BuyerRequestModal({ kind, vehicle = null, onClose }) {
+  const isTradeIn = kind === "trade-in";
+  const [form, setForm] = useState({ name: "", email: "", phone: "", currentVehicle: "", year: "", mileage: "", note: "", privacyConsent: false });
+  const [turnstileToken, setTurnstileToken] = useState("");
+  const [status, setStatus] = useState({ loading: false, error: "", success: false });
+  const change = (field, value) => setForm((current) => ({ ...current, [field]: value }));
+  const title = isTradeIn ? "Valora tu vehículo actual." : "Avísame cuando llegue algo para mí.";
+  const subtitle = isTradeIn
+    ? "Cuéntanos lo esencial. Un asesor revisará los datos y te explicará el siguiente paso; esta solicitud no es una tasación definitiva."
+    : "Dinos qué buscas. Te avisaremos cuando aparezca una unidad que encaje con tu búsqueda.";
+  const submit = async (event) => {
+    event.preventDefault();
+    setStatus({ loading: true, error: "", success: false });
+    const requestMessage = isTradeIn
+      ? `[TASACIÓN] Vehículo actual: ${form.currentVehicle}. Año: ${form.year || "No indicado"}. Kilometraje: ${form.mileage || "No indicado"} km.${vehicle ? ` Interesado además en: ${vehicle.brand} ${vehicle.model}.` : ""}${form.note ? ` Nota: ${form.note}` : ""}`
+      : `[ALERTA DE BÚSQUEDA] Busca: ${form.currentVehicle}.${form.year ? ` Año desde: ${form.year}.` : ""}${form.note ? ` Preferencias: ${form.note}` : ""}`;
+    try {
+      const response = await fetch(`${apiUrl}/api/leads`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: form.name, email: form.email, phone: form.phone, vehicleId: vehicle?.id || null, message: requestMessage, privacyConsent: form.privacyConsent, turnstileToken }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "No se pudo registrar tu solicitud");
+      trackEvent(isTradeIn ? "trade_in_submitted" : "search_alert_submitted", vehicle ? { vehicleId: vehicle.id } : {});
+      setStatus({ loading: false, error: "", success: true });
+    } catch (error) { setStatus({ loading: false, error: error.message, success: false }); }
+  };
+  return <motion.div className="lead-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}><motion.section className="lead-modal buyer-request-modal" role="dialog" aria-modal="true" aria-labelledby="buyer-request-title" initial={{ y: 14, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ duration: .2, ease: "easeOut" }}><button className="modal-close" type="button" onClick={onClose} aria-label="Cerrar">×</button>{status.success ? <div className="lead-success"><span className="eyebrow">SOLICITUD RECIBIDA</span><h2>{isTradeIn ? "Revisaremos tu vehículo." : "Te avisaremos cuando aparezca."}</h2><p>{isTradeIn ? "Un asesor revisará la información y te contactará para conocer el estado y la mejor forma de avanzar." : "Guardamos tu búsqueda. El equipo te escribirá cuando haya una opción relevante."}</p><button className="primary-action" type="button" onClick={onClose}>Listo</button></div> : <><span className="eyebrow">{isTradeIn ? "RENUEVA TU VEHÍCULO" : "BÚSQUEDA PERSONALIZADA"}</span><h2 id="buyer-request-title">{title}</h2><p className="buyer-request-intro">{subtitle}</p><form className="lead-form" onSubmit={submit}><label>Nombre<input value={form.name} onChange={(event) => change("name", event.target.value)} autoComplete="name" required /></label><div className="lead-form-grid"><label>Correo<input type="email" value={form.email} onChange={(event) => change("email", event.target.value)} autoComplete="email" required /></label><label>WhatsApp / Teléfono<input value={form.phone} onChange={(event) => change("phone", event.target.value)} autoComplete="tel" required /></label></div><label>{isTradeIn ? "Marca y modelo de tu vehículo" : "Qué vehículo estás buscando"}<input value={form.currentVehicle} onChange={(event) => change("currentVehicle", event.target.value)} placeholder={isTradeIn ? "Ej. Toyota RAV4 Limited" : "Ej. SUV familiar, 3 filas, automático"} required /></label><div className="lead-form-grid"><label>{isTradeIn ? "Año" : "Año desde (opcional)"}<input type="number" min="1900" max="2100" value={form.year} onChange={(event) => change("year", event.target.value)} /></label>{isTradeIn && <label>Kilometraje aproximado<input type="number" min="0" value={form.mileage} onChange={(event) => change("mileage", event.target.value)} /></label>}</div><label>{isTradeIn ? "Estado o detalles relevantes (opcional)" : "Presupuesto, uso o preferencias (opcional)"}<textarea value={form.note} onChange={(event) => change("note", event.target.value)} placeholder={isTradeIn ? "Mantenimiento, daños, versión o extras…" : "Rango de precio, combustible, uso familiar, etc."} /></label><TurnstileField onTokenChange={setTurnstileToken} /><label className="consent-check"><input type="checkbox" checked={form.privacyConsent} onChange={(event) => change("privacyConsent", event.target.checked)} required /><span>Acepto la política de privacidad y autorizo el uso de mis datos para responder esta solicitud.</span></label>{status.error && <p className="state-message error">{status.error}</p>}<button className="primary-action" type="submit" disabled={status.loading}>{status.loading ? "Enviando…" : isTradeIn ? "Solicitar orientación" : "Guardar mi búsqueda"}</button></form></>}</motion.section></motion.div>;
+}
+
 function QuoteModal({ vehicle, financingTerms, onClose }) {
   return (
     <motion.div className="quote-overlay" role="dialog" aria-modal="true" aria-label="Cotización del vehículo" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
@@ -1118,8 +1145,8 @@ function BlogArticle({ slug, onBack }) {
   return <main className="article-page"><button className="back-button" onClick={onBack}>← Volver al catálogo</button><article className="article-body"><header><span className="eyebrow">{post.publishedAt ? new Date(post.publishedAt).toLocaleDateString("es-DO", { day: "2-digit", month: "long", year: "numeric" }) : "AUTHENTIQ · JOURNAL"}</span><h1>{post.title}</h1>{post.summary && <p className="article-summary">{post.summary}</p>}</header>{post.coverImageUrl && <img className="article-cover" src={publicMediaUrl(post.coverImageUrl)} alt={post.title} /> }<div className="article-content">{post.content.split(/\r?\n/).map((paragraph, index) => paragraph.trim() ? <p key={`${post.id}-${index}`}>{paragraph}</p> : <br key={`${post.id}-space-${index}`} />)}</div></article></main>;
 }
 
-function DetailTrustStrip() {
-  return <section className="detail-trust-strip" aria-label="Compromisos AUTHENTIQ"><div><span className="detail-trust-mark">01</span><strong>Inventario verificado</strong><p>Información clara antes de decidir.</p></div><div><span className="detail-trust-mark">02</span><strong>Atención 1:1</strong><p>Un asesor acompaña el siguiente paso.</p></div><div><span className="detail-trust-mark">03</span><strong>Cotización transparente</strong><p>Sin sorpresas en la propuesta.</p></div></section>;
+function DetailTrustStrip({ vehicle, onTradeIn }) {
+  return <section className="detail-trust-strip" aria-label="Compromisos del showroom"><div><span className="detail-trust-mark">01</span><strong>{vehicle.status === "reserved" ? "Reserva en curso" : "Disponibilidad visible"}</strong><p>{vehicle.location ? `Ubicado en ${vehicle.location}. Confirma la visita con el equipo.` : "El equipo confirma disponibilidad antes de tu visita."}</p></div><div><span className="detail-trust-mark">02</span><strong>{vehicle.warranty || "Atención 1:1"}</strong><p>{vehicle.warranty ? "Cobertura informada por el concesionario." : "Un asesor acompaña el siguiente paso."}</p></div><div><span className="detail-trust-mark">03</span><strong>Renueva con contexto</strong><p>¿Tienes vehículo actual? Cuéntanos y prepara una conversación más completa.</p><button type="button" className="detail-trust-action" onClick={onTradeIn}>Solicitar orientación →</button></div></section>;
 }
 
 function similarityScore(source, candidate) {
@@ -1165,7 +1192,8 @@ function VehicleDecisionSummary({ vehicle }) {
   const conditionCopy = vehicle.condition === "new" ? "Configuración actual y entrega sujeta a disponibilidad." : "Una alternativa revisada para comprar con mayor tranquilidad.";
   const usageLabel = vehicle.transmission || vehicle.fuelType || "Configuración premium";
   const usageCopy = vehicle.transmission ? `Una conducción ${vehicle.transmission.toLowerCase()} para el día a día.` : "Especificaciones pensadas para una experiencia premium.";
-  return <section className="detail-decision-summary" aria-label="Resumen de decisión"><div className="detail-decision-summary-head"><span className="eyebrow">POR QUÉ CONSIDERARLO</span><p>Una lectura rápida antes de revisar cada especificación.</p></div><div className="detail-decision-summary-grid"><article><span>01</span><strong>{categoryLabel}</strong><p>{categoryCopy}</p></article><article><span>02</span><strong>{conditionLabel}</strong><p>{conditionCopy}</p></article><article><span>03</span><strong>{usageLabel}</strong><p>{usageCopy}</p></article></div></section>;
+  const consideration = vehicle.condition === "used" ? "Revisa el kilometraje, la garantía y el historial con el asesor." : "Confirma fecha de entrega, versión exacta y equipamiento disponible.";
+  return <section className="detail-decision-summary" aria-label="Resumen de decisión"><div className="detail-decision-summary-head"><span className="eyebrow">DECISIÓN EN CLARO</span><p>Lo esencial antes de comparar cada especificación.</p></div><div className="detail-decision-summary-grid"><article><span>01</span><strong>{categoryLabel}</strong><p>{categoryCopy}</p></article><article><span>02</span><strong>{conditionLabel}</strong><p>{conditionCopy}</p></article><article><span>03</span><strong>{usageLabel}</strong><p>{usageCopy}</p></article></div><p className="detail-decision-consideration"><strong>Antes de decidir:</strong> {consideration}</p></section>;
 }
 
 function DetailGalleryPanel({ vehicle, imageCount }) {
@@ -1190,6 +1218,7 @@ function VehicleDetail({ vehicle, vehicles = [], onBack, isFavorite = false, onT
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [quoteOpen, setQuoteOpen] = useState(false);
   const [priceAlertOpen, setPriceAlertOpen] = useState(false);
+  const [tradeInOpen, setTradeInOpen] = useState(false);
   const [appliedFinancing, setAppliedFinancing] = useState(null);
   const [quickVehicle, setQuickVehicle] = useState(null);
   const images = vehicle.images?.length ? vehicle.images : [{ url: "/assets/hero-highway.webp" }];
@@ -1309,7 +1338,7 @@ function VehicleDetail({ vehicle, vehicles = [], onBack, isFavorite = false, onT
         </div>
       </section>
       <SectionBoundary name="estudio visual" message="El visor multimedia no pudo mostrarse. Los datos y la galería del vehículo siguen disponibles."><VehicleStudio vehicle={vehicle} images={images} /></SectionBoundary>
-      <DetailTrustStrip />
+      <DetailTrustStrip vehicle={vehicle} onTradeIn={() => setTradeInOpen(true)} />
       <div id="similar-vehicles"><SimilarVehicles vehicle={vehicle} vehicles={vehicles} compareVehicles={compareVehicles} favoriteIds={favoriteIds} onOpen={onOpenVehicle} onToggleCompare={onToggleCompare} onToggleFavorite={onToggleFavorite} onQuickAction={(item, action) => { setQuickVehicle(item); if (action === "quote") setQuoteOpen(true); else setLeadType("test-drive"); }} /></div>
       <aside className="detail-decision-bar" aria-label="Acciones principales del vehículo">
         <div>
@@ -1332,6 +1361,7 @@ function VehicleDetail({ vehicle, vehicles = [], onBack, isFavorite = false, onT
       <AnimatePresence>{leadType === "test-drive" && <TestDriveModal vehicle={quickVehicle || vehicle} onClose={() => { setLeadType(null); setQuickVehicle(null); }} />}</AnimatePresence>
       <AnimatePresence>{quoteOpen && <QuoteModal vehicle={quickVehicle || vehicle} financingTerms={appliedFinancing} onClose={() => { setQuoteOpen(false); setQuickVehicle(null); setAppliedFinancing(null); }} />}</AnimatePresence>
       <AnimatePresence>{priceAlertOpen && <PriceAlertModal vehicle={quickVehicle || vehicle} onClose={() => setPriceAlertOpen(false)} />}</AnimatePresence>
+      <AnimatePresence>{tradeInOpen && <BuyerRequestModal kind="trade-in" vehicle={vehicle} onClose={() => setTradeInOpen(false)} />}</AnimatePresence>
       <AnimatePresence>{lightboxOpen && <motion.div className="image-lightbox" role="dialog" aria-modal="true" aria-label="Galería ampliada" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onMouseDown={(event) => { if (event.target === event.currentTarget) setLightboxOpen(false); }}><button className="modal-close" type="button" onClick={() => setLightboxOpen(false)} aria-label="Cerrar imagen">×</button><img src={image} alt={`${vehicle.brand} ${vehicle.model}, imagen ${activeImage + 1}`} /></motion.div>}</AnimatePresence>
     </motion.main>
   );
@@ -1417,8 +1447,8 @@ function IntentRail({ categories, conditions, fuelTypes, onChoose }) {
   return <section className="intent-rail" aria-label="Explorar por intención"><div className="intent-rail-copy"><span className="eyebrow">EMPIEZA POR LO QUE IMPORTA</span><h2>¿Qué estás buscando?</h2><p>Una primera orientación para encontrar tu próxima selección.</p></div><div className="intent-rail-options">{intents.map(([value, label, detail]) => <button type="button" className="intent-option" key={value} onClick={() => onChoose(value)}><strong>{label}</strong><span>{detail}</span><i>→</i></button>)}</div></section>;
 }
 
-function ShowroomTrustRail() {
-  return <section className="showroom-trust-rail" aria-label="Razones para comprar en AUTHENTIQ"><div><span>01</span><strong>Inventario verificado</strong><p>Información clara antes de decidir.</p></div><div><span>02</span><strong>Precio transparente</strong><p>Sin sorpresas en la conversación comercial.</p></div><div><span>03</span><strong>Atención 1:1</strong><p>Un asesor acompaña el siguiente paso.</p></div></section>;
+function ShowroomTrustRail({ onTradeIn, onSearchAlert }) {
+  return <section className="showroom-trust-rail" aria-label="Cómo comprar en este showroom"><div><span>01</span><strong>Explora sin presión</strong><p>Compara, guarda favoritos y revisa la información antes de hablar.</p></div><div><span>02</span><strong>Habla con contexto</strong><p>Agenda, cotiza o comparte el modelo exacto que estás evaluando.</p></div><div className="showroom-trust-action"><span>03</span><strong>Si aún no aparece</strong><p>Guarda una búsqueda o cuéntanos qué vehículo quieres renovar.</p><div><button type="button" onClick={onSearchAlert}>Guardar búsqueda</button><button type="button" onClick={onTradeIn}>Quiero tasar el mío</button></div></div></section>;
 }
 
 function ModelLineRail({ vehicles, selectedBrand, onChooseLine }) {
@@ -1550,6 +1580,7 @@ function App() {
   const [accountStatus, setAccountStatus] = useState({ loading: false, error: "" });
   const [accountTurnstileToken, setAccountTurnstileToken] = useState("");
   const [quickAction, setQuickAction] = useState(null);
+  const [buyerRequestKind, setBuyerRequestKind] = useState(null);
   const [customerActivity, setCustomerActivity] = useState({ offers: [], quotes: [], notifications: [] });
   const [pathname, setPathname] = useState(() => window.location.pathname);
   const [previewVehicle] = useState(() => { if (window.location.pathname !== "/preview") return null; try { return JSON.parse(sessionStorage.getItem("authentiq_vehicle_preview") || "null"); } catch { return null; } });
@@ -1833,7 +1864,7 @@ function App() {
           <span className="eyebrow">{getBrandName()} / CURATED MOTION</span>
           {businessSettings.heroHeadline ? <h1>{businessSettings.heroHeadline}</h1> : <h1>Elige lo que <em>te mueve.</em></h1>}
           <p>{businessSettings.heroSubheadline || "Vehículos con carácter, información clara y una atención diseñada alrededor de tu próxima historia."}</p>
-          <div className="hero-actions"><a href="#catalog" className="hero-link primary-action hero-primary-action">Explorar inventario ↓</a><a href={`/presentacion${requestedDealerSlug ? `?dealer=${encodeURIComponent(requestedDealerSlug)}` : ""}`} className="hero-link hero-secondary-action">Ver presentación →</a></div>
+          <div className="hero-actions"><a href="#catalog" className="hero-link primary-action hero-primary-action">Explorar inventario ↓</a><a href={`/presentacion${requestedDealerSlug ? `?dealer=${encodeURIComponent(requestedDealerSlug)}` : ""}`} className="hero-link hero-secondary-action">Ver presentación →</a><button type="button" className="hero-link hero-tertiary-action" onClick={() => setBuyerRequestKind("trade-in")}>¿Tienes vehículo? Valóralo →</button></div>
         </div>
         <div className="hero-proof" aria-label={`Pilares de ${getBrandName()}`}><span><strong><AnimatedMetric value={1} suffix="" /></strong> selección con criterio</span><span><strong><AnimatedMetric value={100} suffix="%" /></strong> inventario verificado</span><span><strong><AnimatedMetric value={1} suffix=":1" /></strong> atención privada</span></div>
         <a className="hero-scroll-cue" href="#catalog" aria-label="Bajar al catálogo"><span /> SCROLL</a>
@@ -1864,7 +1895,7 @@ function App() {
         {loading && <CatalogSkeleton />}
         {error && <CatalogError message={`${error}. Verifica que la API esté corriendo en el puerto 3001.`} onRetry={() => { setLoading(true); refreshVehicles(); }} />}
         {!loading && !error && (filteredVehicles.length ? <div className={`vehicle-grid ${catalogView === "list" ? "is-list-view" : ""}`}><AnimatePresence mode="popLayout" initial={false}>{filteredVehicles.map((vehicle, index) => <VehicleCard key={vehicle.id} vehicle={vehicle} isCompared={compareVehicles.some((item) => item.id === vehicle.id)} isFavorite={favoriteIds.includes(vehicle.id)} onToggleFavorite={toggleFavorite} onToggleCompare={toggleCompare} onOpen={(item) => navigate(vehiclePath(item))} imageLoading={index < 3 ? "eager" : "lazy"} />)}</AnimatePresence></div> : <div className="catalog-empty"><h3>No encontramos vehículos con esos criterios.</h3><p>Prueba limpiando la búsqueda o seleccionando otros filtros.</p><button className="secondary-action" onClick={clearFilters}>Limpiar filtros</button></div>)}
-        <ShowroomTrustRail />
+        <ShowroomTrustRail onTradeIn={() => setBuyerRequestKind("trade-in")} onSearchAlert={() => setBuyerRequestKind("search-alert")} />
         <RecentlyViewed vehicles={recentlyViewedVehicles} compareVehicles={compareVehicles} favoriteIds={favoriteIds} onOpen={(vehicle) => navigate(vehiclePath(vehicle))} onToggleCompare={toggleCompare} onToggleFavorite={toggleFavorite} />
         <RecentSelection vehicles={recentVehicles} compareVehicles={compareVehicles} favoriteIds={favoriteIds} onOpen={(vehicle) => navigate(vehiclePath(vehicle))} onToggleCompare={toggleCompare} onToggleFavorite={toggleFavorite} />
         {businessSettings.showFinancing !== false && <FinancingSpotlight vehicles={vehicles} onExplore={() => document.getElementById("catalog")?.scrollIntoView({ behavior: "smooth", block: "start" })} />}
@@ -1889,6 +1920,7 @@ function App() {
       <AnimatePresence>{accountOpen && <CustomerAccountModal customer={customer} form={accountForm} mode={accountMode} status={accountStatus} favoriteCount={favoriteIds.length} favoriteVehicles={favoriteVehicles} activity={customerActivity} onChange={changeAccountForm} onSubmit={submitAccount} onTurnstileToken={setAccountTurnstileToken} onMode={(mode) => { setAccountMode(mode); setAccountStatus({ loading: false, error: "" }); }} onClose={() => setAccountOpen(false)} onLogout={logoutCustomer} onReadNotifications={markCustomerNotificationsRead} onOpenVehicle={(vehicle) => { setAccountOpen(false); navigate(vehiclePath(vehicle)); }} onToggleFavorite={toggleFavorite} onQuickAction={(vehicle, type) => { setAccountOpen(false); setQuickAction({ vehicle, type }); }} />}</AnimatePresence>
       <AnimatePresence>{quickAction?.type === "appointment" && <TestDriveModal vehicle={quickAction.vehicle} onClose={() => setQuickAction(null)} />}</AnimatePresence>
       <AnimatePresence>{quickAction?.type === "quote" && <QuoteModal vehicle={quickAction.vehicle} onClose={() => setQuickAction(null)} />}</AnimatePresence>
+      <AnimatePresence>{buyerRequestKind && <BuyerRequestModal kind={buyerRequestKind} onClose={() => setBuyerRequestKind(null)} />}</AnimatePresence>
     </main></>
   );
 }

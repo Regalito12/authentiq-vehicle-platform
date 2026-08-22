@@ -3065,7 +3065,7 @@ app.get("/api/admin/audit-logs", authenticate, requireRoles("admin"), async (req
 });
 
 app.post("/api/events", async (req, res) => {
-  const allowedEvents = new Set(["page_view", "catalog_view", "vehicle_view", "vehicle_share", "filter_used", "compare_used", "whatsapp_click", "offer_submitted", "contact_submitted", "appointment_submitted"]);
+  const allowedEvents = new Set(["page_view", "catalog_view", "vehicle_view", "vehicle_share", "filter_used", "compare_used", "whatsapp_click", "offer_submitted", "contact_submitted", "appointment_submitted", "trade_in_submitted", "search_alert_submitted"]);
   const eventName = String(req.body.eventName || "").trim();
   const eventPath = String(req.body.path || "/").slice(0, 240);
   const vehicleId = String(req.body.vehicleId || "").trim() || null;
