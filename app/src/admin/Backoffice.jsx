@@ -8,6 +8,29 @@ import { TurnstileField } from "../utils/turnstile.jsx";
 import { contrastSafeShade } from "../utils/color.js";
 import { SlidingNumber } from "../components/animate-ui/primitives/texts/sliding-number.jsx";
 import { AnimatedList } from "../ui/MotionPrimitives.jsx";
+import {
+  ArticleIcon,
+  BellIcon,
+  CalendarBlankIcon,
+  CaretDownIcon,
+  CaretUpIcon,
+  CarSimpleIcon,
+  ChartLineUpIcon,
+  EyeIcon,
+  FileTextIcon,
+  HandCoinsIcon,
+  HouseIcon,
+  ListChecksIcon,
+  MoonIcon,
+  PaintBrushIcon,
+  PlugsConnectedIcon,
+  SquaresFourIcon,
+  SunIcon,
+  TagIcon,
+  UploadSimpleIcon,
+  UsersIcon,
+  UsersThreeIcon,
+} from "@phosphor-icons/react";
 
 // En local, conserva dealer-demo.localhost / velocity-demo.localhost en vez de
 // volver siempre a localhost; esto permite comprobar el aislamiento por dealer.
@@ -236,15 +259,15 @@ function AdminNav({ activeModule, onChange, onBack, onLogout, role, unreadNotifi
         {/* El nombre del módulo lo titula cada módulo con su propio contexto:
             repetirlo aquí duplicaba el encabezado y comía media pantalla en móvil. */}
         <div className="admin-title-row"><h1 className="admin-app-title">{businessName} <span>Backoffice</span></h1><span className="role-chip">{role === "admin" ? "DUEÑO" : role === "content_editor" ? "CONTENIDO" : role === "editor" ? "OPERACIÓN" : "VENTAS"}</span></div>
-        <div className="admin-header-actions"><div className="notification-wrap"><button className="notification-button" type="button" onClick={() => setShowNotifications((current) => !current)} aria-expanded={showNotifications} aria-label="Abrir notificaciones">Notificaciones {unreadNotifications > 0 && <span>{unreadNotifications}</span>}</button>{showNotifications && <div className="notification-popover"><div className="notification-popover-head"><strong>Actividad reciente</strong>{unreadNotifications > 0 && <button className="text-button" type="button" onClick={onReadNotifications}>Marcar leídas</button>}</div>{notifications?.length ? notifications.slice(0, 8).map((notification) => <article className={notification.readAt ? "notification-item" : "notification-item unread"} key={notification.id}><strong>{notification.title}</strong><span>{notification.body}</span><small>{formatDate(notification.createdAt)}</small></article>) : <p className="empty-state">No hay notificaciones nuevas.</p>}</div>}</div>{["admin", "editor"].includes(role) && <button className="secondary-action onboarding-launch-button" type="button" onClick={role === "editor" ? () => onChange("settings") : onOpenOnboarding}>Personalizar showroom</button>}<button className="secondary-action theme-toggle" type="button" onClick={onToggleTheme} aria-label="Cambiar tema">{theme === "dark" ? "Modo claro" : "Modo oscuro"}</button><button className="secondary-action" type="button" onClick={onPreview}>Vista previa</button><button className="secondary-action" onClick={onBack}>Ver catálogo</button><button className="secondary-action" onClick={onLogout}>Cerrar sesión</button></div>
+        <div className="admin-header-actions"><div className="notification-wrap"><button className="notification-button" type="button" onClick={() => setShowNotifications((current) => !current)} aria-expanded={showNotifications} aria-label="Abrir notificaciones"><BellIcon size={16} weight="regular" aria-hidden="true" />Notificaciones {unreadNotifications > 0 && <span>{unreadNotifications}</span>}</button>{showNotifications && <div className="notification-popover"><div className="notification-popover-head"><strong>Actividad reciente</strong>{unreadNotifications > 0 && <button className="text-button" type="button" onClick={onReadNotifications}>Marcar leídas</button>}</div>{notifications?.length ? notifications.slice(0, 8).map((notification) => <article className={notification.readAt ? "notification-item" : "notification-item unread"} key={notification.id}><strong>{notification.title}</strong><span>{notification.body}</span><small>{formatDate(notification.createdAt)}</small></article>) : <p className="empty-state">No hay notificaciones nuevas.</p>}</div>}</div>{["admin", "editor"].includes(role) && <button className="secondary-action onboarding-launch-button" type="button" onClick={role === "editor" ? () => onChange("settings") : onOpenOnboarding}><PaintBrushIcon size={16} weight="regular" aria-hidden="true" />Personalizar showroom</button>}<button className="secondary-action theme-toggle" type="button" onClick={onToggleTheme} aria-label="Cambiar tema">{theme === "dark" ? <SunIcon size={16} weight="regular" aria-hidden="true" /> : <MoonIcon size={16} weight="regular" aria-hidden="true" />}{theme === "dark" ? "Modo claro" : "Modo oscuro"}</button><button className="secondary-action" type="button" onClick={onPreview}><EyeIcon size={16} weight="regular" aria-hidden="true" />Vista previa</button><button className="secondary-action" onClick={onBack}><HouseIcon size={16} weight="regular" aria-hidden="true" />Ver catálogo</button><button className="secondary-action" onClick={onLogout}>Cerrar sesión</button></div>
       </header>
       <div className="admin-presentation-launch"><span>¿Quieres enseñar el showroom sin herramientas de administración?</span><button className="secondary-action" type="button" onClick={() => window.open("/presentacion", "_blank", "noopener,noreferrer")}>Abrir vista de presentación →</button></div>
       <nav className="admin-nav" aria-label="Módulos administrativos">
-        <div className="admin-nav-core"><span className="admin-nav-label">Trabajo diario</span>{primaryItems.map(([key, label]) => <button key={key} className={activeModule === key ? "admin-nav-item active" : "admin-nav-item"} aria-current={activeModule === key ? "page" : undefined} onClick={() => onChange(key)}>{label}</button>)}</div>
-        {advancedItems.length > 0 && <div className="admin-nav-advanced"><button className="admin-nav-more-toggle" type="button" aria-expanded={advancedOpen} onClick={() => setAdvancedOpen((current) => !current)}>{advancedOpen ? "Ocultar administración" : "Más herramientas"} <span aria-hidden="true">{advancedOpen ? "↑" : "↓"}</span></button>{advancedOpen && <div className="admin-nav-more-panel"><span className="admin-nav-label">Administración</span>{advancedItems.map(([key, label]) => <button key={key} className={activeModule === key ? "admin-nav-item active" : "admin-nav-item"} aria-current={activeModule === key ? "page" : undefined} onClick={() => { setAdvancedOpen(true); onChange(key); }}>{label}</button>)}</div>}</div>}
+        <div className="admin-nav-core"><span className="admin-nav-label">Trabajo diario</span>{primaryItems.map(([key, label]) => <button key={key} className={activeModule === key ? "admin-nav-item active" : "admin-nav-item"} aria-current={activeModule === key ? "page" : undefined} onClick={() => onChange(key)}><AdminModuleIcon name={key} />{label}</button>)}</div>
+        {advancedItems.length > 0 && <div className="admin-nav-advanced"><button className="admin-nav-more-toggle" type="button" aria-expanded={advancedOpen} onClick={() => setAdvancedOpen((current) => !current)}>{advancedOpen ? "Ocultar administración" : "Más herramientas"} {advancedOpen ? <CaretUpIcon size={15} aria-hidden="true" /> : <CaretDownIcon size={15} aria-hidden="true" />}</button>{advancedOpen && <div className="admin-nav-more-panel"><span className="admin-nav-label">Administración</span>{advancedItems.map(([key, label]) => <button key={key} className={activeModule === key ? "admin-nav-item active" : "admin-nav-item"} aria-current={activeModule === key ? "page" : undefined} onClick={() => { setAdvancedOpen(true); onChange(key); }}><AdminModuleIcon name={key} />{label}</button>)}</div>}</div>}
       </nav>
       <div className="admin-context-bar" aria-live="polite"><span><b>{moduleContext[0]}</b><small>{moduleContext[1]}</small></span><span className="admin-context-hint">Navega con las secciones de arriba</span></div>
-      {activeModule === "inventory" && <button className="secondary-action inventory-import-trigger" type="button" onClick={() => setImportOpen(true)}>Importar inventario</button>}
+      {activeModule === "inventory" && <button className="secondary-action inventory-import-trigger" type="button" onClick={() => setImportOpen(true)}><UploadSimpleIcon size={16} aria-hidden="true" />Importar inventario</button>}
       {activeModule === "inventory" && <InventoryImportModal open={importOpen} onClose={() => setImportOpen(false)} vehicles={vehicles} />}
     </>
   );
@@ -271,7 +294,9 @@ function DashboardSkeleton() {
 }
 
 function DashboardPulse({ data, leads, offers, appointments, onNavigate }) {
-  const priorityLeads = (leads || []).filter((lead) => ["new", "contacted", "qualified"].includes(lead.status)).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 4);
+  const now = Date.now();
+  const isOverdue = (lead) => lead.nextActionAt && new Date(lead.nextActionAt).getTime() < now;
+  const priorityLeads = (leads || []).filter((lead) => ["new", "contacted", "qualified"].includes(lead.status)).sort((a, b) => Number(isOverdue(b)) - Number(isOverdue(a)) || Number(a.priority || 2) - Number(b.priority || 2) || new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 4);
   const todayIso = new Date().toISOString().slice(0, 10);
   // El módulo de Citas carga el historial completo (pasado y futuro) para gestión;
   // este contador debe mostrar solo lo que realmente queda por atender.
@@ -285,7 +310,7 @@ function DashboardPulse({ data, leads, offers, appointments, onNavigate }) {
   return <section className="dashboard-pulse">
     <article className="priority-panel">
       <div className="panel-heading"><div><span className="eyebrow">PRIORIDAD HOY</span><h3>Lo que merece atención.</h3></div><button className="text-button" type="button" onClick={() => onNavigate("leads")}>Abrir clientes</button></div>
-      {priorityLeads.length ? <div className="priority-list">{priorityLeads.map((lead, index) => <button className="priority-item" type="button" key={lead.id} onClick={() => onNavigate("leads")}><span className="priority-index">{String(index + 1).padStart(2, "0")}</span><span className="priority-copy"><strong>{lead.name}</strong><small>{lead.brand ? `${lead.brand} ${lead.model}` : "Contacto general"} · {formatDate(lead.createdAt)}</small></span><span className={`status-pill ${lead.status}`}>{formatStatus(lead.status)}</span><span className="priority-arrow">→</span></button>)}</div> : <p className="empty-state">No hay clientes pendientes de seguimiento.</p>}
+      {priorityLeads.length ? <div className="priority-list">{priorityLeads.map((lead, index) => <button className={`priority-item${isOverdue(lead) ? " is-overdue" : ""}`} type="button" key={lead.id} onClick={() => onNavigate("leads")}><span className="priority-index">{String(index + 1).padStart(2, "0")}</span><span className="priority-copy"><strong>{lead.name}</strong><small>{lead.brand ? `${lead.brand} ${lead.model}` : "Contacto general"} · {isOverdue(lead) ? "Seguimiento vencido" : formatDate(lead.createdAt)}</small></span><span className={`status-pill ${lead.status}`}>{formatStatus(lead.status)}</span><span className="priority-arrow">→</span></button>)}</div> : <p className="empty-state">No hay clientes pendientes de seguimiento.</p>}
     </article>
     <div className="quick-action-grid">{actions.map(([key, label, count, hint], index) => <button className="quick-action" type="button" key={key} onClick={() => onNavigate(key)}><span className="quick-action-top"><span className="eyebrow">{String(index + 1).padStart(2, "0")}</span><strong><SlidingNumber number={count} thousandSeparator="," /></strong></span><span className="quick-action-label">{label}</span><small>{hint} <span>→</span></small></button>)}</div>
   </section>;
@@ -824,6 +849,12 @@ function CopyAction({ value, label }) {
   if (!value) return null;
   const copy = async () => { try { await navigator.clipboard.writeText(value); setCopied(true); window.setTimeout(() => setCopied(false), 1400); } catch { setCopied(false); } };
   return <button className="copy-action" type="button" onClick={copy} aria-label={`Copiar ${label}`}>{copied ? "Copiado" : `Copiar ${label}`}</button>;
+}
+
+const adminModuleIcons = { dashboard: SquaresFourIcon, inventory: CarSimpleIcon, taxonomy: TagIcon, leads: UsersThreeIcon, appointments: CalendarBlankIcon, quotes: FileTextIcon, blog: ArticleIcon, offers: HandCoinsIcon, reports: ChartLineUpIcon, audit: ListChecksIcon, users: UsersIcon, integrations: PlugsConnectedIcon, settings: PaintBrushIcon };
+function AdminModuleIcon({ name }) {
+  const Icon = adminModuleIcons[name] || SquaresFourIcon;
+  return <Icon className="admin-nav-icon" size={17} weight="regular" aria-hidden="true" />;
 }
 
 function WhatsAppAction({ lead }) {

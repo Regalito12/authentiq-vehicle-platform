@@ -2745,6 +2745,25 @@ html[data-theme="dark"] .dashboard-setup-card.is-complete { border-top-color: #9
   .dashboard-setup-signals small { grid-column: auto; }
 }
 
+/* Iconografía de operación: ayuda a escanear el backoffice sin competir con las etiquetas. */
+.admin-nav-item,
+.admin-nav-more-toggle,
+.admin-header-actions > button,
+.notification-button,
+.inventory-import-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.admin-nav-icon { flex: 0 0 auto; opacity: .72; }
+.admin-nav-item.active .admin-nav-icon,
+.admin-nav-item:hover .admin-nav-icon { opacity: 1; }
+.admin-nav-more-toggle svg { flex: 0 0 auto; }
+html[data-theme="dark"] .admin-nav-icon { opacity: .82; }
+.priority-item.is-overdue { border-left-color: #a33b2b; background: color-mix(in srgb, #a33b2b 5%, var(--auth-surface)); }
+.priority-item.is-overdue .priority-index { color: #a33b2b; }
+html[data-theme="dark"] .priority-item.is-overdue { background: color-mix(in srgb, #a33b2b 13%, var(--auth-surface)); }
+
 /* Centro central de dealers: separado visualmente del workspace de cada concesionario. */
 .platform-page { min-height: 100vh; padding: 42px clamp(22px, 5vw, 76px) 50px; background: var(--auth-paper); color: var(--auth-ink); }
 .platform-header { display: flex; align-items: end; justify-content: space-between; gap: 30px; max-width: 1440px; margin: 0 auto 34px; padding-bottom: 26px; border-bottom: 1px solid var(--auth-line); }
