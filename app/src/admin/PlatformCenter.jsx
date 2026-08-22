@@ -26,9 +26,9 @@ function DealerOverridesPanel({ dealer, onSaveBranding, onSaveCss, onImpersonate
   const update = (field, value) => setForm((current) => ({ ...current, [field]: value }));
   return (
     <div className="platform-overrides-panel">
-      <span className="eyebrow">SUPERPODERES · SOLO ADMIN DE PLATAFORMA</span>
+      <span className="eyebrow">ADMINISTRACIÓN AVANZADA · SOLO PLATAFORMA</span>
       <div className="platform-overrides-grid">
-        <label>Dominio<input value={form.customDomain} onChange={(event) => update("customDomain", event.target.value)} placeholder="dealer.com" inputMode="url" /></label>
+        <label>Dominio<input value={form.customDomain} onChange={(event) => update("customDomain", event.target.value)} placeholder="concesionario.com" inputMode="url" /></label>
         <label>Logo URL<input value={form.logoUrl} onChange={(event) => update("logoUrl", event.target.value)} placeholder="https://.../logo.svg" /></label>
         <label>Color principal<input type="color" value={form.primaryColor} onChange={(event) => update("primaryColor", event.target.value)} /></label>
         <label>Color de acento<input type="color" value={form.accentColor} onChange={(event) => update("accentColor", event.target.value)} /></label>
@@ -37,7 +37,7 @@ function DealerOverridesPanel({ dealer, onSaveBranding, onSaveCss, onImpersonate
       <label className="platform-overrides-css">CSS personalizado del showroom (avanzado)<textarea rows={5} value={customCss} onChange={(event) => setCustomCss(event.target.value)} placeholder=".hero-content h1 { ... }" /></label>
       <div className="platform-overrides-actions">
         <button className="secondary-action" type="button" onClick={() => onSaveCss(dealer, customCss)} disabled={saving}>Guardar CSS</button>
-        <button className="text-button" type="button" onClick={() => onImpersonate(dealer)}>Entrar como este dealer →</button>
+        <button className="text-button" type="button" onClick={() => onImpersonate(dealer)}>Abrir como este concesionario →</button>
       </div>
     </div>
   );
@@ -74,7 +74,7 @@ export default function PlatformCenter({ token, user, onLogout, onBack }) {
     setSaving(true); setError(""); setMessage("");
     try {
       const created = await request("/api/platform/organizations", { method: "POST", body: JSON.stringify(form) });
-      setForm(emptyForm); setMessage(`Dealer creado. ${created.data.customDomain ? `Dominio asignado: ${created.data.customDomain}. ` : ""}Ya puede entrar con la cuenta inicial y terminar su onboarding.`); await load();
+      setForm(emptyForm); setMessage(`Concesionario creado. ${created.data.customDomain ? `Dominio asignado: ${created.data.customDomain}. ` : ""}Ya puede entrar con la cuenta inicial y terminar su configuración.`); await load();
     } catch (requestError) { setError(requestError.message); } finally { setSaving(false); }
   };
   const toggleDealer = async (dealer) => {
