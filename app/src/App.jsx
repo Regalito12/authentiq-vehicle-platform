@@ -1181,7 +1181,10 @@ function DetailGalleryEditorial({ vehicle }) {
   return <section className="detail-gallery-editorial" aria-label="Lectura editorial del vehículo"><div className="detail-gallery-editorial-head"><span className="eyebrow">CURATED NOTE / {vehicle.brand}</span><span>{vehicle.year} · {vehicle.category || "PREMIUM"}</span></div><h3>Una selección que se entiende mejor cuando la miras de cerca.</h3><div className="detail-gallery-editorial-grid"><div><span>01</span><strong>Presencia</strong><p>{presence}</p></div><div><span>02</span><strong>Respuesta</strong><p>{response}</p></div><div><span>03</span><strong>Confianza</strong><p>{confidence}</p></div></div><div className="detail-gallery-editorial-footer"><span>{getBrandName()} / PRIVATE SELECTION</span><span>Elegido para ser visto con calma.</span></div></section>;
 }
 
-function VehicleDetail({ vehicle, vehicles = [], onBack, isFavorite = false, onToggleFavorite = () => {}, customerToken = "", compareVehicles = [], favoriteIds = [], onOpenVehicle = () => {}, onToggleCompare = () => {} }) {
+function VehicleDetail({ vehicle, vehicles = [], onBack, isFavorite = false, onToggleFavorite = () => {}, customerToken = "", compareVehicles = [], favoriteIds = [], onOpenVehicle = () => {}, onToggleCompare = () => {}, whatsapp = "" }) {
+  const whatsappNumber = String(whatsapp || "").replace(/\D/g, "");
+  const whatsappText = encodeURIComponent(`Hola, me interesa el ${vehicle.brand} ${vehicle.model}${vehicle.year ? ` ${vehicle.year}` : ""}: ${window.location.origin}${vehiclePath(vehicle)}`);
+  const whatsappHref = `https://wa.me/${whatsappNumber}${whatsappNumber ? `?text=${whatsappText}` : `?text=${whatsappText}`}`;
   const [activeImage, setActiveImage] = useState(0);
   const [leadType, setLeadType] = useState(null);
   const [lightboxOpen, setLightboxOpen] = useState(false);
@@ -1323,7 +1326,7 @@ function VehicleDetail({ vehicle, vehicles = [], onBack, isFavorite = false, onT
       <div className="detail-mobile-actions" aria-label="Acciones rápidas del vehículo">
         <button className="primary-action" type="button" onClick={() => setLeadType("offer")} disabled={vehicle.status === "reserved"}>{vehicle.status === "reserved" ? "Reservado" : "Hacer una oferta"}</button>
         <button className="secondary-action" type="button" onClick={() => setLeadType("test-drive")}>Agendar cita</button>
-        <a className="detail-mobile-whatsapp" href={`https://wa.me/?text=${encodeURIComponent(`Mira este ${vehicle.brand} ${vehicle.model} en ${getBrandName()}: ${window.location.origin}${vehiclePath(vehicle)}`)}`} target="_blank" rel="noreferrer" aria-label="Enviar vehículo por WhatsApp">WhatsApp</a>
+        <a className="detail-mobile-whatsapp" href={whatsappHref} target="_blank" rel="noreferrer" aria-label="Contactar al concesionario por WhatsApp">WhatsApp</a>
       </div>
       <AnimatePresence>{leadType === "offer" && <LeadForm vehicle={quickVehicle || vehicle} customerToken={customerToken} onClose={() => { setLeadType(null); setQuickVehicle(null); }} />}</AnimatePresence>
       <AnimatePresence>{leadType === "test-drive" && <TestDriveModal vehicle={quickVehicle || vehicle} onClose={() => { setLeadType(null); setQuickVehicle(null); }} />}</AnimatePresence>
@@ -1815,7 +1818,7 @@ function App() {
   const knownPath = pathname === "/" || pathname === "/presentacion" || pathname === "/preview" || pathname.startsWith("/cotizaciones/") || pathname.startsWith("/blog/") || pathname.startsWith("/vehiculos/");
   if (!knownPath) return <NotFoundPage onBack={() => navigate("/")} />;
   if (["contact", "location", "privacy", "terms"].includes(screen)) return <InstitutionalPage type={screen} settings={businessSettings} onBack={() => setScreen("catalog")} />;
-  if (activeVehicle) return <VehicleDetail vehicle={activeVehicle} vehicles={vehicles} onBack={() => navigate("/")} isFavorite={favoriteIds.includes(activeVehicle.id)} onToggleFavorite={toggleFavorite} customerToken={customerToken} compareVehicles={compareVehicles} favoriteIds={favoriteIds} onOpenVehicle={(vehicle) => navigate(vehiclePath(vehicle))} onToggleCompare={toggleCompare} />;
+  if (activeVehicle) return <VehicleDetail vehicle={activeVehicle} vehicles={vehicles} onBack={() => navigate("/")} isFavorite={favoriteIds.includes(activeVehicle.id)} onToggleFavorite={toggleFavorite} customerToken={customerToken} compareVehicles={compareVehicles} favoriteIds={favoriteIds} onOpenVehicle={(vehicle) => navigate(vehiclePath(vehicle))} onToggleCompare={toggleCompare} whatsapp={businessSettings.whatsapp} />;
   if (pathname === "/" && !settingsLoaded && !showDemoCatalog && !requestedDealerSlug) return <main className="app-boot-shell" aria-hidden="true" />;
   if (pathname === "/" && businessSettings.isPlatformHome && !showDemoCatalog && !requestedDealerSlug) return <LandingPage onCreateShowroom={() => { setAdminInitialMode("register"); setScreen("admin"); }} onDealerLogin={() => { setAdminInitialMode("login"); setScreen("admin"); }} onViewDemo={() => setShowDemoCatalog(true)} onOpenPrivacy={() => setScreen("privacy")} onOpenTerms={() => setScreen("terms")} />;
 

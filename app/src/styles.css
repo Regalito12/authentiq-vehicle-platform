@@ -639,6 +639,8 @@ html[data-theme="dark"] .admin-nav { background: #111315; }
 .appointment-admin-modal { max-width: 560px; }
 .copy-action { padding: 5px 7px; border: 1px solid #d9d3c8; background: transparent; color: #8a6a22; font: 500 10px "IBM Plex Mono", monospace; text-transform: uppercase; transition: border-color .16s ease, color .16s ease, transform .16s ease; }
 .copy-action:hover { border-color: var(--tenant-primary); color: #a33b2b; transform: translateY(-1px); }
+.whatsapp-action { color: #267653; text-decoration: none; }
+.whatsapp-action:hover, .whatsapp-action:focus-visible { border-color: #267653; color: #1d614b; }
 .lead-events { display: grid; gap: 8px; padding: 10px 12px; border: 1px solid #d9d3c8; background: #fff; }
 .lead-event { display: grid; gap: 3px; padding-bottom: 8px; border-bottom: 1px solid #ece7df; }
 .lead-event:last-child { padding-bottom: 0; border-bottom: 0; }
