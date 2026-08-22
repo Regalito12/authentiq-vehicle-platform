@@ -14,16 +14,21 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/utilities": "^3.2.2",
     "@google/model-viewer": "^4.3.1",
     "@phosphor-icons/react": "^2.1.10",
     "@tanstack/react-table": "^8.21.3",
     "@vitejs/plugin-react": "latest",
+    "browser-image-compression": "^2.0.2",
+    "cmdk": "^1.1.1",
     "motion": "^12.43.0",
     "react": "latest",
     "react-dom": "latest",
     "read-excel-file": "^9.3.10",
     "recharts": "^3.10.1",
     "three": "^0.183.2",
-    "vite": "latest"
+    "vite": "latest",
+    "vite-plugin-pwa": "^1.3.0"
   }
 }

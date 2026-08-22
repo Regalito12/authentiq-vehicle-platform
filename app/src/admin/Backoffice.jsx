@@ -1,5 +1,9 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
+import imageCompression from "browser-image-compression";
+import { Command } from "cmdk";
+import { DndContext, KeyboardSensor, PointerSensor, useDraggable, useDroppable, useSensor, useSensors } from "@dnd-kit/core";
+import { CSS } from "@dnd-kit/utilities";
 import { flexRender, getCoreRowModel, getFilteredRowModel, useReactTable } from "@tanstack/react-table";
 import { Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import PlatformCenter from "./PlatformCenter.jsx";
@@ -10,6 +14,7 @@ import { SlidingNumber } from "../components/animate-ui/primitives/texts/sliding
 import { AnimatedList } from "../ui/MotionPrimitives.jsx";
 import {
   ArticleIcon,
+  ArrowUpRightIcon,
   BellIcon,
   CalendarBlankIcon,
   CaretDownIcon,
@@ -22,6 +27,7 @@ import {
   HouseIcon,
   ListChecksIcon,
   MoonIcon,
+  MagnifyingGlassIcon,
   PaintBrushIcon,
   PlugsConnectedIcon,
   SquaresFourIcon,
@@ -248,18 +254,27 @@ function AdminNav({ activeModule, onChange, onBack, onLogout, role, unreadNotifi
   const [showNotifications, setShowNotifications] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [commandOpen, setCommandOpen] = useState(false);
   const visibleItems = navItemsWithAppointments(role);
   const primaryKeys = ["dashboard", "inventory", "leads", "appointments", "quotes"];
   const primaryItems = visibleItems.filter(([key]) => primaryKeys.includes(key));
   const advancedItems = visibleItems.filter(([key]) => !primaryKeys.includes(key));
   const moduleContext = { dashboard: ["Resumen", "Mira lo importante y decide la siguiente acción."], inventory: ["Inventario", "Mantén cada ficha lista para vender."], taxonomy: ["Marcas y categorías", "Controla el catálogo que usa tu equipo."], leads: ["Clientes", "Prioriza conversaciones y próximos pasos."], quotes: ["Cotizaciones", "Convierte una propuesta en una decisión."], blog: ["Contenido", "Cuenta mejor la historia de cada vehículo."], offers: ["Ofertas", "Responde rápido a las oportunidades."], reports: ["Reportes", "Lee el negocio antes de moverlo."], audit: ["Actividad", "Revisa lo que está pasando en el sistema."], users: ["Usuarios", "Administra acceso y responsabilidades."], integrations: ["Conexiones", "Calendario, redes y cobros en un solo lugar."], settings: ["Personalización", "Ajusta la identidad y operación del showroom."] }[activeModule] || ["Backoffice", `Operación ${businessName}`];
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      const target = event.target;
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k" && !target?.matches?.("input, textarea, select")) { event.preventDefault(); setCommandOpen(true); }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
   return (
     <>
       <header className="admin-header">
         {/* El nombre del módulo lo titula cada módulo con su propio contexto:
             repetirlo aquí duplicaba el encabezado y comía media pantalla en móvil. */}
         <div className="admin-title-row"><h1 className="admin-app-title">{businessName} <span>Backoffice</span></h1><span className="role-chip">{role === "admin" ? "DUEÑO" : role === "content_editor" ? "CONTENIDO" : role === "editor" ? "OPERACIÓN" : "VENTAS"}</span></div>
-        <div className="admin-header-actions"><div className="notification-wrap"><button className="notification-button" type="button" onClick={() => setShowNotifications((current) => !current)} aria-expanded={showNotifications} aria-label="Abrir notificaciones"><BellIcon size={16} weight="regular" aria-hidden="true" />Notificaciones {unreadNotifications > 0 && <span>{unreadNotifications}</span>}</button>{showNotifications && <div className="notification-popover"><div className="notification-popover-head"><strong>Actividad reciente</strong>{unreadNotifications > 0 && <button className="text-button" type="button" onClick={onReadNotifications}>Marcar leídas</button>}</div>{notifications?.length ? notifications.slice(0, 8).map((notification) => <article className={notification.readAt ? "notification-item" : "notification-item unread"} key={notification.id}><strong>{notification.title}</strong><span>{notification.body}</span><small>{formatDate(notification.createdAt)}</small></article>) : <p className="empty-state">No hay notificaciones nuevas.</p>}</div>}</div>{["admin", "editor"].includes(role) && <button className="secondary-action onboarding-launch-button" type="button" onClick={role === "editor" ? () => onChange("settings") : onOpenOnboarding}><PaintBrushIcon size={16} weight="regular" aria-hidden="true" />Personalizar showroom</button>}<button className="secondary-action theme-toggle" type="button" onClick={onToggleTheme} aria-label="Cambiar tema">{theme === "dark" ? <SunIcon size={16} weight="regular" aria-hidden="true" /> : <MoonIcon size={16} weight="regular" aria-hidden="true" />}{theme === "dark" ? "Modo claro" : "Modo oscuro"}</button><button className="secondary-action" type="button" onClick={onPreview}><EyeIcon size={16} weight="regular" aria-hidden="true" />Vista previa</button><button className="secondary-action" onClick={onBack}><HouseIcon size={16} weight="regular" aria-hidden="true" />Ver catálogo</button><button className="secondary-action" onClick={onLogout}>Cerrar sesión</button></div>
+        <div className="admin-header-actions"><button className="secondary-action command-launch" type="button" onClick={() => setCommandOpen(true)}><MagnifyingGlassIcon size={16} aria-hidden="true" />Acciones <kbd>Ctrl K</kbd></button><div className="notification-wrap"><button className="notification-button" type="button" onClick={() => setShowNotifications((current) => !current)} aria-expanded={showNotifications} aria-label="Abrir notificaciones"><BellIcon size={16} weight="regular" aria-hidden="true" />Notificaciones {unreadNotifications > 0 && <span>{unreadNotifications}</span>}</button>{showNotifications && <div className="notification-popover"><div className="notification-popover-head"><strong>Actividad reciente</strong>{unreadNotifications > 0 && <button className="text-button" type="button" onClick={onReadNotifications}>Marcar leídas</button>}</div>{notifications?.length ? notifications.slice(0, 8).map((notification) => <article className={notification.readAt ? "notification-item" : "notification-item unread"} key={notification.id}><strong>{notification.title}</strong><span>{notification.body}</span><small>{formatDate(notification.createdAt)}</small></article>) : <p className="empty-state">No hay notificaciones nuevas.</p>}</div>}</div>{["admin", "editor"].includes(role) && <button className="secondary-action onboarding-launch-button" type="button" onClick={role === "editor" ? () => onChange("settings") : onOpenOnboarding}><PaintBrushIcon size={16} weight="regular" aria-hidden="true" />Personalizar showroom</button>}<button className="secondary-action theme-toggle" type="button" onClick={onToggleTheme} aria-label="Cambiar tema">{theme === "dark" ? <SunIcon size={16} weight="regular" aria-hidden="true" /> : <MoonIcon size={16} weight="regular" aria-hidden="true" />}{theme === "dark" ? "Modo claro" : "Modo oscuro"}</button><button className="secondary-action" type="button" onClick={onPreview}><EyeIcon size={16} weight="regular" aria-hidden="true" />Vista previa</button><button className="secondary-action" onClick={onBack}><HouseIcon size={16} weight="regular" aria-hidden="true" />Ver catálogo</button><button className="secondary-action" onClick={onLogout}>Cerrar sesión</button></div>
       </header>
       <div className="admin-presentation-launch"><span>¿Quieres enseñar el showroom sin herramientas de administración?</span><button className="secondary-action" type="button" onClick={() => window.open("/presentacion", "_blank", "noopener,noreferrer")}>Abrir vista de presentación →</button></div>
       <nav className="admin-nav" aria-label="Módulos administrativos">
@@ -269,6 +284,7 @@ function AdminNav({ activeModule, onChange, onBack, onLogout, role, unreadNotifi
       <div className="admin-context-bar" aria-live="polite"><span><b>{moduleContext[0]}</b><small>{moduleContext[1]}</small></span><span className="admin-context-hint">Navega con las secciones de arriba</span></div>
       {activeModule === "inventory" && <button className="secondary-action inventory-import-trigger" type="button" onClick={() => setImportOpen(true)}><UploadSimpleIcon size={16} aria-hidden="true" />Importar inventario</button>}
       {activeModule === "inventory" && <InventoryImportModal open={importOpen} onClose={() => setImportOpen(false)} vehicles={vehicles} />}
+      <BackofficeCommandCenter open={commandOpen} onOpenChange={setCommandOpen} role={role} onNavigate={onChange} onPreview={onPreview} onBack={onBack} onOpenOnboarding={onOpenOnboarding} />
     </>
   );
 }
@@ -472,6 +488,8 @@ function DashboardView({ data, vehicles = [], leads, offers, appointments, loadi
 function PhotoEditor({ value, altValue, onChange, onAltChange, onUpload }) {
   const [draftUrl, setDraftUrl] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState("");
+  const [uploadError, setUploadError] = useState("");
   const [previewIndex, setPreviewIndex] = useState(null);
   const images = String(value || "").split(",").map((url) => url.trim()).filter(Boolean);
   // Los textos alternativos son posicionales: NO se filtran los vacíos, porque eso
@@ -505,11 +523,20 @@ function PhotoEditor({ value, altValue, onChange, onAltChange, onUpload }) {
   const handleUpload = async (event) => {
     const files = [...(event.target.files || [])];
     if (!files.length || !onUpload) return;
-    setUploading(true);
+    setUploading(true); setUploadStatus(""); setUploadError("");
     try {
-      const urls = (await Promise.all(files.map((file) => onUpload(file)))).filter(Boolean);
+      const originalBytes = files.reduce((total, file) => total + Number(file.size || 0), 0);
+      const prepared = await Promise.all(files.map(async (file) => {
+        if (!/^image\/(jpeg|png|webp)$/i.test(file.type) || file.size < 1_200_000) return file;
+        try { return await imageCompression(file, { maxSizeMB: 1.25, maxWidthOrHeight: 2560, useWebWorker: true, initialQuality: .86, fileType: file.type === "image/png" ? "image/webp" : file.type }); }
+        catch { return file; }
+      }));
+      const optimizedBytes = prepared.reduce((total, file) => total + Number(file.size || 0), 0);
+      const urls = (await Promise.all(prepared.map((file) => onUpload(file)))).filter(Boolean);
       update([...images, ...urls], [...alignedAlts, ...urls.map(() => "")]);
-    } finally { setUploading(false); event.target.value = ""; }
+      if (optimizedBytes < originalBytes) setUploadStatus(`Optimizamos las fotos antes de subirlas: ${Math.max(1, Math.round((1 - optimizedBytes / originalBytes) * 100))}% menos peso.`);
+    } catch (error) { setUploadError(error.message || "No pudimos subir esas imágenes. Inténtalo otra vez."); }
+    finally { setUploading(false); event.target.value = ""; }
   };
 
   const described = alignedAlts.filter(Boolean).length;
@@ -532,7 +559,8 @@ function PhotoEditor({ value, altValue, onChange, onAltChange, onUpload }) {
       <div className="photo-actions"><button type="button" className="photo-action" onClick={() => move(index, index - 1)} disabled={index === 0} aria-label="Mover a la izquierda">←</button><button type="button" className="photo-action" onClick={() => move(index, index + 1)} disabled={index === images.length - 1} aria-label="Mover a la derecha">→</button><button type="button" className="photo-action remove" onClick={() => remove(index)} aria-label="Eliminar imagen">×</button></div>
       <input className="photo-alt-input" value={alignedAlts[index]} onChange={(event) => setAlt(index, event.target.value)} placeholder="Texto alternativo (accesibilidad y SEO)" aria-label={`Texto alternativo de la imagen ${index + 1}`} maxLength={180} />
     </article>)}</div>
-    <div className="photo-add"><input value={draftUrl} onChange={(event) => setDraftUrl(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); add(); } }} placeholder="/assets/mi-vehiculo.jpg o URL externa" aria-label="URL de nueva imagen" /><button className="secondary-action" type="button" onClick={add}>Agregar URL</button><label className="upload-image-button">{uploading ? "Subiendo imágenes…" : "Subir imágenes"}<input type="file" multiple accept="image/jpeg,image/png,image/webp,image/avif" onChange={handleUpload} disabled={uploading} /></label></div>
+    <div className="photo-add"><input value={draftUrl} onChange={(event) => setDraftUrl(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); add(); } }} placeholder="/assets/mi-vehiculo.jpg o URL externa" aria-label="URL de nueva imagen" /><button className="secondary-action" type="button" onClick={add}>Agregar URL</button><label className="upload-image-button">{uploading ? "Preparando imágenes…" : "Subir imágenes"}<input type="file" multiple accept="image/jpeg,image/png,image/webp,image/avif" onChange={handleUpload} disabled={uploading} /></label></div>
+    {uploadStatus && <p className="photo-upload-status">{uploadStatus}</p>}{uploadError && <p className="media-upload-error">{uploadError}</p>}
     <AnimatePresence>{previewIndex !== null && images[previewIndex] && <motion.div className="admin-image-lightbox" role="dialog" aria-modal="true" aria-label="Previsualización de imagen" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onMouseDown={(event) => { if (event.target === event.currentTarget) closePreview(); }}><button type="button" className="admin-lightbox-close" onClick={closePreview} aria-label="Cerrar previsualización">×</button><button type="button" className="admin-lightbox-nav previous" onClick={() => setPreviewIndex((current) => Math.max(0, current - 1))} disabled={previewIndex === 0} aria-label="Imagen anterior">←</button><figure><img src={images[previewIndex]} alt={alignedAlts[previewIndex] || `Imagen ${previewIndex + 1}`} /><figcaption>{previewIndex + 1} / {images.length} · {alignedAlts[previewIndex] || "Sin texto alternativo"}</figcaption></figure><button type="button" className="admin-lightbox-nav next" onClick={() => setPreviewIndex((current) => Math.min(images.length - 1, current + 1))} disabled={previewIndex === images.length - 1} aria-label="Imagen siguiente">→</button></motion.div>}</AnimatePresence>
   </div>;
 }
@@ -855,6 +883,14 @@ const adminModuleIcons = { dashboard: SquaresFourIcon, inventory: CarSimpleIcon,
 function AdminModuleIcon({ name }) {
   const Icon = adminModuleIcons[name] || SquaresFourIcon;
   return <Icon className="admin-nav-icon" size={17} weight="regular" aria-hidden="true" />;
+}
+
+function BackofficeCommandCenter({ open, onOpenChange, role, onNavigate, onPreview, onBack, onOpenOnboarding }) {
+  const moduleActions = navItemsWithAppointments(role).map(([key, label]) => ({ value: `abrir ${label}`, label, icon: adminModuleIcons[key] || SquaresFourIcon, run: () => onNavigate(key) }));
+  const quickActions = [{ value: "vista previa showroom", label: "Ver como comprador", icon: EyeIcon, run: onPreview }, { value: "abrir catálogo público", label: "Abrir catálogo", icon: HouseIcon, run: onBack }];
+  if (["admin", "editor"].includes(role)) quickActions.unshift({ value: "personalizar showroom", label: "Personalizar showroom", icon: PaintBrushIcon, run: role === "editor" ? () => onNavigate("settings") : onOpenOnboarding });
+  const renderAction = (action) => { const Icon = action.icon; return <Command.Item key={action.value} value={action.value} onSelect={() => { action.run(); onOpenChange(false); }}><Icon size={18} weight="regular" aria-hidden="true" /><span>{action.label}</span><ArrowUpRightIcon size={15} aria-hidden="true" /></Command.Item>; };
+  return <Command.Dialog open={open} onOpenChange={onOpenChange} label="Acciones rápidas del backoffice" className="command-dialog"><div className="command-shell"><div className="command-search"><MagnifyingGlassIcon size={18} aria-hidden="true" /><Command.Input autoFocus placeholder="Busca una sección o una acción…" /></div><Command.List><Command.Empty>No encontramos esa acción.</Command.Empty><Command.Group heading="Acciones rápidas">{quickActions.map(renderAction)}</Command.Group><Command.Separator /><Command.Group heading="Módulos">{moduleActions.map(renderAction)}</Command.Group></Command.List><footer><span>Escribe para buscar</span><kbd>Esc</kbd><span>para cerrar</span></footer></div></Command.Dialog>;
 }
 
 function WhatsAppAction({ lead }) {
@@ -1475,8 +1511,28 @@ const leadStages = [
   ["lost", "Perdidos", "Revisar despues"],
 ];
 
+function LeadPipelineCard({ lead, onUpdate, onOpenList, onCreateQuote }) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: `lead:${lead.id}`, data: { status: lead.status } });
+  const style = transform ? { transform: CSS.Translate.toString(transform) } : undefined;
+  return <article ref={setNodeRef} style={style} className={`lead-pipeline-card${isDragging ? " is-dragging" : ""}`}><div className="pipeline-card-top"><strong>{lead.name}</strong><button className="pipeline-drag-handle" type="button" {...listeners} {...attributes} aria-label={`Arrastrar a ${lead.name}`} title="Arrastra para mover de etapa">⠿</button><span>{formatDate(lead.createdAt)}</span></div><small>{lead.brand ? `${lead.brand} ${lead.model}` : "Contacto general"}</small><div className="pipeline-card-meta"><span className={`priority-mark p${lead.priority || 2}`} title={`Prioridad ${formatPriority(lead.priority)}`}>{formatPriority(lead.priority)}</span><span>{lead.assignedTo || "Sin asignar"}</span></div>{lead.nextAction && <p className="pipeline-next-action">{lead.nextAction}{lead.nextActionAt ? ` · ${formatDate(lead.nextActionAt)}` : ""}</p>}<span className="pipeline-source">{formatLeadSource(lead.source)}</span><select aria-label={`Mover a etapa ${lead.name}`} value={lead.status} onChange={(event) => onUpdate(lead.id, { status: event.target.value })}><option value="new">Nuevo</option><option value="contacted">Contactado</option><option value="qualified">Calificado</option><option value="closed">Cerrado</option><option value="lost">Perdido</option></select>{lead.vehicleId && <button type="button" className="pipeline-manage-button quote-inline-action" onClick={() => onCreateQuote?.(lead)}>Crear cotización →</button>}{onOpenList && <button type="button" className="pipeline-manage-button" onClick={onOpenList}>Abrir ficha del cliente →</button>}</article>;
+}
+
+function LeadPipelineColumn({ stage, label, hint, records, onUpdate, onOpenList, onCreateQuote }) {
+  const { isOver, setNodeRef } = useDroppable({ id: `stage:${stage}` });
+  return <section className={`lead-pipeline-column ${stage}${isOver ? " is-drop-target" : ""}`}><div className="lead-pipeline-heading"><div><span className="eyebrow">{label}</span><small>{hint}</small></div><strong>{String(records.length).padStart(2, "0")}</strong></div><div ref={setNodeRef} className="lead-pipeline-cards">{records.length ? records.map((lead) => <LeadPipelineCard lead={lead} key={lead.id} onUpdate={onUpdate} onCreateQuote={onCreateQuote} onOpenList={onOpenList} />) : <p className="pipeline-empty">Suelta un cliente aquí</p>}</div></section>;
+}
+
 function LeadPipeline({ records, onUpdate, onOpenList, onCreateQuote }) {
-  return <div className="lead-pipeline">{leadStages.map(([stage, label, hint]) => { const stageRecords = records.filter((lead) => lead.status === stage); return <section className={`lead-pipeline-column ${stage}`} key={stage}><div className="lead-pipeline-heading"><div><span className="eyebrow">{label}</span><small>{hint}</small></div><strong>{String(stageRecords.length).padStart(2, "0")}</strong></div><div className="lead-pipeline-cards">{stageRecords.length ? stageRecords.map((lead) => <article className="lead-pipeline-card" key={lead.id}><div className="pipeline-card-top"><strong>{lead.name}</strong><span>{formatDate(lead.createdAt)}</span></div><small>{lead.brand ? `${lead.brand} ${lead.model}` : "Contacto general"}</small><div className="pipeline-card-meta"><span className={`priority-mark p${lead.priority || 2}`} title={`Prioridad ${formatPriority(lead.priority)}`}>{formatPriority(lead.priority)}</span><span>{lead.assignedTo || "Sin asignar"}</span></div>{lead.nextAction && <p className="pipeline-next-action">{lead.nextAction}{lead.nextActionAt ? ` · ${formatDate(lead.nextActionAt)}` : ""}</p>}<span className="pipeline-source">{formatLeadSource(lead.source)}</span><select aria-label={`Mover a etapa ${lead.name}`} value={lead.status} onChange={(event) => onUpdate(lead.id, { status: event.target.value })}><option value="new">Nuevo</option><option value="contacted">Contactado</option><option value="qualified">Calificado</option><option value="closed">Cerrado</option><option value="lost">Perdido</option></select>{lead.vehicleId && <button type="button" className="pipeline-manage-button quote-inline-action" onClick={() => onCreateQuote?.(lead)}>Crear cotización →</button>}{onOpenList && <button type="button" className="pipeline-manage-button" onClick={onOpenList}>Abrir ficha del cliente →</button>}</article>) : <p className="pipeline-empty">Sin registros</p>}</div></section>; })}</div>;
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }), useSensor(KeyboardSensor));
+  const moveLead = ({ active, over }) => {
+    const target = String(over?.id || "");
+    if (!target.startsWith("stage:")) return;
+    const leadId = String(active.id || "").replace(/^lead:/, "");
+    const lead = records.find((item) => item.id === leadId);
+    const status = target.replace(/^stage:/, "");
+    if (lead && lead.status !== status) onUpdate(lead.id, { status });
+  };
+  return <DndContext sensors={sensors} onDragEnd={moveLead}><div className="lead-pipeline">{leadStages.map(([stage, label, hint]) => <LeadPipelineColumn stage={stage} label={label} hint={hint} records={records.filter((lead) => lead.status === stage)} key={stage} onUpdate={onUpdate} onCreateQuote={onCreateQuote} onOpenList={onOpenList} />)}</div></DndContext>;
 }
 
 function LeadsControlRoom({ records, users, loading, onRefresh, onUpdate, onLoadHistory, onAddAppointment, onCreateQuote }) {
