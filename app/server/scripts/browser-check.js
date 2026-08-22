@@ -327,8 +327,8 @@ async function main() {
     } else {
       const { token, user } = await session.json();
       console.log(`      sesión de verificación: ${user.role}`);
-      const commonOperations = [["dashboard", "Resumen"], ["inventory", "Inventario"], ["taxonomy", "Marcas y categorías"], ["leads", "Clientes"], ["appointments", "Citas"], ["quotes", "Cotizaciones"], ["blog", "Blog"], ["offers", "Ofertas"], ["reports", "Reportes"]];
-      const modules = user.role === "editor" ? [...commonOperations, ["settings", "Personalizar showroom"]] : user.role === "admin" ? [...commonOperations, ["audit", "Actividad"], ["users", "Usuarios"], ["integrations", "Integraciones"], ["settings", "Configuración"]] : commonOperations;
+      const commonOperations = [["dashboard", "Resumen"], ["inventory", "Inventario"], ["taxonomy", "Marcas y categorías"], ["leads", "Clientes"], ["appointments", "Citas"], ["quotes", "Cotizaciones"], ["blog", "Contenido"], ["offers", "Ofertas"], ["reports", "Reportes"]];
+      const modules = user.role === "editor" ? [...commonOperations, ["settings", "Personalizar showroom"]] : user.role === "admin" ? [...commonOperations, ["audit", "Actividad"], ["users", "Usuarios"], ["integrations", "Conexiones"], ["settings", "Personalizar showroom"]] : commonOperations;
       const moduleReadyText = { dashboard: "Prioridad", inventory: "inventario", taxonomy: "Marcas y categorías", leads: "Clientes", appointments: "Citas", quotes: "Cotizaciones", blog: "Contenido", offers: "Ofertas", reports: "Reportes", audit: "Actividad", users: "Usuarios", integrations: "Agenda", settings: "Tu showroom, a tu manera" };
       for (const [width, height, label, mobile] of [[390, 844, "movil", true], [1280, 800, "escritorio", false]]) {
         await cdp.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile });

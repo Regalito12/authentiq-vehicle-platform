@@ -79,10 +79,10 @@ function format3dReport(report) {
 
 function navItemsForRole(role) {
   const salesItem = ["quotes", "Cotizaciones"];
-  if (role === "admin") return [["dashboard", "Resumen"], ["inventory", "Inventario"], ["taxonomy", "Marcas y categorías"], ["leads", "Leads"], salesItem, ["blog", "Blog"], ["offers", "Ofertas"], ["reports", "Reportes"], ["audit", "Actividad"], ["users", "Usuarios"], ["integrations", "Integraciones"], ["settings", "Configuración"]];
-  if (role === "editor") return [["dashboard", "Resumen"], ["inventory", "Inventario"], ["taxonomy", "Marcas y categorías"], ["leads", "Clientes"], salesItem, ["blog", "Blog"], ["offers", "Ofertas"], ["reports", "Reportes"], ["settings", "Personalizar showroom"]];
-  if (role === "content_editor") return [["dashboard", "Resumen"], ["blog", "Blog"]];
-  return [["dashboard", "Resumen"], ["leads", "Leads"], salesItem, ["offers", "Ofertas"], ["reports", "Reportes"]];
+  if (role === "admin") return [["dashboard", "Resumen"], ["inventory", "Inventario"], ["taxonomy", "Marcas y categorías"], ["leads", "Clientes"], salesItem, ["blog", "Contenido"], ["offers", "Ofertas"], ["reports", "Reportes"], ["audit", "Actividad"], ["users", "Usuarios"], ["integrations", "Conexiones"], ["settings", "Personalizar showroom"]];
+  if (role === "editor") return [["dashboard", "Resumen"], ["inventory", "Inventario"], ["taxonomy", "Marcas y categorías"], ["leads", "Clientes"], salesItem, ["blog", "Contenido"], ["offers", "Ofertas"], ["reports", "Reportes"], ["settings", "Personalizar showroom"]];
+  if (role === "content_editor") return [["dashboard", "Resumen"], ["blog", "Contenido"]];
+  return [["dashboard", "Resumen"], ["leads", "Clientes"], salesItem, ["offers", "Ofertas"], ["reports", "Reportes"]];
 }
 
 function navItemsWithAppointments(role) {
@@ -179,7 +179,7 @@ function AdminNav({ activeModule, onChange, onBack, onLogout, role, unreadNotifi
   const primaryKeys = ["dashboard", "inventory", "leads", "appointments", "quotes"];
   const primaryItems = visibleItems.filter(([key]) => primaryKeys.includes(key));
   const advancedItems = visibleItems.filter(([key]) => !primaryKeys.includes(key));
-  const moduleContext = { dashboard: ["Resumen", "Mira lo importante y decide la siguiente acción."], inventory: ["Inventario", "Mantén cada ficha lista para vender."], taxonomy: ["Marcas y categorías", "Controla el catálogo que usa tu equipo."], leads: ["Clientes", "Prioriza conversaciones y próximos pasos."], quotes: ["Cotizaciones", "Convierte una propuesta en una decisión."], blog: ["Contenido", "Cuenta mejor la historia de cada vehículo."], offers: ["Ofertas", "Responde rápido a las oportunidades."], reports: ["Reportes", "Lee el negocio antes de moverlo."], audit: ["Actividad", "Revisa lo que está pasando en el sistema."], users: ["Usuarios", "Administra acceso y responsabilidades."], integrations: ["Integraciones", "Calendario, redes sociales y suscripción en un solo lugar."], settings: ["Configuración", "Ajusta la identidad y operación del sitio."] }[activeModule] || ["Backoffice", `Operación ${businessName}`];
+  const moduleContext = { dashboard: ["Resumen", "Mira lo importante y decide la siguiente acción."], inventory: ["Inventario", "Mantén cada ficha lista para vender."], taxonomy: ["Marcas y categorías", "Controla el catálogo que usa tu equipo."], leads: ["Clientes", "Prioriza conversaciones y próximos pasos."], quotes: ["Cotizaciones", "Convierte una propuesta en una decisión."], blog: ["Contenido", "Cuenta mejor la historia de cada vehículo."], offers: ["Ofertas", "Responde rápido a las oportunidades."], reports: ["Reportes", "Lee el negocio antes de moverlo."], audit: ["Actividad", "Revisa lo que está pasando en el sistema."], users: ["Usuarios", "Administra acceso y responsabilidades."], integrations: ["Conexiones", "Calendario, redes y cobros en un solo lugar."], settings: ["Personalización", "Ajusta la identidad y operación del showroom."] }[activeModule] || ["Backoffice", `Operación ${businessName}`];
   return (
     <>
       <header className="admin-header">
@@ -188,13 +188,13 @@ function AdminNav({ activeModule, onChange, onBack, onLogout, role, unreadNotifi
         <div className="admin-title-row"><h1 className="admin-app-title">{businessName} <span>Backoffice</span></h1><span className="role-chip">{role === "admin" ? "OWNER" : role === "content_editor" ? "CONTENIDO" : role === "editor" ? "OPERACIÓN" : "VENTAS"}</span></div>
         <div className="admin-header-actions"><div className="notification-wrap"><button className="notification-button" type="button" onClick={() => setShowNotifications((current) => !current)} aria-expanded={showNotifications} aria-label="Abrir notificaciones">Notificaciones {unreadNotifications > 0 && <span>{unreadNotifications}</span>}</button>{showNotifications && <div className="notification-popover"><div className="notification-popover-head"><strong>Actividad reciente</strong>{unreadNotifications > 0 && <button className="text-button" type="button" onClick={onReadNotifications}>Marcar leídas</button>}</div>{notifications?.length ? notifications.slice(0, 8).map((notification) => <article className={notification.readAt ? "notification-item" : "notification-item unread"} key={notification.id}><strong>{notification.title}</strong><span>{notification.body}</span><small>{formatDate(notification.createdAt)}</small></article>) : <p className="empty-state">No hay notificaciones nuevas.</p>}</div>}</div>{["admin", "editor"].includes(role) && <button className="secondary-action onboarding-launch-button" type="button" onClick={role === "editor" ? () => onChange("settings") : onOpenOnboarding}>Personalizar showroom</button>}<button className="secondary-action theme-toggle" type="button" onClick={onToggleTheme} aria-label="Cambiar tema">{theme === "dark" ? "Modo claro" : "Modo oscuro"}</button><button className="secondary-action" type="button" onClick={onPreview}>Vista previa</button><button className="secondary-action" onClick={onBack}>Ver catálogo</button><button className="secondary-action" onClick={onLogout}>Cerrar sesión</button></div>
       </header>
-      <div className="admin-presentation-launch"><span>Para mostrar el producto sin ruido operativo</span><button className="secondary-action" type="button" onClick={() => window.open("/presentacion", "_blank", "noopener,noreferrer")}>Abrir modo presentación →</button></div>
+      <div className="admin-presentation-launch"><span>¿Quieres enseñar el showroom sin herramientas de administración?</span><button className="secondary-action" type="button" onClick={() => window.open("/presentacion", "_blank", "noopener,noreferrer")}>Abrir vista de presentación →</button></div>
       <nav className="admin-nav" aria-label="Módulos administrativos">
-        <div className="admin-nav-core"><span className="admin-nav-label">Trabajo diario</span>{primaryItems.map(([key, label]) => <button key={key} className={activeModule === key ? "admin-nav-item active" : "admin-nav-item"} aria-current={activeModule === key ? "page" : undefined} onClick={() => onChange(key)}>{key === "leads" ? "Clientes" : label}</button>)}</div>
+        <div className="admin-nav-core"><span className="admin-nav-label">Trabajo diario</span>{primaryItems.map(([key, label]) => <button key={key} className={activeModule === key ? "admin-nav-item active" : "admin-nav-item"} aria-current={activeModule === key ? "page" : undefined} onClick={() => onChange(key)}>{label}</button>)}</div>
         {advancedItems.length > 0 && <div className="admin-nav-advanced"><button className="admin-nav-more-toggle" type="button" aria-expanded={advancedOpen} onClick={() => setAdvancedOpen((current) => !current)}>{advancedOpen ? "Ocultar administración" : "Más herramientas"} <span aria-hidden="true">{advancedOpen ? "↑" : "↓"}</span></button>{advancedOpen && <div className="admin-nav-more-panel"><span className="admin-nav-label">Administración</span>{advancedItems.map(([key, label]) => <button key={key} className={activeModule === key ? "admin-nav-item active" : "admin-nav-item"} aria-current={activeModule === key ? "page" : undefined} onClick={() => { setAdvancedOpen(true); onChange(key); }}>{label}</button>)}</div>}</div>}
       </nav>
       <div className="admin-context-bar" aria-live="polite"><span><b>{moduleContext[0]}</b><small>{moduleContext[1]}</small></span><span className="admin-context-hint">Navega con las secciones de arriba</span></div>
-      {activeModule === "inventory" && <button className="secondary-action inventory-import-trigger" type="button" onClick={() => setImportOpen(true)}>Importar Excel / CSV</button>}
+      {activeModule === "inventory" && <button className="secondary-action inventory-import-trigger" type="button" onClick={() => setImportOpen(true)}>Importar inventario</button>}
       {activeModule === "inventory" && <InventoryImportModal open={importOpen} onClose={() => setImportOpen(false)} vehicles={vehicles} />}
     </>
   );
@@ -253,9 +253,9 @@ function DashboardSetupCard({ onboarding, onOpenOnboarding, onOpenPublic }) {
     { label: "Operación", done: groupDone(["contact", "appointments", "legal"]) },
     { label: "Vitrina", done: groupDone(["catalog", "social"]) },
   ];
-  return <section className={`dashboard-setup-card${isComplete ? " is-complete" : ""}`} aria-label="Estado del showroom white-label">
+  return <section className={`dashboard-setup-card${isComplete ? " is-complete" : ""}`} aria-label="Estado de configuración del showroom">
     <div className="dashboard-setup-main">
-      <div className="dashboard-setup-heading"><span className="eyebrow">CENTRO DE INICIO · WHITE-LABEL</span><span className="dashboard-setup-percent">{progress}%</span></div>
+      <div className="dashboard-setup-heading"><span className="eyebrow">CENTRO DE INICIO · PERSONALIZACIÓN</span><span className="dashboard-setup-percent">{progress}%</span></div>
       <h3>{isComplete ? "Tu showroom está listo para vender." : "Haz que tu showroom quede listo para vender."}</h3>
       <p>{isComplete ? "La identidad, la operación y la vitrina ya están configuradas. Ahora puedes revisar la experiencia como comprador." : `Te queda ${onboarding.steps.length - completed} ${onboarding.steps.length - completed === 1 ? "paso" : "pasos"} para que el dealer se sienta completamente suyo.`}</p>
       <div className="dashboard-setup-progress" aria-label={`${progress}% configurado`}><span style={{ width: `${progress}%` }} /></div>
@@ -305,7 +305,7 @@ function DealerShareCard({ organization, settings, onNavigate }) {
     <article className="dealer-share-card" aria-label="Enlace exclusivo de tu showroom">
       <div className="dealer-share-main">
         <div className="dealer-share-tag">
-          <span className="eyebrow">WHITE-LABEL · TU ENLACE EXCLUSIVO</span>
+          <span className="eyebrow">TU SHOWROOM · ENLACE EXCLUSIVO</span>
           <span className="dealer-slug-badge">ID: {slug}</span>
         </div>
         <h3>{isPending ? "Tu vista previa privada" : "Comparte tu Showroom con tus Clientes"}</h3>
@@ -379,7 +379,7 @@ function DashboardView({ data, vehicles = [], leads, offers, appointments, loadi
         <StatCard label="Vehículos" numericValue={snapshot.totalVehicles} note={`${snapshot.publishedVehicles} publicados`} />
         <StatCard label="Stock disponible" numericValue={snapshot.availableStock} note="Unidades publicadas" />
         <StatCard label="Valor inventario" numericValue={snapshot.inventoryValue} prefix="$" suffix=" USD" note="Valor publicado por modelo" />
-        <StatCard label="Leads activos" numericValue={snapshot.pendingLeads} note={`${snapshot.pendingOffers} ofertas pendientes`} />
+        <StatCard label="Clientes activos" numericValue={snapshot.pendingLeads} note={`${snapshot.pendingOffers} ofertas pendientes`} />
       </div>
       <DashboardPulse data={data} leads={leads} offers={offers} appointments={appointments} onNavigate={onNavigate} />
       <div className="charts-grid">
@@ -722,7 +722,7 @@ function ReportsModule({ dashboard, vehicles, leads, offers, loading, analytics 
   const recent = (records) => records.filter((record) => !cutoff || new Date(record.createdAt).getTime() >= cutoff);
   const periodOffers = recent(offers);
   const periodLeads = recent(leads);
-  const funnel = [{ name: "Leads", value: periodLeads.length, fill: "#c8a24b" }, { name: "Ofertas", value: periodOffers.length, fill: "#5f6f6b" }, { name: "Cerrados", value: periodLeads.filter((lead) => lead.status === "closed").length, fill: "#2f3b39" }];
+  const funnel = [{ name: "Clientes", value: periodLeads.length, fill: "#c8a24b" }, { name: "Ofertas", value: periodOffers.length, fill: "#5f6f6b" }, { name: "Cerrados", value: periodLeads.filter((lead) => lead.status === "closed").length, fill: "#2f3b39" }];
   const acceptedOffers = periodOffers.filter((offer) => offer.status === "accepted");
   const conversion = periodLeads.length ? Math.round((periodLeads.filter((lead) => ["qualified", "closed"].includes(lead.status)).length / periodLeads.length) * 100) : 0;
   const exportReport = () => { const rows = [["Métrica", "Valor"], ["Periodo", period === "all" ? "Histórico" : `Últimos ${period} días`], ["Vehículos publicados", reportPublishedCount], ["Stock disponible", reportStock], ["Leads", periodLeads.length], ["Ofertas", periodOffers.length], ["Ofertas aceptadas", acceptedOffers.length], ["Conversión calificados/cerrados", `${conversion}%`]]; const csv = rows.map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(",")).join("\n"); const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob(["\\ufeff", csv], { type: "text/csv;charset=utf-8" })); link.download = `authentiq-reporte-${new Date().toISOString().slice(0, 10)}.csv`; link.click(); URL.revokeObjectURL(link.href); };
@@ -930,13 +930,23 @@ const onboardingMeta = {
   domain: { eyebrow: "08 · DOMINIO", title: "Pon tu nombre en la dirección.", copy: "Conecta el dominio del dealer cuando estés listo. Es opcional para empezar y no bloquea la configuración." },
 };
 
-function WelcomeOnboarding({ onboarding, organization, onNavigate, onDismiss, onOpenPublic }) {
-  const firstPending = onboarding.steps.find((step) => !step.done);
-  const [selectedId, setSelectedId] = useState(firstPending?.id || onboarding.steps[0]?.id || "identity");
-  const selected = onboarding.steps.find((step) => step.id === selectedId) || firstPending || onboarding.steps[0];
-  const meta = onboardingMeta[selected?.id] || onboardingMeta.identity;
-  const completed = Number(onboarding.completed ?? onboarding.steps.filter((step) => step.done).length);
-  const isComplete = completed === onboarding.steps.length;
+function LegacyWelcomeOnboarding({ onboarding, organization, onNavigate, onDismiss, onOpenPublic }) {
+  const onboardingGroups = [
+    { id: "identity", stepIds: ["identity", "logo"], label: "Marca", detail: "Nombre, enlace y logo listos para que el showroom se sienta propio.", destination: "settings" },
+    { id: "operation", stepIds: ["contact", "appointments"], label: "Operación", detail: "Canales de contacto y horarios preparados para atender compradores.", destination: "settings" },
+    { id: "catalog", stepIds: ["catalog"], label: "Inventario", detail: "Publica al menos un vehículo para comenzar a recibir consultas.", destination: "inventory" },
+    { id: "reach", stepIds: ["social"], label: "Difusión", detail: "Prepara tus redes y crea contenido desde el backoffice.", destination: "integrations" },
+    { id: "publish", stepIds: ["legal", "domain"], label: "Publicación", detail: "Revisa la información legal y conecta tu dominio cuando estés listo.", destination: "settings" },
+  ];
+  const groupDone = (group) => onboarding.steps.filter((step) => group.stepIds.includes(step.id)).every((step) => step.done);
+  const displaySteps = onboardingGroups.map((group) => ({ ...group, done: groupDone(group) }));
+  const firstPending = displaySteps.find((step) => !step.done);
+  const [selectedId, setSelectedId] = useState(firstPending?.id || displaySteps[0]?.id || "identity");
+  const selected = displaySteps.find((step) => step.id === selectedId) || firstPending || displaySteps[0];
+  const meta = onboardingMeta[selected?.stepIds?.find((id) => onboardingMeta[id]) || "identity"] || onboardingMeta.identity;
+  const completed = displaySteps.filter((step) => step.done).length;
+  const progress = Math.round((completed / displaySteps.length) * 100);
+  const isComplete = completed === displaySteps.length;
 
   useEffect(() => {
     document.body.style.overflow = "hidden";
@@ -947,7 +957,7 @@ function WelcomeOnboarding({ onboarding, organization, onNavigate, onDismiss, on
 
   const openSelected = () => {
     onDismiss();
-    onNavigate?.(onboardingDestinations[selected.id] || "settings");
+    onNavigate?.(selected.destination || onboardingDestinations[selected.id] || "settings");
   };
 
   return <motion.div className="welcome-onboarding-backdrop" role="presentation" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
@@ -955,6 +965,37 @@ function WelcomeOnboarding({ onboarding, organization, onNavigate, onDismiss, on
       <header className="welcome-onboarding-header"><div><span className="eyebrow">PERSONALIZA TU SHOWROOM</span><h2 id="welcome-onboarding-title">{organization?.name || "Tu showroom"}<br /><em>empieza aquí.</em></h2><p>Configura lo esencial en minutos. Puedes guardar y volver cuando quieras.</p></div><button className="welcome-onboarding-close" type="button" onClick={onDismiss} aria-label="Cerrar personalización">×</button></header>
       <div className="welcome-onboarding-progress"><span><b>{onboarding.progress}%</b> configurado</span><div><i style={{ width: `${onboarding.progress}%` }} /></div><small>{completed} de {onboarding.steps.length} pasos</small></div>
       <div className="welcome-onboarding-layout"><aside className="welcome-onboarding-list" aria-label="Pasos de configuración">{onboarding.steps.map((step, index) => <button type="button" className={step.id === selected.id ? "is-selected" : ""} key={step.id} onClick={() => setSelectedId(step.id)}><span className={step.done ? "welcome-step-number is-done" : "welcome-step-number"}>{step.done ? "✓" : String(index + 1).padStart(2, "0")}</span><span><strong>{step.label}</strong><small>{step.done ? "Completado · puedes revisarlo" : step.detail}</small></span><b>→</b></button>)}</aside><div className="welcome-onboarding-detail"><span className="eyebrow">{meta.eyebrow}</span><h3>{isComplete ? "Todo listo para presentar." : meta.title}</h3><p>{isComplete ? "Tu identidad, operación y vitrina ya están configuradas. Mira ahora la experiencia desde el lado del comprador." : meta.copy}</p><div className="welcome-onboarding-surface"><div className="welcome-surface-mark">{organization?.logoUrl ? <img src={organization.logoUrl} alt="" /> : <span>{(organization?.name || "A").slice(0, 2).toUpperCase()}</span>}</div><div><small>PRÓXIMA ACCIÓN</small><strong>{isComplete ? "Abrir el showroom público" : selected.label}</strong><p>{isComplete ? "Comprueba que el dealer se vea y se sienta como propio." : selected.detail}</p></div></div><div className="welcome-onboarding-actions"><button className="primary-action" type="button" onClick={isComplete ? onOpenPublic : openSelected}>{isComplete ? "Abrir showroom público ↗" : `${selected.done ? "Revisar" : "Configurar"} ${selected.label.toLowerCase()} →`}</button><button className="text-button" type="button" onClick={onDismiss}>Lo haré después</button></div></div></div><footer className="welcome-onboarding-footer"><span>Los cambios se guardan por concesionario.</span><span>Centro de inicio disponible desde el backoffice.</span></footer>
+    </motion.section>
+  </motion.div>;
+}
+
+function WelcomeOnboarding({ onboarding, organization, onNavigate, onDismiss, onOpenPublic }) {
+  const groups = [
+    { id: "identity", ids: ["identity", "logo"], label: "Marca", detail: "Nombre, enlace y logo listos para que el showroom se sienta propio.", destination: "settings" },
+    { id: "operation", ids: ["contact", "appointments"], label: "Operación", detail: "Canales de contacto y horarios preparados para atender compradores.", destination: "settings" },
+    { id: "catalog", ids: ["catalog"], label: "Inventario", detail: "Publica al menos un vehículo para comenzar a recibir consultas.", destination: "inventory" },
+    { id: "reach", ids: ["social"], label: "Difusión", detail: "Prepara tus redes y crea contenido desde el backoffice.", destination: "integrations" },
+    { id: "publish", ids: ["legal", "domain"], label: "Publicación", detail: "Revisa la información legal y conecta tu dominio cuando estés listo.", destination: "settings" },
+  ];
+  const displaySteps = groups.map((group) => ({ ...group, done: onboarding.steps.filter((step) => group.ids.includes(step.id)).every((step) => step.done) }));
+  const firstPending = displaySteps.find((step) => !step.done);
+  const [selectedId, setSelectedId] = useState(firstPending?.id || displaySteps[0].id);
+  const selected = displaySteps.find((step) => step.id === selectedId) || firstPending || displaySteps[0];
+  const completed = displaySteps.filter((step) => step.done).length;
+  const progress = Math.round((completed / displaySteps.length) * 100);
+  const isComplete = completed === displaySteps.length;
+  useEffect(() => {
+    document.body.style.overflow = "hidden";
+    const closeOnEscape = (event) => { if (event.key === "Escape") onDismiss(); };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => { document.body.style.overflow = ""; window.removeEventListener("keydown", closeOnEscape); };
+  }, [onDismiss]);
+  const openSelected = () => { onDismiss(); onNavigate?.(selected.destination); };
+  return <motion.div className="welcome-onboarding-backdrop" role="presentation" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+    <motion.section className="welcome-onboarding" role="dialog" aria-modal="true" aria-labelledby="welcome-onboarding-title" initial={{ opacity: 0, y: 18, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 12, scale: .98 }} transition={{ duration: .28, ease: [0.22, 1, 0.36, 1] }}>
+      <header className="welcome-onboarding-header"><div><span className="eyebrow">PERSONALIZA TU SHOWROOM</span><h2 id="welcome-onboarding-title">{organization?.name || "Tu showroom"}<br /><em>empieza aquí.</em></h2><p>Configura lo esencial en cinco áreas. Puedes guardar y volver cuando quieras.</p></div><button className="welcome-onboarding-close" type="button" onClick={onDismiss} aria-label="Cerrar personalización">×</button></header>
+      <div className="welcome-onboarding-progress"><span><b>{progress}%</b> configurado</span><div><i style={{ width: `${progress}%` }} /></div><small>{completed} de {displaySteps.length} áreas</small></div>
+      <div className="welcome-onboarding-layout"><aside className="welcome-onboarding-list" aria-label="Áreas de configuración">{displaySteps.map((step, index) => <button type="button" className={step.id === selected.id ? "is-selected" : ""} key={step.id} onClick={() => setSelectedId(step.id)}><span className={step.done ? "welcome-step-number is-done" : "welcome-step-number"}>{step.done ? "✓" : String(index + 1).padStart(2, "0")}</span><span><strong>{step.label}</strong><small>{step.done ? "Completado · puedes revisarlo" : step.detail}</small></span><b>→</b></button>)}</aside><div className="welcome-onboarding-detail"><span className="eyebrow">{String(completed + 1).padStart(2, "0")} · {selected.label.toUpperCase()}</span><h3>{isComplete ? "Todo listo para presentar." : `Prepara ${selected.label.toLowerCase()}.`}</h3><p>{isComplete ? "Tu identidad, operación y vitrina ya están configuradas. Mira ahora la experiencia desde el lado del comprador." : selected.detail}</p><div className="welcome-onboarding-surface"><div className="welcome-surface-mark">{organization?.logoUrl ? <img src={organization.logoUrl} alt="" /> : <span>{(organization?.name || "A").slice(0, 2).toUpperCase()}</span>}</div><div><small>PRÓXIMA ACCIÓN</small><strong>{isComplete ? "Abrir el showroom público" : selected.label}</strong><p>{isComplete ? "Comprueba que el dealer se vea y se sienta como propio." : selected.detail}</p></div></div><div className="welcome-onboarding-actions"><button className="primary-action" type="button" onClick={isComplete ? onOpenPublic : openSelected}>{isComplete ? "Abrir showroom público ↗" : `${selected.done ? "Revisar" : "Configurar"} ${selected.label.toLowerCase()} →`}</button><button className="text-button" type="button" onClick={onDismiss}>Lo haré después</button></div></div></div><footer className="welcome-onboarding-footer"><span>Los cambios se guardan por concesionario.</span><span>Centro de inicio disponible desde el backoffice.</span></footer>
     </motion.section>
   </motion.div>;
 }
@@ -1326,7 +1367,7 @@ const leadStages = [
 ];
 
 function LeadPipeline({ records, onUpdate, onOpenList, onCreateQuote }) {
-  return <div className="lead-pipeline">{leadStages.map(([stage, label, hint]) => { const stageRecords = records.filter((lead) => lead.status === stage); return <section className={`lead-pipeline-column ${stage}`} key={stage}><div className="lead-pipeline-heading"><div><span className="eyebrow">{label}</span><small>{hint}</small></div><strong>{String(stageRecords.length).padStart(2, "0")}</strong></div><div className="lead-pipeline-cards">{stageRecords.length ? stageRecords.map((lead) => <article className="lead-pipeline-card" key={lead.id}><div className="pipeline-card-top"><strong>{lead.name}</strong><span>{formatDate(lead.createdAt)}</span></div><small>{lead.brand ? `${lead.brand} ${lead.model}` : "Contacto general"}</small><div className="pipeline-card-meta"><span className={`priority-mark p${lead.priority || 2}`}>P{lead.priority || 2}</span><span>{lead.assignedTo || "Sin asignar"}</span></div>{lead.nextAction && <p className="pipeline-next-action">{lead.nextAction}{lead.nextActionAt ? ` · ${formatDate(lead.nextActionAt)}` : ""}</p>}<span className="pipeline-source">{lead.source || "Directo"}</span><select aria-label={`Mover a etapa ${lead.name}`} value={lead.status} onChange={(event) => onUpdate(lead.id, { status: event.target.value })}><option value="new">Nuevo</option><option value="contacted">Contactado</option><option value="qualified">Calificado</option><option value="closed">Cerrado</option><option value="lost">Perdido</option></select>{lead.vehicleId && <button type="button" className="pipeline-manage-button quote-inline-action" onClick={() => onCreateQuote?.(lead)}>Crear cotización →</button>}{onOpenList && <button type="button" className="pipeline-manage-button" onClick={onOpenList}>Gestionar lead →</button>}</article>) : <p className="pipeline-empty">Sin registros</p>}</div></section>; })}</div>;
+  return <div className="lead-pipeline">{leadStages.map(([stage, label, hint]) => { const stageRecords = records.filter((lead) => lead.status === stage); return <section className={`lead-pipeline-column ${stage}`} key={stage}><div className="lead-pipeline-heading"><div><span className="eyebrow">{label}</span><small>{hint}</small></div><strong>{String(stageRecords.length).padStart(2, "0")}</strong></div><div className="lead-pipeline-cards">{stageRecords.length ? stageRecords.map((lead) => <article className="lead-pipeline-card" key={lead.id}><div className="pipeline-card-top"><strong>{lead.name}</strong><span>{formatDate(lead.createdAt)}</span></div><small>{lead.brand ? `${lead.brand} ${lead.model}` : "Contacto general"}</small><div className="pipeline-card-meta"><span className={`priority-mark p${lead.priority || 2}`}>P{lead.priority || 2}</span><span>{lead.assignedTo || "Sin asignar"}</span></div>{lead.nextAction && <p className="pipeline-next-action">{lead.nextAction}{lead.nextActionAt ? ` · ${formatDate(lead.nextActionAt)}` : ""}</p>}<span className="pipeline-source">{lead.source || "Directo"}</span><select aria-label={`Mover a etapa ${lead.name}`} value={lead.status} onChange={(event) => onUpdate(lead.id, { status: event.target.value })}><option value="new">Nuevo</option><option value="contacted">Contactado</option><option value="qualified">Calificado</option><option value="closed">Cerrado</option><option value="lost">Perdido</option></select>{lead.vehicleId && <button type="button" className="pipeline-manage-button quote-inline-action" onClick={() => onCreateQuote?.(lead)}>Crear cotización →</button>}{onOpenList && <button type="button" className="pipeline-manage-button" onClick={onOpenList}>Abrir ficha del cliente →</button>}</article>) : <p className="pipeline-empty">Sin registros</p>}</div></section>; })}</div>;
 }
 
 function LeadsControlRoom({ records, users, loading, onRefresh, onUpdate, onLoadHistory, onAddAppointment, onCreateQuote }) {
@@ -1335,7 +1376,7 @@ function LeadsControlRoom({ records, users, loading, onRefresh, onUpdate, onLoad
   const [statusFilter, setStatusFilter] = useState("all");
   const visibleRecords = records.filter((lead) => { const haystack = `${lead.name} ${lead.email || ""} ${lead.phone || ""} ${lead.brand || ""} ${lead.model || ""}`.toLowerCase(); return (statusFilter === "all" || lead.status === statusFilter) && haystack.includes(query.toLowerCase()); });
   return <>
-    <section className="records-content lead-control-room"><div className="panel-heading"><div><span className="eyebrow">SEGUIMIENTO COMERCIAL</span><h2>{viewMode === "pipeline" ? "Pipeline." : "Leads."}</h2></div><div className="lead-view-switcher"><button className={viewMode === "pipeline" ? "active" : ""} type="button" onClick={() => setViewMode("pipeline")}>Pipeline</button><button className={viewMode === "list" ? "active" : ""} type="button" onClick={() => setViewMode("list")}>Lista detallada</button></div></div>{viewMode === "pipeline" && <><div className="lead-filters"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar nombre, correo o vehiculo..." aria-label="Buscar leads en pipeline" /><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Filtrar leads en pipeline"><option value="all">Todas las etapas</option><option value="new">Nuevos</option><option value="contacted">Contactados</option><option value="qualified">Calificados</option><option value="closed">Cerrados</option><option value="lost">Perdidos</option></select><span>{visibleRecords.length} de {records.length} leads</span></div>{loading ? <p className="empty-state">Cargando leads...</p> : <LeadPipeline records={visibleRecords} onUpdate={onUpdate} onCreateQuote={onCreateQuote} onOpenList={() => setViewMode("list")} />}</>}</section>
+    <section className="records-content lead-control-room"><div className="panel-heading"><div><span className="eyebrow">SEGUIMIENTO COMERCIAL</span><h2>{viewMode === "pipeline" ? "Seguimiento." : "Clientes."}</h2></div><div className="lead-view-switcher"><button className={viewMode === "pipeline" ? "active" : ""} type="button" onClick={() => setViewMode("pipeline")}>Seguimiento</button><button className={viewMode === "list" ? "active" : ""} type="button" onClick={() => setViewMode("list")}>Lista detallada</button></div></div>{viewMode === "pipeline" && <><div className="lead-filters"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar nombre, correo o vehículo..." aria-label="Buscar clientes" /><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Filtrar clientes"><option value="all">Todas las etapas</option><option value="new">Nuevos</option><option value="contacted">Contactados</option><option value="qualified">Calificados</option><option value="closed">Cerrados</option><option value="lost">Perdidos</option></select><span>{visibleRecords.length} de {records.length} clientes</span></div>{loading ? <p className="empty-state">Cargando clientes...</p> : <LeadPipeline records={visibleRecords} onUpdate={onUpdate} onCreateQuote={onCreateQuote} onOpenList={() => setViewMode("list")} />}</>}</section>
     {viewMode === "list" && <LeadsModule records={records} users={users} loading={loading} onRefresh={onRefresh} onUpdate={onUpdate} onLoadHistory={onLoadHistory} onAddAppointment={onAddAppointment} onCreateQuote={onCreateQuote} />}
   </>;
 }
@@ -1503,7 +1544,7 @@ function DealerRegistrationWizard({ onRegisterSuccess, onCancel, apiUrl }) {
         <span className="eyebrow">¡ENHORABUENA! · TU SHOWROOM ESTÁ EN REVISIÓN</span>
         <h1>¡Bienvenido a <em>{registeredData.organization?.name || form.dealershipName}!</em></h1>
         <p className="account-welcome">
-          Tu plataforma white-label ha sido creada con tu cuenta de administrador y un periodo de prueba activo de 14 días. Tu showroom todavía no es público: personalízalo con calma, se publicará cuando el equipo de AUTHENTIQ lo apruebe.
+          Tu showroom fue creado con tu cuenta de administrador y tiene un periodo de prueba activo de 14 días. Todavía no es público: personalízalo con calma y se publicará cuando el equipo de AUTHENTIQ lo apruebe.
         </p>
 
         <div className="dealer-url-box" style={{ margin: "16px 0" }}>
@@ -1548,7 +1589,7 @@ function DealerRegistrationWizard({ onRegisterSuccess, onCancel, apiUrl }) {
 
   return (
     <form className="admin-login dealer-register-form" onSubmit={step === 1 ? handleNextStep : handleSubmit}>
-      <span className="eyebrow">AUTHENTIQ PLATFORM · REGISTRO WHITE-LABEL</span>
+      <span className="eyebrow">AUTHENTIQ · NUEVO SHOWROOM</span>
       <h1>Crea tu <em>Showroom Digital.</em></h1>
       <p className="account-welcome">
         {step === 1
@@ -1882,7 +1923,7 @@ export default function Backoffice({ onBack, onVehiclesChanged, initialMode = "l
           <span className="eyebrow">AUTHENTIQ · BACKOFFICE</span>
           <h1>Acceso <em>administrativo.</em></h1>
           <p className="account-welcome" style={{ margin: "0 0 16px", color: "var(--auth-muted)", fontSize: "14px", lineHeight: "1.5" }}>
-            Gestiona tu inventario, cotizaciones, leads y herramientas comerciales en tiempo real.
+            Gestiona tu inventario, cotizaciones, clientes y herramientas comerciales en tiempo real.
           </p>
           <label>Correo<input type="email" value={login.email} onChange={(event) => setLogin({ ...login, email: event.target.value })} placeholder="admin@tuconcesionario.com" autoComplete="username" required /></label>
           <label>Contraseña<input type="password" value={login.password} onChange={(event) => setLogin({ ...login, password: event.target.value })} placeholder="Tu contraseña" autoComplete="current-password" required /></label>
