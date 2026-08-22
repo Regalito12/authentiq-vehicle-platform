@@ -1184,7 +1184,7 @@ function DetailGalleryEditorial({ vehicle }) {
 function VehicleDetail({ vehicle, vehicles = [], onBack, isFavorite = false, onToggleFavorite = () => {}, customerToken = "", compareVehicles = [], favoriteIds = [], onOpenVehicle = () => {}, onToggleCompare = () => {}, whatsapp = "" }) {
   const whatsappNumber = String(whatsapp || "").replace(/\D/g, "");
   const whatsappText = encodeURIComponent(`Hola, me interesa el ${vehicle.brand} ${vehicle.model}${vehicle.year ? ` ${vehicle.year}` : ""}: ${window.location.origin}${vehiclePath(vehicle)}`);
-  const whatsappHref = `https://wa.me/${whatsappNumber}${whatsappNumber ? `?text=${whatsappText}` : `?text=${whatsappText}`}`;
+  const whatsappHref = `https://wa.me/${whatsappNumber}?text=${whatsappText}`;
   const [activeImage, setActiveImage] = useState(0);
   const [leadType, setLeadType] = useState(null);
   const [lightboxOpen, setLightboxOpen] = useState(false);
