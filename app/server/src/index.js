@@ -2254,7 +2254,7 @@ app.get("/api/admin/settings", authenticate, requireRoles("admin", "editor", "co
   } catch (error) { console.error("Business settings query failed", error); res.status(500).json({ error: "No se pudo cargar la configuración" }); }
 });
 
-app.patch("/api/admin/settings", authenticate, requireRoles("admin"), async (req, res) => {
+app.patch("/api/admin/settings", authenticate, requireRoles("admin", "editor"), async (req, res) => {
   const normalizeColor = (value, fallback) => /^#[0-9a-f]{6}$/i.test(String(value || "").trim()) ? String(value).trim().toLowerCase() : fallback;
   const normalizeTime = (value, fallback) => {
     const match = String(value || "").trim().match(/^(\d{1,2}):(\d{2})/);
@@ -2289,7 +2289,7 @@ app.patch("/api/admin/settings", authenticate, requireRoles("admin"), async (req
   } catch (error) { console.error("Business settings update failed", error); res.status(500).json({ error: "No se pudo guardar la configuración" }); }
 });
 
-app.patch("/api/admin/settings/branding", authenticate, requireRoles("admin"), async (req, res) => {
+app.patch("/api/admin/settings/branding", authenticate, requireRoles("admin", "editor"), async (req, res) => {
   const normalizeColor = (value, fallback) => /^#[0-9a-f]{6}$/i.test(String(value || "").trim()) ? String(value).trim().toLowerCase() : fallback;
   const primaryColor = normalizeColor(req.body?.primaryColor, "#c8a24b");
   const accentColor = normalizeColor(req.body?.accentColor, "#b28b37");

@@ -15,6 +15,7 @@ import path from "node:path";
 const args = process.argv.slice(2);
 const siteUrl = (args.includes("--url") ? args[args.indexOf("--url") + 1] : process.env.SITE_URL || "http://127.0.0.1:5173").replace(/\/$/, "");
 const headful = args.includes("--headful");
+const skip3d = args.includes("--skip-3d");
 const siteOrigin = new URL(`${siteUrl}/`);
 const demoTenant = String(process.env.BROWSER_TENANT || (siteOrigin.hostname === "localhost" || siteOrigin.hostname === "127.0.0.1" ? "dealer-demo" : "")).trim().toLowerCase();
 const apiHeaders = demoTenant ? { "X-Authentiq-Tenant": demoTenant } : {};
@@ -82,6 +83,17 @@ class Cdp {
 }
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function waitFor(cdp, expression, { timeout = 12000, interval = 250 } = {}) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    try {
+      if (await cdp.evaluate(expression)) return true;
+    } catch { /* la ruta todavía está montando */ }
+    await wait(interval);
+  }
+  return false;
+}
 
 async function findBrowser() {
   for (const candidate of browsers) {
@@ -157,7 +169,7 @@ async function main() {
     await cdp.send("Runtime.enable");
     await cdp.send("Network.enable");
 
-    const navigate = async (url) => {
+    const navigate = async (url, readyExpression = "document.getElementById('root')?.innerText.trim().length > 100") => {
       consoleErrors.length = 0;
       failedRequests.length = 0;
       const loaded = new Promise((resolve) => {
@@ -166,7 +178,7 @@ async function main() {
       });
       await cdp.send("Page.navigate", { url });
       await Promise.race([loaded, wait(15000)]);
-      await wait(1800); // margen para el render de React y las llamadas al API
+      await waitFor(cdp, readyExpression);
     };
 
     const setViewport = (viewport) => cdp.send("Emulation.setDeviceMetricsOverride", {
@@ -182,7 +194,7 @@ async function main() {
     console.log(`\n== CATÁLOGO · ${siteUrl} ==`);
     for (const viewport of viewports) {
       await setViewport(viewport);
-      await navigate(appUrl("/"));
+      await navigate(appUrl("/"), "document.querySelectorAll('.vehicle-card').length > 0");
       const metrics = await cdp.evaluate(`(() => {
         const doc = document.documentElement;
         const overflow = Math.max(doc.scrollWidth, document.body.scrollWidth) - window.innerWidth;
@@ -212,7 +224,7 @@ async function main() {
     // ---- Presentación guiada ----------------------------------------------
     console.log("\n== PRESENTACIÓN GUIADA ==");
     await setViewport(viewports[3]);
-    await navigate(appUrl("/presentacion"));
+    await navigate(appUrl("/presentacion"), "Boolean(document.querySelector('.presentation-stage')) && document.querySelectorAll('.presentation-control, .presentation-vehicle').length > 1");
     const presentation = await cdp.evaluate(`(() => ({
       root: (document.getElementById('root')?.innerHTML || '').length,
       stage: Boolean(document.querySelector('.presentation-stage')),
@@ -237,7 +249,7 @@ async function main() {
     const slugify = (value) => String(value).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
     const slug = `${slugify(`${target.brand}-${target.model}${target.variant ? `-${target.variant}` : ""}`)}-${String(target.id).replace(/-/g, "").slice(0, 8)}`;
 
-    await navigate(appUrl(`/vehiculos/${slug}`));
+    await navigate(appUrl(`/vehiculos/${slug}`), "Boolean(document.querySelector('.detail-page'))");
     const detail = await cdp.evaluate(`(() => ({
       title: document.title,
       canonical: document.querySelector('link[rel=canonical]')?.href || '',
@@ -266,21 +278,23 @@ async function main() {
     console.log("      esperando la carga del modelo 3D…");
     // Las escenas GLTF incluyen binarios y texturas; el componente público
     // conserva el estado de carga hasta 30 s antes de mostrar fallback.
-    await wait(30000);
+    if (!skip3d) await wait(30000);
     const viewer = await cdp.evaluate(`(() => {
       const el = document.querySelector('model-viewer');
       return el ? { present: true, loaded: Boolean(el.loaded), src: el.getAttribute('src') || '', status: document.querySelector('.vehicle-3d-status')?.textContent || '', fallback: Boolean(document.querySelector('.vehicle-3d-fallback')) } : { present: false };
     })()`);
-    if (viewer.present) {
+    if (viewer.present && !skip3d) {
       check("El modelo 3D real carga en el navegador", viewer.loaded === true, `estado en pantalla: "${viewer.status}"`);
       check("El visor no cayó al estado de error", viewer.fallback === false);
-    } else {
+    } else if (!viewer.present) {
       console.log("      (este vehículo no tiene modelo 3D)");
+    } else {
+      console.log("      (carga 3D omitida en esta pasada rápida)");
     }
     await shoot("ficha-desktop-1440x900");
 
     await setViewport(viewports[0]);
-    await navigate(appUrl(`/vehiculos/${slug}`));
+    await navigate(appUrl(`/vehiculos/${slug}`), "Boolean(document.querySelector('.detail-page'))");
     const mobileDetail = await cdp.evaluate("Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - window.innerWidth");
     check("Ficha en móvil sin desbordamiento horizontal", mobileDetail <= 1, `sobresale ${mobileDetail}px`);
     await shoot("ficha-movil-390x844");
@@ -288,7 +302,7 @@ async function main() {
     // ---- Backoffice -------------------------------------------------------
     console.log("\n== BACKOFFICE (login) ==");
     await setViewport(viewports[2]);
-    await navigate(appUrl("/"));
+    await navigate(appUrl("/"), "document.querySelectorAll('.vehicle-card').length > 0");
     const backoffice = await cdp.evaluate(`(() => {
       const button = [...document.querySelectorAll('button')].find((el) => /BACKOFFICE/i.test(el.textContent));
       if (button) button.click();
@@ -312,19 +326,39 @@ async function main() {
       console.log("      (sin credenciales válidas: se omite la auditoría del backoffice autenticado)");
     } else {
       const { token, user } = await session.json();
-      const modules = [["dashboard", "Resumen"], ["inventory", "Inventario"], ["leads", "Leads"], ["quotes", "Cotizaciones"], ["blog", "Blog"], ["offers", "Ofertas"], ["reports", "Reportes"], ["audit", "Actividad"], ["users", "Usuarios"], ["integrations", "Integraciones"], ["settings", "Configuración"]];
+      console.log(`      sesión de verificación: ${user.role}`);
+      const commonOperations = [["dashboard", "Resumen"], ["inventory", "Inventario"], ["taxonomy", "Marcas y categorías"], ["leads", "Clientes"], ["appointments", "Citas"], ["quotes", "Cotizaciones"], ["blog", "Blog"], ["offers", "Ofertas"], ["reports", "Reportes"]];
+      const modules = user.role === "editor" ? [...commonOperations, ["settings", "Personalizar showroom"]] : user.role === "admin" ? [...commonOperations, ["audit", "Actividad"], ["users", "Usuarios"], ["integrations", "Integraciones"], ["settings", "Configuración"]] : commonOperations;
+      const moduleReadyText = { dashboard: "Prioridad", inventory: "inventario", taxonomy: "Marcas y categorías", leads: "Clientes", appointments: "Citas", quotes: "Cotizaciones", blog: "Contenido", offers: "Ofertas", reports: "Reportes", audit: "Actividad", users: "Usuarios", integrations: "Agenda", settings: "Tu showroom, a tu manera" };
       for (const [width, height, label, mobile] of [[390, 844, "movil", true], [1280, 800, "escritorio", false]]) {
         await cdp.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile });
         // Inyecta la sesión antes de cargar para entrar directo al backoffice.
         await cdp.send("Page.addScriptToEvaluateOnNewDocument", { source: `try{localStorage.setItem('authentiq_admin_token',${JSON.stringify(token)});localStorage.setItem('authentiq_admin_user',${JSON.stringify(JSON.stringify(user))});}catch(e){}` });
-        await navigate(appUrl("/"));
+        await navigate(appUrl("/"), "document.querySelectorAll('.vehicle-card').length > 0");
         await cdp.evaluate(`(() => { const b=[...document.querySelectorAll('button')].find(el=>/BACKOFFICE/i.test(el.textContent)); if(b) b.click(); return true; })()`);
         await wait(2500);
 
         for (const [key, labelText] of modules) {
-          const opened = await cdp.evaluate(`(() => { const b=[...document.querySelectorAll('.admin-nav-item')].find(el=>el.textContent.trim()===${JSON.stringify(labelText)}); if(!b) return false; b.click(); return true; })()`);
+          let opened = await cdp.evaluate(`(() => {
+            const b=[...document.querySelectorAll('.admin-nav-item')].find(el=>el.textContent.trim()===${JSON.stringify(labelText)});
+            if (!b) return false;
+            b.click();
+            return true;
+          })()`);
+          if (!opened) {
+            await cdp.evaluate("document.querySelector('.admin-nav-more-toggle')?.click()");
+            await wait(160);
+            opened = await cdp.evaluate(`(() => {
+              const b=[...document.querySelectorAll('.admin-nav-item')].find(el=>el.textContent.trim()===${JSON.stringify(labelText)});
+              if (!b) return false;
+              b.click();
+              return true;
+            })()`);
+          }
+          check(`backoffice/${label} · ${labelText} abre el módulo`, opened);
           if (!opened) continue;
-          await wait(1400);
+          await waitFor(cdp, `(() => { const text = document.querySelector('.admin-module-transition')?.innerText || ''; return text.includes(${JSON.stringify(moduleReadyText[key] || labelText)}); })()`, { timeout: 3000 });
+          await wait(220);
           const state = await cdp.evaluate(`(() => {
             const overflow = Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - window.innerWidth;
             const offenders = [...document.querySelectorAll('main *')]

@@ -23,9 +23,9 @@ assert(adminLogin.response.ok, "No se pudo iniciar sesión como admin");
 const adminToken = adminLogin.body.token;
 
 const roleRules = {
-  editor: [["/api/admin/vehicles", 200], ["/api/admin/blog", 200], ["/api/admin/settings", 200], ["/api/admin/settings", 403, "PATCH"], ["/api/admin/audit-logs", 403]],
+  editor: [["/api/admin/vehicles", 200], ["/api/admin/blog", 200], ["/api/admin/settings", 200], ["/api/admin/settings", 200, "PATCH"], ["/api/admin/social/drafts", 200], ["/api/admin/calendar.ics", 200], ["/api/admin/audit-logs", 403]],
   seller: [["/api/admin/leads", 200], ["/api/admin/quotes", 200], ["/api/admin/dashboard", 200], ["/api/admin/settings", 403], ["/api/admin/blog", 403]],
-  content_editor: [["/api/admin/blog", 200], ["/api/admin/dashboard", 200], ["/api/admin/leads", 403], ["/api/admin/settings", 200], ["/api/admin/settings", 403, "PATCH"]],
+  content_editor: [["/api/admin/blog", 200], ["/api/admin/dashboard", 200], ["/api/admin/social/drafts", 200], ["/api/admin/leads", 403], ["/api/admin/settings", 200], ["/api/admin/settings", 403, "PATCH"]],
 };
 
 try {
@@ -37,7 +37,8 @@ try {
     const login = await call("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password: qaPassword }) });
     assert(login.response.ok, `No se pudo iniciar sesión como ${role}`);
     for (const [path, expected, method = "GET"] of roleRules[role]) {
-      const result = await call(path, { method, headers: headers(login.body.token), ...(method === "PATCH" ? { body: JSON.stringify({}) } : {}) });
+      const currentSettings = method === "PATCH" && path === "/api/admin/settings" ? await call(path, { headers: headers(login.body.token) }) : null;
+      const result = await call(path, { method, headers: headers(login.body.token), ...(method === "PATCH" ? { body: JSON.stringify(currentSettings?.body?.data || {}) } : {}) });
       assert(result.response.status === expected, `${role} en ${path}: esperado ${expected}, recibido ${result.response.status}`);
     }
     console.log(`PASS  ${role}: permisos permitidos y bloqueados correctos`);

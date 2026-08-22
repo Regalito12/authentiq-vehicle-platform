@@ -484,7 +484,7 @@ function QuoteModal({ vehicle, financingTerms, onClose }) {
           <div className="quote-financing-summary">
             <span>Inicial: <strong><AnimatedNumber value={financingTerms.downPayment} format={(number) => `$${number.toLocaleString("en-US")} USD`} /></strong></span>
             <span>Plazo: <strong><AnimatedNumber value={financingTerms.months} suffix=" meses" /></strong></span>
-            <span>Cuota: <strong><AnimatedNumber value={financingTerms.monthlyPayment} format={(number) => `$${number.toLocaleString("en-US")} USD`} />/mes</strong></span>
+            <span>Cuota: <strong><AnimatedNumber value={financingTerms.monthlyPayment} format={formatFinancePrice} />/mes</strong></span>
           </div>
         </Disclosure>}
         <div className="quote-specs">
@@ -1444,7 +1444,7 @@ function FinancingSpotlight({ vehicles, onExplore }) {
   const numericPrice = Number(price) || 0;
   const principal = Math.max(numericPrice * (1 - downPayment / 100), 0);
   const payment = principal && rate ? principal * (rate * (1 + rate) ** months) / ((1 + rate) ** months - 1) : 0;
-  const paymentLabel = numericPrice > 0 ? formatPrice(payment) : "Introduce un precio";
+  const paymentLabel = numericPrice > 0 ? formatFinancePrice(payment) : "Introduce un precio";
   if (!vehicles.length) return null;
   return <section className="financing-spotlight" aria-label="Calculadora de financiamiento"><div className="financing-copy"><span className="eyebrow">COMPRA A TU RITMO</span><h2>Calcula una cuota orientativa.</h2><p>Hazte una idea del presupuesto mensual antes de hablar con un asesor. La aprobación final depende de la entidad financiera.</p><button type="button" className="secondary-action" onClick={onExplore}>Ver vehículos disponibles →</button></div><div className="financing-controls"><label>Precio del vehículo<input type="number" min="0" value={price ?? ""} aria-label="Precio del vehículo" onChange={(event) => setPrice(event.target.value === "" ? null : Number(event.target.value))} /></label><label>Inicial <output>{downPayment}%</output><input type="range" min="0" max="70" step="5" value={downPayment} aria-label="Porcentaje de inicial" onChange={(event) => setDownPayment(Number(event.target.value))} /></label><label>Plazo <output>{months} meses</output><input type="range" min="12" max="84" step="12" value={months} aria-label="Plazo de financiamiento en meses" onChange={(event) => setMonths(Number(event.target.value))} /></label><div className={`financing-result${numericPrice > 0 ? "" : " is-empty"}`}><span>Cuota estimada</span>{numericPrice > 0 ? <><strong>{paymentLabel}</strong><small>12% anual · sin seguros ni gastos adicionales</small></> : <p>Introduce un precio para calcular.</p>}</div></div></section>;
 }

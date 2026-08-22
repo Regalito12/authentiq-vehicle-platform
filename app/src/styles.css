@@ -105,7 +105,7 @@ html { scroll-behavior: smooth; }
 .landing-nav-cta { display: inline-flex; align-items: center; min-height: 44px; border: 1px solid #bd922e; padding: 10px 13px; background: #bd922e; color: #171817; font: 500 10px "IBM Plex Mono", monospace; letter-spacing: .07em; text-transform: uppercase; cursor: pointer; transition: transform .2s ease, background-color .2s ease; }
 .landing-nav-cta:hover { transform: translateY(-2px); background: #d2aa4d; }
 .landing-nav-cta span { margin-left: 7px; }
-.landing-hero { display: grid; grid-template-columns: minmax(320px, .84fr) minmax(0, 1.16fr); align-items: center; gap: clamp(36px, 6vw, 92px); max-width: 1240px; min-height: 710px; padding: 72px 30px 90px; }
+.landing-hero { display: grid; grid-template-columns: minmax(320px, .84fr) minmax(0, 1.16fr); align-items: center; justify-items: stretch; gap: clamp(36px, 6vw, 92px); max-width: 1240px; min-height: 710px; padding: 72px 30px 90px; }
 .landing-hero::before { top: 76px; right: 4%; width: 560px; height: 560px; border-color: rgba(189,146,46,.22); }
 .landing-hero::after { top: 190px; right: 37%; background: #bd922e; box-shadow: 0 0 26px 10px rgba(189,146,46,.25); }
 .landing-hero-copy { position: relative; z-index: 1; }
@@ -510,6 +510,14 @@ html[data-theme="dark"] .admin-empty-state strong { color: #f2efe9; }
 html[data-theme="dark"] .admin-nav { background: #111315; }
 
 .admin-nav { display: flex; gap: 6px; overflow-x: auto; padding: 18px 0 0; border-bottom: 1px solid #d9d3c8; }
+.admin-nav-core, .admin-nav-more-panel { display: flex; align-items: center; gap: 2px; min-width: max-content; }
+.admin-nav-core { flex: 1 0 auto; }
+.admin-nav-label { padding: 0 10px 0 2px; color: var(--auth-muted); font: 500 9px "IBM Plex Mono", monospace; letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; }
+.admin-nav-advanced { display: flex; align-items: center; min-width: max-content; margin-left: auto; }
+.admin-nav-more-toggle { min-height: 42px; border: 0; border-left: 1px solid var(--auth-line); padding: 10px 12px; background: transparent; color: var(--auth-muted); font: 500 10px "IBM Plex Mono", monospace; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
+.admin-nav-more-toggle:hover { color: var(--auth-ink); background: rgba(255,255,255,.42); }
+.admin-nav-more-toggle span { margin-left: 6px; color: var(--tenant-primary-ink, var(--tenant-primary)); }
+.admin-nav-more-panel { border-left: 1px solid var(--auth-line); padding-left: 8px; }
 .admin-nav-item { border: 0; border-bottom: 2px solid transparent; padding: 12px 14px 14px; background: transparent; color: #6b6660; font: 500 10px "IBM Plex Mono", monospace; letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; }
 .admin-nav-item:hover, .admin-nav-item.active { color: #0a0a0a; border-bottom-color: var(--tenant-primary); }
 .dashboard-content, .inventory-content, .records-content { padding-top: 32px; }
@@ -789,6 +797,12 @@ html[data-theme="dark"] .appointment-actions select { background: #111315; color
 .user-row.is-inactive { opacity: .55; }
 .settings-form { max-width: 980px; display: grid; gap: 28px; }
 .settings-section { display: grid; gap: 15px; }
+.settings-tabs { display: flex; flex-wrap: wrap; gap: 8px; padding-bottom: 4px; border-bottom: 1px solid var(--auth-line); }
+.settings-tabs button { min-height: 40px; border: 1px solid transparent; padding: 8px 12px; background: transparent; color: var(--auth-muted); font: 600 11px "IBM Plex Mono", monospace; letter-spacing: .04em; text-transform: uppercase; }
+.settings-tabs button:hover { color: var(--auth-ink); background: var(--auth-soft); }
+.settings-tabs button.is-active { border-color: var(--tenant-primary); background: color-mix(in srgb, var(--tenant-primary) 10%, var(--auth-soft)); color: var(--tenant-primary-ink, var(--auth-ink)); }
+.settings-save-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-top: 18px; border-top: 1px solid var(--auth-line); color: var(--auth-muted); font-size: 12px; }
+.settings-save-bar > div { display: flex; flex-wrap: wrap; gap: 8px; }
 .admin-module-transition { min-height: 280px; }
 .admin-header-actions button, .admin-nav-item, .primary-action, .secondary-action, .notification-button, .text-button, .photo-action, .upload-image-button { transition: color .16s var(--ease-out-quart), background-color .16s var(--ease-out-quart), border-color .16s var(--ease-out-quart), transform .16s var(--ease-out-quart), opacity .16s var(--ease-out-quart); }
 .primary-action:hover:not(:disabled), .secondary-action:hover, .notification-button:hover { transform: translateY(-1px); }
@@ -1736,6 +1750,19 @@ html[data-theme="dark"] body, html[data-theme="dark"] .admin-page { background: 
 html[data-theme="dark"] .admin-header, html[data-theme="dark"] .admin-nav { background: rgba(16,19,19,.92); border-color: #303638; }
 html[data-theme="dark"] .admin-nav-item:hover { background: #1d2222; color: #f2efe9; }
 html[data-theme="dark"] .admin-nav-item.active { background: #e5c36d; color: #141716; }
+@media (max-width: 760px) {
+  .admin-nav { align-items: flex-start; flex-direction: column; gap: 0; overflow-x: visible; }
+  .admin-nav-core, .admin-nav-advanced, .admin-nav-more-panel { width: 100%; min-width: 0; flex-wrap: wrap; }
+  .admin-nav-core { overflow-x: auto; }
+  .admin-nav-advanced { display: block; margin-left: 0; }
+  .admin-nav-more-toggle { width: 100%; border-left: 0; border-top: 1px solid var(--auth-line); text-align: left; }
+  .admin-nav-more-panel { border-left: 0; padding: 4px 0 0; }
+  .admin-nav-label { width: 100%; padding: 8px 2px 2px; }
+  .settings-tabs { gap: 6px; }
+  .settings-tabs button { flex: 1 1 calc(50% - 6px); }
+  .settings-save-bar { align-items: stretch; flex-direction: column; }
+  .settings-save-bar > div { display: grid; grid-template-columns: 1fr 1fr; }
+}
 html[data-theme="dark"] .stats-grid { background: #303638; }
 html[data-theme="dark"] .stat-card { background: #171b1b; }
 html[data-theme="dark"] .quick-action { background: #181c1c; }
