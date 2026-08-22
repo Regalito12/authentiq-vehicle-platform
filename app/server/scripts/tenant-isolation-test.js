@@ -52,15 +52,24 @@ for (const tenant of publicData.filter((item) => item.email)) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email: tenant.email, password: demoPassword }),
   });
-  const [adminSettings, adminVehicles] = await Promise.all([
+  const [adminSettings, adminVehicles, adminQuotes] = await Promise.all([
     request(tenant.host, "/api/admin/settings", { headers: { Authorization: `Bearer ${login.token}` } }),
     request(tenant.host, "/api/admin/vehicles", { headers: { Authorization: `Bearer ${login.token}` } }),
+    request(tenant.host, "/api/admin/quotes", { headers: { Authorization: `Bearer ${login.token}` } }),
   ]);
   assert.equal(adminSettings.data.businessName, tenant.businessName);
   assert.equal(adminVehicles.data.length, tenant.vehicles.length);
+  tenant.adminQuotes = adminQuotes.data;
+}
+
+for (let index = 0; index < publicData.length; index += 1) {
+  for (let compare = index + 1; compare < publicData.length; compare += 1) {
+    const ids = new Set((publicData[index].adminQuotes || []).map((quote) => quote.id));
+    assert.equal((publicData[compare].adminQuotes || []).some((quote) => ids.has(quote.id)), false, `${publicData[index].host} y ${publicData[compare].host} comparten cotizaciones`);
+  }
 }
 
 await assertLoginRejected("dealer-demo.localhost", process.env.LOCAL_VELOCITY_ADMIN_EMAIL || "velocity@dealer.local");
 await assertLoginRejected("velocity-demo.localhost", process.env.LOCAL_DEMO_ADMIN_EMAIL || "demo@dealer.local");
 
-console.log(`TENANT ISOLATION PASS · ${publicData.map((tenant) => `${tenant.host}=${tenant.vehicles.length}`).join(" · ")} · marcas, inventarios e inicios de sesión sin solapamiento`);
+console.log(`TENANT ISOLATION PASS · ${publicData.map((tenant) => `${tenant.host}=${tenant.vehicles.length}`).join(" · ")} · marcas, inventarios, cotizaciones e inicios de sesión sin solapamiento`);

@@ -2828,6 +2828,7 @@ app.get("/api/admin/dashboard", authenticate, requireRoles("admin", "editor", "s
          FROM offers o
          JOIN vehicles v ON v.id = o.vehicle_id AND v.organization_id=$1
         JOIN vehicle_brands b ON b.id = v.brand_id
+        WHERE o.organization_id=$1
         ORDER BY o.created_at DESC
         LIMIT 5
        `, [adminOrganizationId(req)]),
@@ -2859,6 +2860,7 @@ app.get("/api/admin/offers", authenticate, requireRoles("admin", "editor", "sell
        FROM offers o
        JOIN vehicles v ON v.id = o.vehicle_id AND v.organization_id=$1
       JOIN vehicle_brands b ON b.id = v.brand_id
+      WHERE o.organization_id=$1
       ORDER BY o.created_at DESC
     `, [adminOrganizationId(req)]);
     res.json({ data: result.rows });
@@ -2899,10 +2901,11 @@ app.get("/api/admin/quotes", authenticate, requireRoles("admin", "editor", "sell
              q.base_price_usd AS "basePriceUsd", q.discount_usd AS "discountUsd", q.total_usd AS "totalUsd",
              q.currency, q.valid_until AS "validUntil", q.notes, q.status, q.created_at AS "createdAt", q.updated_at AS "updatedAt",
              b.name AS brand, v.model, v.year, au.full_name AS "createdByName"
-       FROM quotes q
-       LEFT JOIN vehicles v ON v.id = q.vehicle_id AND v.organization_id=$1
+      FROM quotes q
+      LEFT JOIN vehicles v ON v.id = q.vehicle_id AND v.organization_id=$1
       LEFT JOIN vehicle_brands b ON b.id = v.brand_id
       LEFT JOIN admin_users au ON au.id = q.created_by
+      WHERE q.organization_id=$1
       ORDER BY q.created_at DESC
     `, [adminOrganizationId(req)]);
     res.json({ data: result.rows });
