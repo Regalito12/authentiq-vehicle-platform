@@ -15,5 +15,16 @@ export default defineConfig({
     target: "es2022",
     sourcemap: false,
     chunkSizeWarningLimit: 1200,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return undefined;
+          if (id.includes("recharts")) return "charts-vendor";
+          if (id.includes("@tanstack")) return "tables-vendor";
+          if (id.includes("motion")) return "motion-vendor";
+          return undefined;
+        },
+      },
+    },
   },
 });
