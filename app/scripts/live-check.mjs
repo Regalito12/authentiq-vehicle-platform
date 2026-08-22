@@ -38,7 +38,12 @@ for (const [label, path, expectedStatus] of checks) {
         const health = JSON.parse(body);
         const database = health.data?.database || health.database;
         const storage = health.data?.storage || health.storage;
-        const dependenciesReady = database === "connected" && storage === "available";
+        // The API reports `available` for temporary local storage and
+        // `supabase` when the production media provider is active. Both are
+        // healthy states; only `unavailable` means the service cannot persist
+        // media.
+        const storageReady = storage === "available" || storage === "supabase";
+        const dependenciesReady = database === "connected" && storageReady;
         console.log(`${dependenciesReady ? "PASS" : "FAIL"} Dependencias live · database=${database || "desconocida"} storage=${storage || "desconocida"}`);
         if (!dependenciesReady) failed += 1;
       } catch {
