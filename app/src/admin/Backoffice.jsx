@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import imageCompression from "browser-image-compression";
 import { Command } from "cmdk";
@@ -38,6 +38,30 @@ import {
   UsersIcon,
   UsersThreeIcon,
 } from "@phosphor-icons/react";
+
+function useAdminDialog(onClose) {
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  useEffect(() => {
+    const dialogs = [...document.querySelectorAll('[role="dialog"][aria-modal="true"]')];
+    const dialog = dialogs[dialogs.length - 1];
+    if (!dialog) return undefined;
+    const previousFocus = document.activeElement;
+    const selector = 'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])';
+    const focusables = () => [...dialog.querySelectorAll(selector)];
+    const firstField = dialog.querySelector('input:not([disabled]), select:not([disabled]), textarea:not([disabled])') || dialog.querySelector(selector);
+    window.requestAnimationFrame(() => firstField?.focus());
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") { event.preventDefault(); closeRef.current?.(); return; }
+      if (event.key !== "Tab") return;
+      const current = focusables(); if (!current.length) return;
+      if (event.shiftKey && document.activeElement === current[0]) { event.preventDefault(); current[current.length - 1].focus(); }
+      else if (!event.shiftKey && document.activeElement === current[current.length - 1]) { event.preventDefault(); current[0].focus(); }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => { document.removeEventListener("keydown", onKeyDown); previousFocus?.focus?.(); };
+  }, []);
+}
 
 const chartColors = ["#c8a24b", "#5f6f6b", "#2f3b39", "#a33b2b", "#8d7a55"];
 const Vehicle3dActionsContext = createContext({});
@@ -841,6 +865,7 @@ function LeadAppointmentModal({ lead, onClose, onCreate }) {
   const [availability, setAvailability] = useState({ loading: false, slots: [], message: "Selecciona una fecha." });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  useAdminDialog(onClose);
   useEffect(() => {
     if (!form.date) { setAvailability({ loading: false, slots: [], message: "Selecciona una fecha." }); return undefined; }
     let cancelled = false;
@@ -995,6 +1020,7 @@ const onboardingMeta = {
 };
 
 function WelcomeOnboarding({ onboarding, organization, onNavigate, onDismiss, onOpenPublic }) {
+  useAdminDialog(onDismiss);
   const { groups: displaySteps, essentialTotal, essentialDone, ready, progress } = buildOnboardingGroups(onboarding);
   const firstPending = displaySteps.find((step) => !step.done);
   const [selectedId, setSelectedId] = useState(firstPending?.id || displaySteps[0]?.id);

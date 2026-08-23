@@ -324,6 +324,10 @@ async function checkAppointmentBooking() {
 
   const payload = { vehicleId: vehicle.id, name: `Comprador ${marker}`, email: `comprador-${stamp}@example.com`, phone: "+18095550100", date, time: slot.time, privacyConsent: true, notes: marker };
 
+  const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const pastDate = await api("/api/appointments", { method: "POST", body: JSON.stringify({ ...payload, date: yesterday }) });
+  check("Una cita con fecha pasada explica el error correctamente", pastDate.status === 400 && /fecha ya pasó/i.test(pastDate.body?.error || ""), `respondió ${pastDate.status}`);
+
   const noConsent = await api("/api/appointments", { method: "POST", body: JSON.stringify({ ...payload, privacyConsent: false }) });
   check("Una cita sin consentimiento de privacidad se rechaza", noConsent.status === 400, `respondió ${noConsent.status}`);
 

@@ -3567,3 +3567,39 @@ html[data-theme="dark"] .flyer-format-btn {
 .slug-availability { display: block; margin-top: 4px; color: var(--auth-muted, #888); font-size: 11px; line-height: 1.4; text-transform: none; }
 .slug-availability.is-free { color: #7da879; }
 .slug-availability.is-taken { color: #a33b2b; }
+.specs-help { max-width: 58ch; margin: 14px 0 0; color: #5f5b54; font-size: 14px; line-height: 1.5; }
+
+/* Legibilidad primero: los textos de operación y formularios no bajan de 12px.
+   Conservamos el estilo mono de etiquetas, pero no obligamos a nadie a leer
+   información funcional en 8–10px, especialmente desde un celular. */
+body { font-size: 16px; }
+button, input, select, textarea { font-size: 16px; }
+.admin-page button, .admin-page input, .admin-page select, .admin-page textarea,
+.lead-modal button, .lead-modal input, .lead-modal select, .lead-modal textarea,
+.quote-modal button, .quote-modal input, .quote-modal select, .quote-modal textarea,
+.customer-account-modal button, .customer-account-modal input, .customer-account-modal select, .customer-account-modal textarea { font-size: 16px !important; }
+.eyebrow, .nav-status, .vehicle-meta, .filters select, .spec-row span,
+.admin-page .admin-nav-label, .admin-page .admin-nav-more-toggle, .admin-page .admin-nav-item,
+.admin-page .notification-button, .admin-page .text-button, .admin-page .status-pill,
+.admin-page .record-row span, .admin-page .record-row p, .admin-page .table-scroll th,
+.admin-page .lead-pipeline-card > small, .admin-page .pipeline-source,
+.admin-page .onboarding-heading-meta small, .admin-page .onboarding-step small,
+.admin-page .welcome-onboarding-progress, .admin-page .welcome-onboarding-list small,
+.admin-page .welcome-onboarding-list strong { font-size: 12px !important; line-height: 1.4; }
+.section-head p, .detail-decision-summary-grid p, .detail-gallery-editorial-grid p,
+.appointment-availability-note, .consent-check, .finance-result p, .finance-result small,
+.slug-availability { font-size: 14px; line-height: 1.5; }
+.onboarding-step strong, .onboarding-group-head strong, .onboarding-group-head small,
+.welcome-onboarding-list strong, .welcome-onboarding-list small { font-size: 13px; }
+.welcome-onboarding-layout { min-width: 0; }
+.welcome-onboarding-list { min-width: 0; overflow-x: hidden; }
+@media (max-width: 760px) {
+  .welcome-onboarding-backdrop { align-items: start; padding: 12px; }
+  .welcome-onboarding { max-height: calc(100dvh - 24px); }
+  .welcome-onboarding-header, .welcome-onboarding-progress { padding-left: 20px; padding-right: 20px; }
+  .welcome-onboarding-header { gap: 16px; }
+  .welcome-onboarding-layout { display: block; }
+  .welcome-onboarding-list { display: flex; gap: 8px; overflow-x: auto; padding: 12px; border-right: 0; border-bottom: 1px solid var(--auth-line); scrollbar-width: thin; }
+  .welcome-onboarding-list button { min-width: min(76vw, 270px); min-height: 64px; }
+  .welcome-onboarding-detail { padding: 28px 20px; }
+}

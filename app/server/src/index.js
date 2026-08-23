@@ -1683,6 +1683,7 @@ app.post("/api/appointments", rateLimit({ windowMs: 10 * 60 * 1000, limit: 15, s
   if (!vehicleId || !name || (!email && !phone) || !isIsoDate(date) || timeToMinutes(time) === null || !privacyConsent) return res.status(400).json({ error: "Vehículo, nombre, correo o teléfono, fecha, horario y consentimiento son obligatorios" });
   try {
     const organization = await getOrganizationContext(req);
+    if (date < new Date().toISOString().slice(0, 10)) return res.status(400).json({ error: "La fecha ya pasó. Elige hoy o una fecha futura." });
     const availability = await appointmentAvailability(date, organization.id);
     const slot = availability.slots.find((item) => item.time === time);
     if (!slot || !slot.available) return res.status(409).json({ error: "Ese horario ya no está disponible. Selecciona otro." });

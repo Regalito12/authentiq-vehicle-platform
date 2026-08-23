@@ -60,6 +60,38 @@ function fetch(input, options = {}) {
   return mutated || target !== input ? nativeFetch(target, { ...options, headers }) : nativeFetch(input, options);
 }
 
+function useAccessibleDialog(onClose) {
+  const dialogRef = useRef(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  useEffect(() => {
+    const dialogs = [...document.querySelectorAll('[role="dialog"][aria-modal="true"]')];
+    const dialog = dialogRef.current || dialogs[dialogs.length - 1];
+    if (!dialog) return undefined;
+    const previousFocus = document.activeElement;
+    const selector = 'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])';
+    const focusables = () => [...dialog.querySelectorAll(selector)];
+    const firstField = dialog.querySelector('input:not([disabled]), select:not([disabled]), textarea:not([disabled])') || dialog.querySelector(selector);
+    window.requestAnimationFrame(() => firstField?.focus());
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") { event.preventDefault(); closeRef.current?.(); return; }
+      if (event.key !== "Tab") return;
+      const current = focusables();
+      if (!current.length) return;
+      const first = current[0];
+      const last = current[current.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      previousFocus?.focus?.();
+    };
+  }, []);
+  return dialogRef;
+}
+
 function publicMediaUrl(url) {
   if (!url) return url;
   if (String(url).startsWith("/uploads/")) return `${apiUrl}${url}`;
@@ -393,6 +425,7 @@ function PriceAlertModal({ vehicle, onClose }) {
   const [form, setForm] = useState({ name: "", email: "", phone: "", targetPrice: "", privacyConsent: false });
   const [turnstileToken, setTurnstileToken] = useState("");
   const [status, setStatus] = useState({ loading: false, error: "", success: false });
+  const dialogRef = useAccessibleDialog(onClose);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -421,7 +454,7 @@ function PriceAlertModal({ vehicle, onClose }) {
 
   return (
     <motion.div className="lead-backdrop" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-      <motion.section className="lead-modal" role="dialog" aria-modal="true" aria-labelledby="price-alert-title" initial={{ y: 14, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ duration: .2, ease: "easeOut" }}>
+      <motion.section ref={dialogRef} className="lead-modal" role="dialog" aria-modal="true" aria-labelledby="price-alert-title" initial={{ y: 14, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ duration: .2, ease: "easeOut" }}>
         <button className="modal-close" type="button" onClick={onClose} aria-label="Cerrar">×</button>
         {status.success ? (
           <div className="lead-success">
@@ -472,6 +505,7 @@ function BuyerRequestModal({ kind, vehicle = null, onClose }) {
   const [form, setForm] = useState({ name: "", email: "", phone: "", currentVehicle: "", year: "", mileage: "", note: "", privacyConsent: false });
   const [turnstileToken, setTurnstileToken] = useState("");
   const [status, setStatus] = useState({ loading: false, error: "", success: false });
+  useAccessibleDialog(onClose);
   const change = (field, value) => setForm((current) => ({ ...current, [field]: value }));
   const title = isTradeIn ? "Valora tu vehículo actual." : "Avísame cuando llegue algo para mí.";
   const subtitle = isTradeIn
@@ -495,9 +529,10 @@ function BuyerRequestModal({ kind, vehicle = null, onClose }) {
 }
 
 function QuoteModal({ vehicle, financingTerms, onClose }) {
+  const dialogRef = useAccessibleDialog(onClose);
   return (
     <motion.div className="quote-overlay" role="dialog" aria-modal="true" aria-label="Cotización del vehículo" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-      <section className="quote-modal">
+      <section ref={dialogRef} className="quote-modal">
         <button className="modal-close" type="button" onClick={onClose} aria-label="Cerrar cotización">×</button>
         <div className="quote-brand">{getBrandName()} <span>COTIZACIÓN DE VEHÍCULO</span></div>
         <div className="quote-heading">
@@ -1041,6 +1076,7 @@ function LeadForm({ vehicle, onClose, customerToken = "" }) {
   const [form, setForm] = useState({ buyerName: "", buyerEmail: "", buyerPhone: "", amountUsd: vehicle.priceUsd, message: "", privacyConsent: false });
   const [turnstileToken, setTurnstileToken] = useState("");
   const [status, setStatus] = useState({ loading: false, error: "", success: false });
+  useAccessibleDialog(onClose);
   const change = (field, value) => setForm((current) => ({ ...current, [field]: value }));
   const submit = async (event) => {
     event.preventDefault();
@@ -1063,6 +1099,7 @@ function TestDriveModal({ vehicle, onClose }) {
   const [turnstileToken, setTurnstileToken] = useState("");
   const [status, setStatus] = useState({ loading: false, error: "", success: false });
   const [availability, setAvailability] = useState({ loading: false, slots: [], message: "Selecciona una fecha para ver los horarios disponibles." });
+  useAccessibleDialog(onClose);
   const change = (field, value) => setForm((current) => ({ ...current, [field]: value }));
   useEffect(() => {
     if (!form.date) { setAvailability({ loading: false, slots: [], message: "Selecciona una fecha para ver los horarios disponibles." }); return undefined; }
@@ -1083,8 +1120,9 @@ function TestDriveModal({ vehicle, onClose }) {
 }
 
 function CustomerAccountModal({ customer, form, mode, status, favoriteCount, favoriteVehicles = [], activity = { offers: [], quotes: [], notifications: [] }, onChange, onSubmit, onTurnstileToken, onMode, onClose, onLogout, onReadNotifications, onOpenVehicle, onToggleFavorite, onQuickAction }) {
+  const dialogRef = useAccessibleDialog(onClose);
   return <motion.div className="quote-overlay" role="dialog" aria-modal="true" aria-label="Cuenta de comprador" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-    <section className="customer-account-modal">
+    <section ref={dialogRef} className="customer-account-modal">
       <button className="modal-close" type="button" onClick={onClose} aria-label="Cerrar cuenta">×</button>
       {customer ? <>
         <span className="eyebrow">{getBrandName()} · MI CUENTA</span>
@@ -1347,6 +1385,7 @@ function VehicleDetail({ vehicle, vehicles = [], onBack, isFavorite = false, onT
               ["Garantía", vehicle.warranty],
             ].map(([label, value]) => <div className="spec-row" key={label}><span>{label}</span><strong>{value || "—"}</strong></div>)}
           </div>
+          <p className="specs-help">Potencia = fuerza del motor · Tracción = ruedas que reciben esa fuerza · Transmisión = cómo cambia las marchas.</p>
           <FinanceCalculator
             price={vehicle.priceUsd}
             vehicle={vehicle}
