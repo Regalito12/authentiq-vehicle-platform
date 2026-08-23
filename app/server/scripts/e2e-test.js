@@ -16,7 +16,7 @@ const marker = `E2E-${stamp}`;
 
 let passed = 0;
 let failed = 0;
-const created = { vehicleId: null, offerIds: [], quoteIds: [], leadIds: [] };
+const created = { vehicleId: null, offerIds: [], quoteIds: [], leadIds: [], organizationSlug: null };
 
 function check(label, condition, detail = "") {
   if (condition) { passed += 1; console.log(`PASS  ${label}`); }
@@ -225,6 +225,52 @@ async function main() {
   }
 }
 
+// Alta de concesionario de principio a fin. Es la puerta de entrada del producto
+// y no estaba cubierta: un fallo aquí impide que exista un cliente nuevo.
+async function checkDealerSignup() {
+  const slug = `e2e-dealer-${stamp}`;
+  const email = `e2e-dealer-${stamp}@authentiq.local`;
+  const password = "E2E-Authentiq-2026!";
+  const payload = { dealershipName: `E2E Motors ${stamp}`, slug, adminName: "E2E Admin", adminEmail: email, adminPassword: password };
+
+  const reserved = await api("/api/auth/register-dealer", { method: "POST", body: JSON.stringify({ ...payload, slug: "www" }) });
+  check("Un identificador reservado no puede registrarse", reserved.status === 400, `respondió ${reserved.status}`);
+
+  const short = await api("/api/auth/register-dealer", { method: "POST", body: JSON.stringify({ ...payload, adminPassword: "1234567" }) });
+  check("Una contraseña corta no puede registrarse", short.status === 400, `respondió ${short.status}`);
+
+  const signup = await api("/api/auth/register-dealer", { method: "POST", body: JSON.stringify(payload) });
+  check("Un concesionario nuevo se registra", signup.status === 201, `respondió ${signup.status}`);
+  if (signup.status !== 201) return;
+  created.organizationSlug = slug;
+
+  check("El showroom nuevo queda pendiente de aprobación", signup.body?.organization?.approvalStatus === "pending", String(signup.body?.organization?.approvalStatus));
+  check("El alta entrega sesión sin pedir login otra vez", Boolean(signup.body?.token));
+
+  const duplicateSlug = await api("/api/auth/register-dealer", { method: "POST", body: JSON.stringify({ ...payload, adminEmail: `otro-${stamp}@authentiq.local` }) });
+  check("Un identificador repetido se rechaza", duplicateSlug.status === 409, `respondió ${duplicateSlug.status}`);
+
+  const duplicateEmail = await api("/api/auth/register-dealer", { method: "POST", body: JSON.stringify({ ...payload, slug: `otro-${stamp}` }) });
+  check("Un correo repetido se rechaza", duplicateEmail.status === 409, `respondió ${duplicateEmail.status}`);
+
+  // Lo que fallaba: tras registrarse desde el dominio central, volver a entrar
+  // por esa misma puerta daba 401 y la persona quedaba fuera de su propia cuenta.
+  const relogin = await api("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
+  check("El dueño nuevo puede volver a iniciar sesión", relogin.status === 200, `respondió ${relogin.status}`);
+  check("Su sesión apunta a su propio concesionario", Boolean(relogin.body?.user?.organizationId) && relogin.body?.user?.role === "admin");
+
+  const wrong = await api("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password: "no-es-la-clave" }) });
+  check("Una contraseña incorrecta sigue rechazada", wrong.status === 401, `respondió ${wrong.status}`);
+
+  // Y su backoffice debe estar operativo desde el primer minuto.
+  const dashboard = await api("/api/admin/dashboard", { token: relogin.body?.token });
+  check("El backoffice del concesionario nuevo responde", dashboard.ok, `respondió ${dashboard.status}`);
+  const settings = await api("/api/admin/settings", { token: relogin.body?.token });
+  check("Su configuración inicial existe", settings.ok && Boolean(settings.body?.data));
+  const onboarding = await api("/api/admin/onboarding", { token: relogin.body?.token });
+  check("Ve su guía de personalización", onboarding.ok && Array.isArray(onboarding.body?.data?.steps));
+}
+
 async function cleanup() {
   if (!process.env.DATABASE_URL) return;
   const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
@@ -240,6 +286,11 @@ async function cleanup() {
       await pool.query("DELETE FROM vehicles WHERE id = $1", [created.vehicleId]);
     }
     await pool.query("DELETE FROM vehicle_brands WHERE name LIKE $1", [`%${marker}%`]);
+    // El alta crea una organización entera: hay que retirarla, y con ella su
+    // administrador, para no dejar cuentas activas con una contraseña conocida.
+    await pool.query("DELETE FROM admin_users WHERE email LIKE $1", [`%${stamp}@authentiq.local`]);
+    await pool.query("DELETE FROM organizations WHERE slug LIKE $1", [`e2e-dealer-${stamp}%`]);
+    await pool.query("DELETE FROM organizations WHERE slug LIKE $1", [`otro-${stamp}%`]);
     console.log("\nLimpieza: registros de prueba eliminados.");
   } catch (error) {
     console.error("\nLimpieza incompleta:", error.message);
@@ -250,6 +301,7 @@ async function cleanup() {
 
 try {
   await main();
+  await checkDealerSignup();
 } catch (error) {
   failed += 1;
   console.error("FAIL  Excepción no controlada —", error.message);

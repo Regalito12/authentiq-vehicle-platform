@@ -44,8 +44,11 @@ try {
     console.log(`PASS  ${role}: permisos permitidos y bloqueados correctos`);
   }
 } finally {
+  let removed = 0;
   for (const user of createdUsers) {
+    const deleted = await call(`/api/admin/users/${user.id}`, { method: "DELETE", headers: headers(adminToken) });
+    if (deleted.response.ok || deleted.response.status === 204) { removed += 1; continue; }
     await call(`/api/admin/users/${user.id}`, { method: "PATCH", headers: headers(adminToken), body: JSON.stringify({ name: user.name, role: user.role, isActive: false }) });
   }
-  console.log(`QA: ${createdUsers.length} cuentas temporales desactivadas`);
+  console.log(`QA: ${removed} de ${createdUsers.length} cuentas temporales eliminadas${removed < createdUsers.length ? " (el resto quedaron desactivadas)" : ""}`);
 }

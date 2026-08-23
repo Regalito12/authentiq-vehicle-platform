@@ -36,6 +36,25 @@ const platformBaseDomain = String(process.env.PLATFORM_BASE_DOMAIN || "").trim()
 function subdomainForSlug(slug) {
   return platformBaseDomain ? `${slug}.${platformBaseDomain}` : null;
 }
+
+// El slug se convierte en subdominio del dealer (<slug>.dominio.com) y en el
+// parámetro ?dealer=. Sin esta lista, alguien podía registrarse como "www" o
+// "api" y quedarse con el subdominio de la propia plataforma, o como "assets" y
+// chocar con las rutas del sitio. Solo aplica al crear o renombrar: los slugs
+// que ya existen siguen funcionando.
+const reservedSlugs = new Set([
+  // Infraestructura de la plataforma.
+  "www", "api", "app", "admin", "mail", "smtp", "ftp", "ns", "cdn", "static", "media", "files",
+  // Rutas y archivos que sirve el propio sitio.
+  "assets", "uploads", "backoffice", "preview", "presentacion", "vehiculos", "blog", "cotizaciones",
+  "privacidad", "terminos", "sitemap", "robots", "favicon", "manifest", "health", "status",
+  // Palabras que confundirían a un comprador sobre quién le está hablando.
+  "authentiq", "plataforma", "platform", "soporte", "support", "ayuda", "help", "login", "cuenta", "account",
+]);
+
+function isReservedSlug(slug) {
+  return reservedSlugs.has(String(slug || "").trim().toLowerCase());
+}
 const supabaseUrl = String(process.env.SUPABASE_URL || "").replace(/\/+$/, "");
 const supabaseServiceRoleKey = String(process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
 const supabaseStorageBucket = String(process.env.SUPABASE_STORAGE_BUCKET || "vehicle-media").trim();
@@ -1238,7 +1257,19 @@ app.post("/api/auth/login", async (req, res) => {
   try {
     const organization = await getOrganizationContext(req);
     const result = await pool.query("SELECT id, full_name, email, role, password_hash, must_change_password AS \"mustChangePassword\", organization_id AS \"organizationId\" FROM admin_users WHERE LOWER(email) = $1 AND (organization_id = $2 OR role = 'platform_admin') AND is_active = TRUE", [email, organization.id]);
-    const admin = result.rows[0];
+    let admin = result.rows[0];
+    // Quien se registra desde el dominio central acaba con su cuenta en su propio
+    // concesionario, y al volver a entrar por la misma puerta no la encontraba:
+    // 401 sin explicación y sin forma de saber que debía ir a su subdominio.
+    //
+    // Desde el dominio central se busca también por correo, que tiene índice único
+    // global en admin_users, así que identifica exactamente a una persona. El JWT
+    // sigue llevando SU organizationId, de modo que el aislamiento entre
+    // concesionarios no cambia: solo se le deja entrar por la puerta principal.
+    if (!admin && organization.slug === DEFAULT_ORGANIZATION_SLUG) {
+      const fallback = await pool.query("SELECT id, full_name, email, role, password_hash, must_change_password AS \"mustChangePassword\", organization_id AS \"organizationId\" FROM admin_users WHERE LOWER(email) = $1 AND is_active = TRUE AND organization_id IS NOT NULL", [email]);
+      admin = fallback.rows[0];
+    }
     if (!admin || !(await bcrypt.compare(password, admin.password_hash))) return res.status(401).json({ error: "Correo o contraseña incorrectos" });
     // Una contraseña restablecida por un administrador solo sirve para volver a entrar:
     // el token es de vida corta y obliga a definir una contraseña propia antes de operar.
@@ -1249,6 +1280,24 @@ app.post("/api/auth/login", async (req, res) => {
     if (isOrganizationNotFound(error)) return sendOrganizationNotFound(res);
     console.error("Admin login failed", error);
     res.status(503).json({ error: "El servicio no está disponible en este momento. Intenta nuevamente." });
+  }
+});
+
+// Comprobación del identificador antes de pedir los datos personales. Sin esto,
+// alguien rellenaba nombre, correo y contraseña dos veces para descubrir al final
+// que su enlace estaba ocupado o reservado, y tenía que volver atrás.
+app.get("/api/auth/slug-available", async (req, res) => {
+  const slug = String(req.query?.slug || "").trim().toLowerCase();
+  if (!slug || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) return res.json({ available: false, reason: "invalid", message: "Usa solo minúsculas, números y guiones." });
+  if (isReservedSlug(slug)) return res.json({ available: false, reason: "reserved", message: `"${slug}" está reservado por la plataforma. Elige otro.` });
+  try {
+    const taken = await pool.query("SELECT 1 FROM organizations WHERE slug=$1", [slug]);
+    if (taken.rowCount) return res.json({ available: false, reason: "taken", message: `"${slug}" ya está en uso por otro concesionario.` });
+    return res.json({ available: true, message: "Disponible." });
+  } catch (error) {
+    console.error("Slug availability check failed", error);
+    // Ante la duda no se bloquea al usuario: el registro lo valida igualmente.
+    return res.json({ available: true, message: "" });
   }
 });
 
@@ -1266,11 +1315,13 @@ app.post("/api/auth/register-dealer", verifyPublicForm, async (req, res) => {
 
   if (dealershipName.length < 2) return res.status(400).json({ error: "El nombre del concesionario debe tener al menos 2 caracteres" });
   if (!slug || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) return res.status(400).json({ error: "El identificador (slug) debe contener solo letras minúsculas, números y guiones" });
+  if (isReservedSlug(slug)) return res.status(400).json({ error: `El identificador "${slug}" está reservado por la plataforma. Elige otro nombre para tu concesionario.` });
   if (adminName.length < 2) return res.status(400).json({ error: "El nombre del administrador debe tener al menos 2 caracteres" });
   if (!/^\S+@\S+\.\S+$/.test(adminEmail)) return res.status(400).json({ error: "Introduce un correo electrónico válido" });
   if (adminPassword.length < 8) return res.status(400).json({ error: "La contraseña debe tener al menos 8 caracteres" });
 
   const client = await pool.connect();
+  let committed = false;
   try {
     await client.query("BEGIN");
 
@@ -1327,10 +1378,20 @@ app.post("/api/auth/register-dealer", verifyPublicForm, async (req, res) => {
     await client.query("INSERT INTO organization_members (organization_id, admin_user_id, role) VALUES ($1, $2, 'admin')", [organizationId, admin.id]);
 
     await client.query("COMMIT");
+    committed = true;
 
-    await pool.query("INSERT INTO audit_logs (actor_id, action, entity_type, entity_id, metadata) VALUES ($1, 'dealer.self_register', 'organization', $2, $3::jsonb)", [
-      admin.id, organizationId, JSON.stringify({ slug, name: dealershipName, email: adminEmail })
-    ]);
+    // A partir de aquí el concesionario YA existe. Nada de lo que siga puede
+    // responder "no se pudo registrar": si lo hiciera, la persona reintentaría y
+    // recibiría "ese correo ya está en uso", sin forma de entrar a la cuenta que
+    // acaba de crear. El registro de auditoría es importante, pero no tanto.
+    try {
+      await pool.query("INSERT INTO audit_logs (actor_id, action, entity_type, entity_id, metadata) VALUES ($1, 'dealer.self_register', 'organization', $2, $3::jsonb)", [
+        admin.id, organizationId, JSON.stringify({ slug, name: dealershipName, email: adminEmail })
+      ]);
+    } catch (auditError) {
+      console.error("Dealer registration audit log failed", auditError);
+      reportServerError(auditError, { tenant: slug, route: "/api/auth/register-dealer", method: "POST" });
+    }
 
     const token = jwt.sign({ id: admin.id, email: admin.email, role: "admin", name: admin.name, organizationId, mustChangePassword: false }, jwtSecret, { expiresIn: "8h" });
     setSessionCookie(res, ADMIN_SESSION_COOKIE, token, 28800);
@@ -1351,8 +1412,20 @@ app.post("/api/auth/register-dealer", verifyPublicForm, async (req, res) => {
       message: "Concesionario registrado. Tu showroom queda en revisión y solo tú puedes verlo hasta que se apruebe.",
     });
   } catch (error) {
-    await client.query("ROLLBACK");
+    // Deshacer solo si la transacción sigue abierta: un ROLLBACK después del
+    // COMMIT no revierte nada y enmascara el error real en los registros.
+    if (!committed) await client.query("ROLLBACK").catch(() => {});
     console.error("Dealer registration failed", error);
+    reportServerError(error, { tenant: slug, route: "/api/auth/register-dealer", method: "POST" });
+    if (committed) {
+      // La cuenta existe: no se le puede decir a la persona que falló.
+      return res.status(201).json({
+        user: { name: adminName, email: adminEmail, role: "admin", organizationSlug: slug, organizationName: dealershipName },
+        organization: { slug, name: dealershipName, approvalStatus: "pending" },
+        message: "Tu concesionario quedó registrado. Inicia sesión con tu correo y contraseña para entrar.",
+        requiresLogin: true,
+      });
+    }
     if (error.code === "23505") {
       return res.status(409).json({ error: "El identificador del concesionario o el correo electrónico ya está en uso." });
     }
@@ -2319,6 +2392,7 @@ app.patch("/api/admin/organization", authenticate, requireRoles("admin"), async 
   const logoUrl = String(req.body.logoUrl || "").trim() || null;
   const customDomain = String(req.body.customDomain || "").trim().toLowerCase() || null;
   if (!name || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) return res.status(400).json({ error: "Nombre y slug válido son obligatorios" });
+  if (isReservedSlug(slug)) return res.status(400).json({ error: `El identificador "${slug}" está reservado por la plataforma. Elige otro.` });
   if (customDomain && (!/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(customDomain) || customDomain === "localhost")) return res.status(400).json({ error: "El dominio personalizado no es válido" });
   try {
     const organization = await pool.query("SELECT o.id FROM organizations o JOIN admin_users au ON au.organization_id=o.id WHERE au.id=$1", [req.admin.id]);
@@ -2443,6 +2517,9 @@ app.post("/api/platform/organizations", authenticate, requireRoles("platform_adm
   const accentColor = normalizeColor(req.body?.accentColor, "#b28b37");
   if (name.length < 2 || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) || adminName.length < 2 || !/^\S+@\S+\.\S+$/.test(adminEmail) || adminPassword.length < 8) return res.status(400).json({ error: "Nombre, slug, administrador, correo y contraseña válida son obligatorios" });
   if (customDomain && (!/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(customDomain) || customDomain === "localhost")) return res.status(400).json({ error: "El dominio personalizado no es válido" });
+  // También aquí: crear un dealer con slug "www" desde el panel de plataforma sería
+  // un error de dedo con consecuencias de infraestructura, no una decisión.
+  if (isReservedSlug(slug)) return res.status(400).json({ error: `El identificador "${slug}" está reservado por la plataforma` });
   try {
     const plan = await pool.query("SELECT code, monthly_amount AS \"monthlyAmount\" FROM platform_plans WHERE code=$1 AND is_active=TRUE", [planCode]);
     if (!plan.rowCount) return res.status(400).json({ error: "El plan seleccionado no existe" });

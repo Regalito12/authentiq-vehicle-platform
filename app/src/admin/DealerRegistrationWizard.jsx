@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { TurnstileField } from "../utils/turnstile.jsx";
 import { apiFetch as fetch } from "./apiClient.js";
 
@@ -26,6 +26,7 @@ export default function DealerRegistrationWizard({ onRegisterSuccess, onCancel, 
   });
 
   const [slugManuallyEdited, setSlugManuallyEdited] = useState(false);
+  const [slugCheck, setSlugCheck] = useState(null);
 
   const updateField = (field, value) => {
     setForm((prev) => {
@@ -53,6 +54,22 @@ export default function DealerRegistrationWizard({ onRegisterSuccess, onCancel, 
     setForm((prev) => ({ ...prev, slug: cleaned }));
   };
 
+  // Se comprueba mientras escribe, con una pausa, para que sepa si su enlace
+  // está libre antes de darnos su correo y su contraseña.
+  useEffect(() => {
+    const slug = form.slug;
+    if (!slug) { setSlugCheck(null); return undefined; }
+    setSlugCheck({ state: "checking" });
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await fetch(`${apiUrl}/api/auth/slug-available?slug=${encodeURIComponent(slug)}`);
+        const data = await response.json();
+        setSlugCheck({ state: data.available ? "free" : "taken", message: data.message || "" });
+      } catch { setSlugCheck(null); }
+    }, 450);
+    return () => window.clearTimeout(timer);
+  }, [form.slug, apiUrl]);
+
   const validateStep1 = () => {
     if (!form.dealershipName.trim() || form.dealershipName.trim().length < 2) {
       setError("El nombre del concesionario debe tener al menos 2 caracteres.");
@@ -60,6 +77,10 @@ export default function DealerRegistrationWizard({ onRegisterSuccess, onCancel, 
     }
     if (!form.slug || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(form.slug)) {
       setError("El nombre del enlace debe usar solo minúsculas, números y guiones.");
+      return false;
+    }
+    if (slugCheck?.state === "taken") {
+      setError(slugCheck.message || "Ese nombre de enlace no está disponible.");
       return false;
     }
     setError("");
@@ -218,8 +239,11 @@ export default function DealerRegistrationWizard({ onRegisterSuccess, onCancel, 
               onChange={handleSlugChange}
               required
             />
-            <small style={{ textTransform: "none", color: "var(--auth-muted, #888)", marginTop: "4px" }}>
-              Será parte de la dirección de tu showroom. Usa minúsculas, números y guiones; podrás cambiarlo antes de publicar.
+            <small className={`slug-availability${slugCheck?.state === "free" ? " is-free" : slugCheck?.state === "taken" ? " is-taken" : ""}`} aria-live="polite">
+              {slugCheck?.state === "checking" && "Comprobando disponibilidad…"}
+              {slugCheck?.state === "free" && `Disponible. Tu showroom vivirá en /?dealer=${form.slug}`}
+              {slugCheck?.state === "taken" && slugCheck.message}
+              {!slugCheck && "Será parte de la dirección de tu showroom. Usa minúsculas, números y guiones; podrás cambiarlo antes de publicar."}
             </small>
           </label>
 

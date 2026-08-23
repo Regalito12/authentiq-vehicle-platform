@@ -95,6 +95,25 @@ await check("Las rutas publicas conocidas siguen abiertas", async () => {
   }
 });
 
+// El slug se convierte en subdominio del dealer: si alguien se registra como
+// "www" o "api" se queda con infraestructura de la plataforma.
+await check("Los identificadores reservados se rechazan", async () => {
+  for (const slug of ["www", "api", "admin", "assets", "backoffice"]) {
+    const { body } = await request(`/api/auth/slug-available?slug=${slug}`);
+    assert(body?.available === false && body?.reason === "reserved", `"${slug}" quedo disponible`);
+  }
+});
+
+await check("Un identificador libre se ofrece como disponible", async () => {
+  const { body } = await request(`/api/auth/slug-available?slug=qa-libre-${Date.now()}`);
+  assert(body?.available === true, "un slug nuevo aparece como ocupado");
+});
+
+await check("Un identificador ya usado se marca como ocupado", async () => {
+  const { body } = await request("/api/auth/slug-available?slug=dealer-demo");
+  assert(body?.available === false && body?.reason === "taken", "no detecta el slug en uso");
+});
+
 console.log(checks.join("\n"));
 const failures = checks.filter((item) => item.startsWith("FAIL"));
 if (failures.length) process.exitCode = 1;

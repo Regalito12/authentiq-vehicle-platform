@@ -3561,3 +3561,9 @@ html[data-theme="dark"] .flyer-format-btn {
 .welcome-step-breakdown li.is-done { color: var(--auth-muted); }
 .welcome-step-breakdown li.is-done > span { color: #7da879; }
 .welcome-step-breakdown em { color: var(--auth-muted); font-style: normal; }
+
+/* Disponibilidad del enlace en el alta de concesionario. El aviso vive junto al
+   campo, no al final del formulario, para no descubrirlo tras dar los datos. */
+.slug-availability { display: block; margin-top: 4px; color: var(--auth-muted, #888); font-size: 11px; line-height: 1.4; text-transform: none; }
+.slug-availability.is-free { color: #7da879; }
+.slug-availability.is-taken { color: #a33b2b; }
