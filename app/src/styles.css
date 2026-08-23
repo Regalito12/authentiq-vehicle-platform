@@ -3552,3 +3552,12 @@ html[data-theme="dark"] .flyer-format-btn {
 @media (prefers-reduced-motion: reduce) {
   .vehicle-3d-hotspot-dot, .vehicle-3d-hotspot-label { transition: none; }
 }
+
+/* Desglose del bloque dentro del asistente: dice qué contiene sin repetir la
+   frase que ya se lee en el titular. */
+.welcome-step-breakdown { display: grid; gap: 6px; margin: 9px 0 0; padding: 0; list-style: none; }
+.welcome-step-breakdown li { display: grid; grid-template-columns: 16px minmax(0, 1fr); align-items: baseline; gap: 8px; color: var(--auth-ink); font-size: 12px; }
+.welcome-step-breakdown li > span { color: var(--tenant-primary, var(--auth-gold)); font: 11px "IBM Plex Mono", monospace; }
+.welcome-step-breakdown li.is-done { color: var(--auth-muted); }
+.welcome-step-breakdown li.is-done > span { color: #7da879; }
+.welcome-step-breakdown em { color: var(--auth-muted); font-style: normal; }

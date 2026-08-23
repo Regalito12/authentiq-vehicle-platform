@@ -80,6 +80,21 @@ await check("Portada entrega HTML real para buscadores", async () => {
   assert(html.includes("application/ld+json") && html.includes("AutoDealer"), "falta el dato estructurado del concesionario");
 });
 
+// Una URL inventada devolvia 200 con "index, follow": Google podia indexar
+// basura infinita de cada concesionario como si fuera su catalogo.
+await check("Una URL inexistente responde 404 y no se indexa", async () => {
+  const { response, body } = await request("/esta-ruta-no-existe");
+  assert(response.status === 404, `respondio ${response.status}`);
+  assert(String(body || "").includes("noindex"), "el 404 no se marca como no indexable");
+});
+
+await check("Las rutas publicas conocidas siguen abiertas", async () => {
+  for (const path of ["/", "/presentacion"]) {
+    const { response } = await request(path);
+    assert(response.ok, `${path} respondio ${response.status}`);
+  }
+});
+
 console.log(checks.join("\n"));
 const failures = checks.filter((item) => item.startsWith("FAIL"));
 if (failures.length) process.exitCode = 1;

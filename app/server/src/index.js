@@ -3127,10 +3127,22 @@ function publicNotFoundHtml({ businessName = "AUTHENTIQ", origin = "", title = "
   return `<!doctype html><html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>${escapeHtml(title)} · ${escapeHtml(businessName)}</title><meta name="robots" content="noindex, nofollow"><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#101212;color:#f2efe9;font-family:Arial,sans-serif}main{width:min(560px,calc(100% - 40px));padding:40px;border:1px solid #c8a24b;background:#171a1a}small{letter-spacing:.12em;color:#c8a24b}p{color:#b8bdb8;line-height:1.6}a{display:inline-block;margin-top:18px;padding:13px 18px;background:#c8a24b;color:#101212;text-decoration:none;font-weight:700}</style></head><body><main><small>${escapeHtml(businessName)} · SHOWROOM</small><h1>${escapeHtml(title)}</h1><p>${escapeHtml(message)}</p><a href="${escapeHtml(home)}">Volver al showroom</a></main></body></html>`;
 }
 
+// Las mismas rutas que el catálogo sabe pintar. Cualquier otra cosa devolvía 200
+// con "index, follow" y un título de catálogo: un 404 blando que permitía a Google
+// indexar URLs inventadas de cada concesionario. Debe coincidir con `knownPath`
+// en App.jsx.
+function isKnownPublicRoute(pathname) {
+  if (pathname === "/" || pathname === "/index.html" || pathname === "/presentacion" || pathname === "/preview") return true;
+  return /^\/(vehiculos|blog|cotizaciones)\/[^/]+\/?$/i.test(pathname);
+}
+
 async function publicRouteMetadata(req, organization, { businessName, origin, defaultImage }) {
   const match = req.path.match(/^\/(vehiculos|blog)\/([^/]+)\/?$/i);
   const base = { title: `${businessName} · Vehículos seleccionados`, description: `Inventario de vehículos, atención comercial y citas de ${businessName}.`, image: defaultImage, ogType: "website", robots: "index, follow" };
-  if (!match) return base;
+  if (!match) {
+    if (!isKnownPublicRoute(req.path)) return { ...base, notFound: true, notFoundTitle: "Página no encontrada", notFoundMessage: "Esta dirección no existe en el showroom. Vuelve al catálogo para ver los vehículos disponibles." };
+    return base;
+  }
   let slug;
   try { slug = decodeURIComponent(match[2]); } catch { return { ...base, notFound: true }; }
   if (!slug) return { ...base, notFound: true };
