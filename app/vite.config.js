@@ -31,10 +31,12 @@ export default defineConfig({
     chunkSizeWarningLimit: 1200,
     rollupOptions: {
       output: {
+        // recharts y @tanstack solo los usa el backoffice, que se carga con lazy().
+        // Al forzarlos a un chunk con nombre propio quedaban colgando del entry y el
+        // comprador se descargaba 368 KB de gráficas que nunca ve. Dejando que Rollup
+        // los coloque solo, viajan dentro del chunk asíncrono del backoffice.
         manualChunks(id) {
           if (!id.includes("node_modules")) return undefined;
-          if (id.includes("recharts")) return "charts-vendor";
-          if (id.includes("@tanstack")) return "tables-vendor";
           if (id.includes("motion")) return "motion-vendor";
           return undefined;
         },

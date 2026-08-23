@@ -5,7 +5,7 @@
 | Perfil | Uso | Puede administrar inventario | Puede operar CRM | Puede editar contenido | Puede gestionar usuarios/configuración |
 |---|---|---:|---:|---:|---:|
 | Administrador | Control total | Sí | Sí | Sí | Sí |
-| Editor | Inventario y operación comercial | Sí | Sí | Sí | No |
+| Editor | Inventario, operación comercial y personalización del showroom | Sí | Sí | Sí | Solo personalización |
 | Ventas | Seguimiento y cierre comercial | No | Sí | No | No |
 | Contenido | Journal y contenido público | No | No | Sí | No |
 
@@ -15,7 +15,8 @@
 - Inventario, usuarios y configuración no dependen únicamente de botones ocultos: el backend valida el rol.
 - Leads, cotizaciones, ofertas, test drives, calendario y reportes requieren perfil administrador, editor o ventas.
 - Blog requiere administrador, editor o contenido.
-- Auditoría, usuarios administrables y configuración requieren administrador.
+- Auditoría, usuarios administrables, datos de cuenta (dominio, plan) e integraciones requieren administrador.
+- La personalización del showroom (`/api/admin/settings`, `/api/admin/onboarding`) está abierta a administrador y editor: el editor es quien publica y ajusta el showroom a diario.
 - Los formularios públicos no crean registros sin consentimiento de privacidad.
 
 ## Antes de producción

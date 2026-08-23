@@ -23,8 +23,8 @@ assert(adminLogin.response.ok, "No se pudo iniciar sesión como admin");
 const adminToken = adminLogin.body.token;
 
 const roleRules = {
-  editor: [["/api/admin/vehicles", 200], ["/api/admin/blog", 200], ["/api/admin/settings", 200], ["/api/admin/settings", 200, "PATCH"], ["/api/admin/social/drafts", 200], ["/api/admin/calendar.ics", 200], ["/api/admin/audit-logs", 403]],
-  seller: [["/api/admin/leads", 200], ["/api/admin/quotes", 200], ["/api/admin/dashboard", 200], ["/api/admin/settings", 403], ["/api/admin/blog", 403]],
+  editor: [["/api/admin/vehicles", 200], ["/api/admin/blog", 200], ["/api/admin/settings", 200], ["/api/admin/settings", 200, "PATCH"], ["/api/admin/social/drafts", 200], ["/api/admin/calendar.ics", 200], ["/api/admin/onboarding", 200], ["/api/admin/audit-logs", 403]],
+  seller: [["/api/admin/leads", 200], ["/api/admin/quotes", 200], ["/api/admin/dashboard", 200], ["/api/admin/settings", 403], ["/api/admin/blog", 403], ["/api/admin/onboarding", 403]],
   content_editor: [["/api/admin/blog", 200], ["/api/admin/dashboard", 200], ["/api/admin/social/drafts", 200], ["/api/admin/leads", 403], ["/api/admin/settings", 200], ["/api/admin/settings", 403, "PATCH"]],
 };
 

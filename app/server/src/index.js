@@ -11,6 +11,8 @@ import multer from "multer";
 import path from "node:path";
 import pg from "pg";
 import helmet from "helmet";
+import { initMonitoring, reportServerError } from "./monitoring.js";
+import { catalogPrerender, vehiclePrerender, catalogJsonLd, vehicleJsonLd } from "./prerender.js";
 import sharp from "sharp";
 import { fileURLToPath } from "node:url";
 
@@ -2335,7 +2337,7 @@ app.patch("/api/admin/organization", authenticate, requireRoles("admin"), async 
   } catch (error) { console.error("Organization update failed", error); res.status(500).json({ error: "No se pudo guardar el perfil del concesionario" }); }
 });
 
-app.get("/api/admin/onboarding", authenticate, requireRoles("admin"), async (req, res) => {
+app.get("/api/admin/onboarding", authenticate, requireRoles("admin", "editor"), async (req, res) => {
   try {
     const organizationId = adminOrganizationId(req);
     const result = await pool.query(`
@@ -2354,17 +2356,19 @@ app.get("/api/admin/onboarding", authenticate, requireRoles("admin"), async (req
     if (!result.rowCount) return res.status(404).json({ error: "Organización no encontrada" });
     const row = result.rows[0];
     const steps = [
-      { id: "identity", label: "Identidad comercial", detail: "Nombre y slug listos para la marca blanca.", done: Boolean(row.name && row.slug) },
-      { id: "logo", label: "Logo del concesionario", detail: "Sube el logo que verá el comprador.", done: Boolean(row.logoUrl) },
-      { id: "contact", label: "Canales de contacto", detail: "Teléfono, WhatsApp o correo para convertir consultas.", done: Boolean(row.phone || row.whatsapp || row.email) },
-      { id: "catalog", label: "Primer inventario publicado", detail: "El sitio ya puede recibir compradores.", done: Number(row.publishedVehicles) > 0 },
-      { id: "appointments", label: "Horarios de citas", detail: "Define cuándo el showroom puede recibir visitas.", done: Boolean(row.appointmentStart && row.appointmentEnd && row.appointmentDays?.length) },
-      { id: "social", label: "Redes sociales", detail: "Conecta Instagram o Facebook cuando el cliente lo autorice.", done: Boolean(row.instagramUrl || row.facebookUrl) },
-      { id: "legal", label: "Textos legales", detail: "Revisa privacidad y términos antes de publicar.", done: Boolean(row.privacyText && row.termsText && !/borrador|pendiente de revisión/i.test(`${row.privacyText} ${row.termsText}`)) },
-      { id: "domain", label: "Dominio personalizado", detail: "Opcional: enlaza el dominio del concesionario.", done: Boolean(row.customDomain) },
+      { id: "identity", group: "brand", essential: true, label: "Nombre del concesionario", detail: "Así te verá el comprador en todo el sitio.", done: Boolean(row.name && row.slug) },
+      { id: "logo", group: "brand", essential: true, label: "Logo", detail: "Aparece en la navegación y en cada ficha.", done: Boolean(row.logoUrl) },
+      { id: "catalog", group: "showcase", essential: true, label: "Primer vehículo publicado", detail: "Sin inventario no hay nada que enseñar.", done: Number(row.publishedVehicles) > 0 },
+      { id: "contact", group: "operation", essential: true, label: "Cómo te contactan", detail: "Teléfono, WhatsApp o correo.", done: Boolean(row.phone || row.whatsapp || row.email) },
+      { id: "appointments", group: "operation", essential: false, label: "Horario para visitas", detail: "Deja que reserven sin llamarte.", done: Boolean(row.appointmentStart && row.appointmentEnd && row.appointmentDays?.length) },
+      { id: "legal", group: "operation", essential: true, label: "Privacidad y términos", detail: "Revísalos antes de compartir el enlace.", done: Boolean(row.privacyText && row.termsText && !/borrador|pendiente de revisión/i.test(`${row.privacyText} ${row.termsText}`)) },
+      { id: "social", group: "showcase", essential: false, label: "Instagram y Facebook", detail: "Opcional: enlaza tus redes.", done: Boolean(row.instagramUrl || row.facebookUrl) },
+      { id: "domain", group: "brand", essential: false, label: "Dominio propio", detail: "Opcional: usa tu propia dirección web.", done: Boolean(row.customDomain) },
     ];
     const completed = steps.filter((step) => step.done).length;
-    res.json({ data: { steps, completed, total: steps.length, progress: Math.round((completed / steps.length) * 100), activeUsers: Number(row.activeUsers) } });
+    const essential = steps.filter((step) => step.essential);
+    const essentialDone = essential.filter((step) => step.done).length;
+    res.json({ data: { steps, completed, total: steps.length, progress: Math.round((completed / steps.length) * 100), essentialTotal: essential.length, essentialDone, readyToPublish: essentialDone === essential.length, activeUsers: Number(row.activeUsers) } });
   } catch (error) { console.error("Onboarding query failed", error); res.status(500).json({ error: "No se pudo cargar el estado de inicio" }); }
 });
 
@@ -3143,6 +3147,7 @@ async function publicRouteMetadata(req, organization, { businessName, origin, de
       image: absolutePublicAsset(origin, firstImage),
       ogType: "product",
       robots: "index, follow",
+      vehicle,
     };
   }
 
@@ -3158,11 +3163,49 @@ async function publicRouteMetadata(req, organization, { businessName, origin, de
   };
 }
 
+// Consulta ligera a proposito: el catalogo para buscadores solo necesita nombre,
+// precio y cuatro datos, no el SELECT completo con agregados de imagenes y media.
+const prerenderCatalogQuery = `
+  SELECT v.id, v.model, v.variant, v.year, v.price_usd AS "priceUsd", v.fuel_type AS "fuelType",
+         v.transmission, v.mileage_km AS "mileageKm", b.name AS brand, c.name AS category
+  FROM vehicles v
+  JOIN vehicle_brands b ON b.id = v.brand_id
+  LEFT JOIN vehicle_categories c ON c.id = v.category_id
+  WHERE v.organization_id = $1 AND v.status IN ('published', 'reserved')
+  ORDER BY v.created_at DESC
+  LIMIT 60`;
+
+async function buildPrerender({ req, organization, businessName, origin, canonical, settings, metadata }) {
+  const empty = { prerender: "", jsonLd: "" };
+  try {
+    const logoUrl = absolutePublicAsset(origin, settings.logoUrl || organization.logoUrl);
+    if (metadata.vehicle) {
+      return {
+        prerender: vehiclePrerender({ businessName, vehicle: metadata.vehicle, settings }),
+        jsonLd: vehicleJsonLd({ businessName, origin, settings, logoUrl, vehicle: metadata.vehicle, image: metadata.image, canonical }),
+      };
+    }
+    // Solo la portada: las rutas internas (blog, cuenta, preview) no ganan nada
+    // con un catalogo incrustado y anadirian una consulta por visita.
+    if (req.path !== "/" && req.path !== "/index.html") return empty;
+    const result = await pool.query(prerenderCatalogQuery, [organization.id]);
+    const vehicles = result.rows.map((vehicle) => ({ ...vehicle, slug: vehicleSlug(vehicle) }));
+    return {
+      prerender: catalogPrerender({ businessName, vehicles, settings }),
+      jsonLd: catalogJsonLd({ businessName, origin, settings, logoUrl, vehicles }),
+    };
+  } catch (error) {
+    // El contenido para buscadores nunca debe impedir que la pagina se sirva.
+    console.error("Prerender failed", error);
+    return empty;
+  }
+}
+
 async function sendTenantIndex(req, res, next) {
   try {
     const organization = await getOrganizationContext(req);
     const settings = await pool.query(
-      'SELECT business_name AS "businessName", logo_url AS "logoUrl" FROM organization_settings WHERE organization_id=$1',
+      'SELECT business_name AS "businessName", logo_url AS "logoUrl", phone, email, address, hours, currency, instagram_url AS "instagramUrl", facebook_url AS "facebookUrl" FROM organization_settings WHERE organization_id=$1',
       [organization.id],
     );
     const businessName = String(settings.rows[0]?.businessName || organization.name || "AUTHENTIQ").trim().slice(0, 120) || "AUTHENTIQ";
@@ -3175,9 +3218,13 @@ async function sendTenantIndex(req, res, next) {
       res.status(404).type("html").send(publicNotFoundHtml({ businessName, origin, title: metadata.notFoundTitle || "Página no encontrada", message: metadata.notFoundMessage }));
       return;
     }
+    const publicSettings = settings.rows[0] || {};
+    const { prerender, jsonLd } = await buildPrerender({ req, organization, businessName, origin, canonical, settings: publicSettings, metadata });
     const html = await fs.readFile(frontendIndex, "utf8");
     res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
     res.type("html").send(html
+      .replaceAll("<!--__AUTHENTIQ_PRERENDER__-->", prerender)
+      .replaceAll("<!--__AUTHENTIQ_JSONLD__-->", jsonLd)
       .replaceAll("__AUTHENTIQ_TITLE__", escapeHtml(metadata.title))
       .replaceAll("__AUTHENTIQ_DESCRIPTION__", escapeHtml(metadata.description))
       .replaceAll("__AUTHENTIQ_IMAGE__", escapeHtml(metadata.image))
@@ -3209,17 +3256,22 @@ app.use((req, res, next) => {
 });
 
 // Último recurso: cualquier error no controlado responde JSON consistente y sin filtrar detalles internos.
-app.use((error, _req, res, _next) => {
+app.use((error, req, res, _next) => {
   const clientInputError = error?.type === "entity.parse.failed" || error?.type === "entity.too.large";
-  if (!clientInputError) console.error("Unhandled request error", error);
+  if (!clientInputError) {
+    console.error("Unhandled request error", error);
+    // Etiquetamos por concesionario y ruta: así se sabe qué dealer está roto.
+    reportServerError(error, { tenant: req?.organizationContext?.slug || req?.admin?.organizationId, route: req?.originalUrl?.split("?")[0], method: req?.method, role: req?.admin?.role });
+  }
   if (res.headersSent) return;
   if (error?.type === "entity.parse.failed") return res.status(400).json({ error: "El cuerpo de la petición no es JSON válido" });
   if (error?.type === "entity.too.large") return res.status(413).json({ error: "La petición es demasiado grande" });
   res.status(500).json({ error: "Ocurrió un error inesperado" });
 });
 
-process.on("unhandledRejection", (reason) => console.error("Unhandled promise rejection", reason));
-process.on("uncaughtException", (error) => console.error("Uncaught exception", error));
+initMonitoring();
+process.on("unhandledRejection", (reason) => { console.error("Unhandled promise rejection", reason); reportServerError(reason instanceof Error ? reason : new Error(String(reason)), { route: "unhandledRejection" }); });
+process.on("uncaughtException", (error) => { console.error("Uncaught exception", error); reportServerError(error, { route: "uncaughtException" }); });
 
 const isVercelRuntime = Boolean(process.env.VERCEL);
 const server = isVercelRuntime ? null : app.listen(port, () => console.log(`AUTHENTIQ API running on http://localhost:${port}`));

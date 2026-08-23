@@ -22,6 +22,7 @@
     "backup:db": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/backup-db.ps1 -Verify"
   },
   "dependencies": {
+    "@sentry/node": "^10.70.0",
     "bcryptjs": "latest",
     "cors": "latest",
     "dotenv": "latest",

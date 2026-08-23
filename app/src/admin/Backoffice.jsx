@@ -1,14 +1,15 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import imageCompression from "browser-image-compression";
 import { Command } from "cmdk";
 import { DndContext, KeyboardSensor, PointerSensor, useDraggable, useDroppable, useSensor, useSensors } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
-import { flexRender, getCoreRowModel, getFilteredRowModel, useReactTable } from "@tanstack/react-table";
 import { Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import PlatformCenter from "./PlatformCenter.jsx";
-import { generateQRCodeSVG, drawQRCodeToCanvas } from "../utils/qr.js";
-import { TurnstileField } from "../utils/turnstile.jsx";
+import { apiFetch as fetch, apiUrl } from "./apiClient.js";
+import DealerRegistrationWizard from "./DealerRegistrationWizard.jsx";
+import { formatDate, formatLeadSource, formatPlatform, formatPrice, formatPriority, formatRole, formatStatus, publicVehiclePath } from "./format.js";
+import { WindowStickerModal } from "./GraphicsStudio.jsx";
 import { contrastSafeShade } from "../utils/color.js";
 import { SlidingNumber } from "../components/animate-ui/primitives/texts/sliding-number.jsx";
 import { AnimatedList } from "../ui/MotionPrimitives.jsx";
@@ -38,89 +39,8 @@ import {
   UsersThreeIcon,
 } from "@phosphor-icons/react";
 
-// En local, conserva dealer-demo.localhost / velocity-demo.localhost en vez de
-// volver siempre a localhost; esto permite comprobar el aislamiento por dealer.
-const localApiOrigin = `${window.location.protocol}//${window.location.hostname}:3001`;
-const apiUrl = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? localApiOrigin : window.location.origin);
-const localDemoTenant = import.meta.env.DEV ? new URLSearchParams(window.location.search).get("dealer")?.trim().toLowerCase() : "";
-const nativeFetch = window.fetch.bind(window);
-function fetch(input, options = {}) {
-  if (!/^[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?$/.test(localDemoTenant || "")) return nativeFetch(input, options);
-  const headers = new Headers(options.headers || {});
-  headers.set("X-Authentiq-Tenant", localDemoTenant);
-  return nativeFetch(input, { ...options, headers });
-}
 const chartColors = ["#c8a24b", "#5f6f6b", "#2f3b39", "#a33b2b", "#8d7a55"];
 const Vehicle3dActionsContext = createContext({});
-
-function formatPrice(value) {
-  return `$${Number(value || 0).toLocaleString("en-US")} USD`;
-}
-
-function formatDate(value) {
-  if (!value) return "—";
-  return new Date(value).toLocaleDateString("es-DO", { day: "2-digit", month: "short", year: "numeric" });
-}
-
-const statusLabels = {
-  new: "Nuevo",
-  contacted: "Contactado",
-  qualified: "Calificado",
-  closed: "Cerrado",
-  lost: "Perdido",
-  pending: "Pendiente",
-  accepted: "Aceptada",
-  rejected: "Rechazada",
-  confirmed: "Confirmada",
-  cancelled: "Cancelada",
-  draft: "Borrador",
-  sent: "Enviada",
-  expired: "Vencida",
-  archived: "Archivado",
-  published: "Publicado",
-  pending_review: "En revisión",
-  reserved: "Reservado",
-  sold: "Vendido",
-  inactive: "Inactivo",
-  trialing: "En prueba",
-  connected: "Conectado",
-  local_export_ready: "Exportación manual lista",
-  drafts_ready: "Borradores listos",
-  not_configured: "Falta configurar",
-  oauth_ready: "Listo para conectar",
-};
-
-function formatStatus(value) {
-  const key = String(value || "").trim().toLowerCase();
-  return statusLabels[key] || key.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase()) || "Sin estado";
-}
-
-function formatPriority(value) {
-  const priority = Number(value) || 2;
-  return priority === 1 ? "Alta" : priority === 3 ? "Baja" : "Media";
-}
-
-function formatRole(value) {
-  return { admin: "Administrador", editor: "Operación", seller: "Ventas", content_editor: "Contenido" }[String(value || "").toLowerCase()] || formatStatus(value);
-}
-
-function formatPlatform(value) {
-  return { both: "Instagram + Facebook", instagram: "Instagram", facebook: "Facebook" }[String(value || "").toLowerCase()] || formatStatus(value);
-}
-
-function formatLeadSource(value) {
-  return { direct: "Directo", website: "Sitio web", contact: "Contacto", appointment: "Cita", offer: "Oferta", quote: "Cotización", import: "Importado" }[String(value || "").toLowerCase()] || String(value || "Directo");
-}
-
-function slugify(value) {
-  return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-}
-
-function publicVehiclePath(vehicle) {
-  const base = slugify(`${vehicle.brand}-${vehicle.model}${vehicle.variant ? `-${vehicle.variant}` : ""}`);
-  const suffix = String(vehicle.id || "").replace(/-/g, "").slice(0, 8);
-  return `/vehiculos/${suffix ? `${base}-${suffix}` : base}`;
-}
 
 async function inspect3dFile(file) {
   if (!file) return null;
@@ -309,10 +229,20 @@ function DashboardSkeleton() {
   return <div className="dashboard-skeleton" aria-label="Cargando resumen"><div className="skeleton-line wide" /><div className="skeleton-line" /><div className="skeleton-grid">{[1, 2, 3, 4].map((item) => <div className="skeleton-block" key={item} />)}</div></div>;
 }
 
-function DashboardPulse({ data, leads, offers, appointments, onNavigate }) {
+function DashboardPulse({ data, leads, offers, appointments, onNavigate, currentUser }) {
   const now = Date.now();
   const isOverdue = (lead) => lead.nextActionAt && new Date(lead.nextActionAt).getTime() < now;
-  const priorityLeads = (leads || []).filter((lead) => ["new", "contacted", "qualified"].includes(lead.status)).sort((a, b) => Number(isOverdue(b)) - Number(isOverdue(a)) || Number(a.priority || 2) - Number(b.priority || 2) || new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 4);
+  const openLeads = (leads || []).filter((lead) => ["new", "contacted", "qualified"].includes(lead.status));
+  // Un vendedor no necesita el pulso del concesionario entero: necesita saber a
+  // quién le toca llamar hoy. Solo ofrecemos el cambio si de verdad tiene cartera.
+  const myLeads = openLeads.filter((lead) => currentUser?.id && String(lead.assignedToId || "") === String(currentUser.id));
+  const canFilterMine = myLeads.length > 0;
+  const [scope, setScope] = useState(currentUser?.role === "seller" ? "mine" : "all");
+  const showingMine = canFilterMine && scope === "mine";
+  const scopedLeads = showingMine ? myLeads : openLeads;
+  const byUrgency = (a, b) => Number(isOverdue(b)) - Number(isOverdue(a)) || Number(a.priority || 2) - Number(b.priority || 2) || new Date(b.createdAt) - new Date(a.createdAt);
+  const priorityLeads = [...scopedLeads].sort(byUrgency).slice(0, 4);
+  const overdueCount = scopedLeads.filter(isOverdue).length;
   const todayIso = new Date().toISOString().slice(0, 10);
   // El módulo de Citas carga el historial completo (pasado y futuro) para gestión;
   // este contador debe mostrar solo lo que realmente queda por atender.
@@ -325,7 +255,7 @@ function DashboardPulse({ data, leads, offers, appointments, onNavigate }) {
   ];
   return <section className="dashboard-pulse">
     <article className="priority-panel">
-      <div className="panel-heading"><div><span className="eyebrow">PRIORIDAD HOY</span><h3>Lo que merece atención.</h3></div><button className="text-button" type="button" onClick={() => onNavigate("leads")}>Abrir clientes</button></div>
+      <div className="panel-heading"><div><span className="eyebrow">{showingMine ? "MI DÍA" : "PRIORIDAD HOY"}</span><h3>{overdueCount > 0 ? `${overdueCount} seguimiento${overdueCount === 1 ? "" : "s"} vencido${overdueCount === 1 ? "" : "s"}.` : showingMine ? "Tus clientes al día." : "Lo que merece atención."}</h3></div><div className="priority-panel-actions">{canFilterMine && <div className="priority-scope" role="group" aria-label="Filtrar clientes"><button type="button" className={showingMine ? "is-active" : ""} aria-pressed={showingMine} onClick={() => setScope("mine")}>Míos {myLeads.length}</button><button type="button" className={showingMine ? "" : "is-active"} aria-pressed={!showingMine} onClick={() => setScope("all")}>Todos {openLeads.length}</button></div>}<button className="text-button" type="button" onClick={() => onNavigate("leads")}>Abrir clientes</button></div></div>
       {priorityLeads.length ? <div className="priority-list">{priorityLeads.map((lead, index) => <button className={`priority-item${isOverdue(lead) ? " is-overdue" : ""}`} type="button" key={lead.id} onClick={() => onNavigate("leads")}><span className="priority-index">{String(index + 1).padStart(2, "0")}</span><span className="priority-copy"><strong>{lead.name}</strong><small>{lead.brand ? `${lead.brand} ${lead.model}` : "Contacto general"} · {isOverdue(lead) ? "Seguimiento vencido" : formatDate(lead.createdAt)}</small></span><span className={`status-pill ${lead.status}`}>{formatStatus(lead.status)}</span><span className="priority-arrow">→</span></button>)}</div> : <p className="empty-state">No hay clientes pendientes de seguimiento.</p>}
     </article>
     <div className="quick-action-grid">{actions.map(([key, label, count, hint], index) => <button className="quick-action" type="button" key={key} onClick={() => onNavigate(key)}><span className="quick-action-top"><span className="eyebrow">{String(index + 1).padStart(2, "0")}</span><strong><SlidingNumber number={count} thousandSeparator="," /></strong></span><span className="quick-action-label">{label}</span><small>{hint} <span>→</span></small></button>)}</div>
@@ -443,7 +373,7 @@ function DealerShareCard({ organization, settings, onNavigate }) {
   );
 }
 
-function DashboardView({ data, vehicles = [], leads, offers, appointments, loading, onNavigate, onboarding, onOpenOnboarding, onOpenPublic, organization, settings }) {
+function DashboardView({ data, vehicles = [], leads, offers, appointments, loading, onNavigate, onboarding, onOpenOnboarding, onOpenPublic, organization, settings, currentUser }) {
   if (loading || !data) return <DashboardSkeleton />;
   const summary = data.summary || {};
   const safeLeads = Array.isArray(leads) ? leads : [];
@@ -475,7 +405,7 @@ function DashboardView({ data, vehicles = [], leads, offers, appointments, loadi
         <StatCard label="Valor inventario" numericValue={snapshot.inventoryValue} prefix="$" suffix=" USD" note="Valor publicado por modelo" />
         <StatCard label="Clientes activos" numericValue={snapshot.pendingLeads} note={`${snapshot.pendingOffers} ofertas pendientes`} />
       </div>
-      <DashboardPulse data={data} leads={leads} offers={offers} appointments={appointments} onNavigate={onNavigate} />
+      <DashboardPulse data={data} leads={leads} offers={offers} appointments={appointments} onNavigate={onNavigate} currentUser={currentUser} />
       <div className="charts-grid">
         <article className="chart-panel"><div className="panel-heading"><div><span className="eyebrow">INVENTARIO</span><h3>Stock por marca</h3></div></div><div className="chart-box"><ResponsiveContainer width="100%" height="100%"><BarChart data={data.byBrand || []} margin={{ top: 8, right: 8, left: -22, bottom: 0 }}><XAxis dataKey="name" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} /><YAxis allowDecimals={false} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} /><Tooltip formatter={(value) => [`${value} unidades`, "Stock"]} /><Bar dataKey="stock" fill="#c8a24b" radius={[3, 3, 0, 0]} /></BarChart></ResponsiveContainer></div></article>
         <article className="chart-panel"><div className="panel-heading"><div><span className="eyebrow">ESTADO</span><h3>Distribución del inventario</h3></div></div><div className="chart-box status-chart"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={statusData} dataKey="count" nameKey="label" innerRadius={52} outerRadius={78} paddingAngle={3}>{statusData.map((item, index) => <Cell key={item.status} fill={chartColors[index % chartColors.length]} />)}</Pie><Tooltip formatter={(value, _name, item) => [`${value} vehículos`, item.payload.label]} /></PieChart></ResponsiveContainer><div className="chart-legend">{statusData.map((item, index) => <span key={item.status}><i style={{ background: chartColors[index % chartColors.length] }} />{item.label} · {item.count}</span>)}</div></div></article>
@@ -632,9 +562,9 @@ function MediaOps({ form, vehicleId = form?.id, onChange, onUpload, onPackageUpl
     return () => window.clearInterval(timer);
   }, [generationJob?.id, generationJob?.status, vehicleId]);
   return <section className="media-studio-panel" aria-label="Estudio multimedia del vehículo">
-    <div className="media-studio-head"><div><span className="eyebrow">MEDIA STUDIO / 04</span><h3>Haz que el vehículo se sienta real.</h3><p>Sube tus archivos directamente. AUTHENTIQ prepara la portada, el movimiento y la experiencia visual sin obligarte a pegar rutas técnicas.</p></div><div className="media-studio-score"><strong>{String(Math.min(imageCount, 99)).padStart(2, "0")}</strong><span>{imageCount === 1 ? "foto conectada" : "fotos conectadas"}</span></div></div>
+    <div className="media-studio-head"><div><span className="eyebrow">FOTOS, VIDEO Y 3D</span><h3>Haz que el vehículo se sienta real.</h3><p>Sube tus archivos directamente. AUTHENTIQ prepara la portada, el movimiento y la experiencia visual sin obligarte a pegar rutas técnicas.</p></div><div className="media-studio-score"><strong>{String(Math.min(imageCount, 99)).padStart(2, "0")}</strong><span>{imageCount === 1 ? "foto conectada" : "fotos conectadas"}</span></div></div>
     <div className="media-studio-status"><span><i className={imageCount ? "is-ready" : ""}>●</i> {imageCount ? `${imageCount} foto${imageCount === 1 ? "" : "s"} conectada${imageCount === 1 ? "" : "s"}` : "Sin galería todavía"}</span><span><i className={modelUrl && !modelStatus.includes("requiere") ? "is-ready" : ""}>●</i> {modelStatus}</span><span><i className={form.videoUrl ? "is-ready" : ""}>●</i> {form.videoUrl ? "Video listo" : "Video opcional"}</span></div>
-    <div className="media-3d-generator"><div><span className="eyebrow">AUTO 3D / DESDE FOTOS</span><h4>Convierte tu sesión de fotos en una pieza interactiva.</h4><p>Selecciona hasta 5 ángulos del vehículo. El modelo se genera en segundo plano y queda pendiente de revisión antes de publicarse.</p></div><div className="media-3d-generator-actions"><label className="media-source-picker"><input type="file" multiple accept="image/jpeg,image/png,image/webp,image/avif" onChange={(event) => { setSourceFiles([...event.target.files].slice(0, 5)); setUploadError(""); }} /><span>{sourceFiles.length ? `${sourceFiles.length} foto${sourceFiles.length === 1 ? "" : "s"} seleccionada${sourceFiles.length === 1 ? "" : "s"}` : "Elegir fotos para convertir"}</span></label><button type="button" className="primary-action" onClick={start3dGeneration} disabled={generationLoading || !sourceFiles.length || !vehicleId}>{generationLoading ? "Enviando al motor 3D…" : "Generar modelo 3D"}</button></div>{!vehicleId && <small>Guarda el vehículo primero; luego podrás generar el modelo sin salir de este asistente.</small>}{generationJob && <div className={`media-generation-status ${generationJob.status === "needs_review" ? "is-ready" : generationJob.status === "failed" ? "is-error" : "is-processing"}`}><strong>{generationJob.status === "needs_review" ? "Modelo listo para revisar" : generationJob.status === "failed" ? "La generación necesita atención" : "Generando modelo…"}</strong><span>{generationJob.status === "needs_review" ? "El GLB se conectó a la ficha. Guarda los cambios para publicarlo." : generationJob.error || "Estamos consultando el progreso automáticamente."}</span></div>}</div>
+    <div className="media-3d-generator"><div><span className="eyebrow">MODELO 3D DESDE TUS FOTOS</span><h4>Convierte tu sesión de fotos en una pieza interactiva.</h4><p>Selecciona hasta 5 ángulos del vehículo. El modelo se genera en segundo plano y queda pendiente de revisión antes de publicarse.</p></div><div className="media-3d-generator-actions"><label className="media-source-picker"><input type="file" multiple accept="image/jpeg,image/png,image/webp,image/avif" onChange={(event) => { setSourceFiles([...event.target.files].slice(0, 5)); setUploadError(""); }} /><span>{sourceFiles.length ? `${sourceFiles.length} foto${sourceFiles.length === 1 ? "" : "s"} seleccionada${sourceFiles.length === 1 ? "" : "s"}` : "Elegir fotos para convertir"}</span></label><button type="button" className="primary-action" onClick={start3dGeneration} disabled={generationLoading || !sourceFiles.length || !vehicleId}>{generationLoading ? "Enviando al motor 3D…" : "Generar modelo 3D"}</button></div>{!vehicleId && <small>Guarda el vehículo primero; luego podrás generar el modelo sin salir de este asistente.</small>}{generationJob && <div className={`media-generation-status ${generationJob.status === "needs_review" ? "is-ready" : generationJob.status === "failed" ? "is-error" : "is-processing"}`}><strong>{generationJob.status === "needs_review" ? "Modelo listo para revisar" : generationJob.status === "failed" ? "La generación necesita atención" : "Generando modelo…"}</strong><span>{generationJob.status === "needs_review" ? "El GLB se conectó a la ficha. Guarda los cambios para publicarlo." : generationJob.error || "Estamos consultando el progreso automáticamente."}</span></div>}</div>
     <div className="media-studio-grid">{mediaItems.map((item) => <article className="media-upload-card" key={item.field}><div className="media-upload-card-head"><span className="media-upload-icon">{item.icon}</span><div><strong>{item.label}</strong><small>{item.detail}</small></div>{form[item.field] && <span className="media-connected">{item.field === "media3dUrl" && modelStatus.includes("requiere") ? "REVISAR" : "LISTO"}</span>}</div><label className="media-dropzone"><input type="file" accept={item.accept} onChange={(event) => upload(event, item.field)} disabled={Boolean(uploadingField)} /><span>{uploadingField === item.field ? "Subiendo archivo…" : form[item.field] ? "Reemplazar archivo" : "Cargar archivo"}</span><small>Seleccionar desde tu computadora</small></label>{item.field === "media3dUrl" && <label className="media-dropzone media-folder-dropzone"><input type="file" multiple webkitdirectory="" directory="" onChange={uploadPackage} disabled={Boolean(uploadingField)} /><span>{uploadingField === "media3dPackage" ? "Preparando carpeta…" : "Cargar carpeta GLTF completa"}</span><small>Selecciona la carpeta con scene.gltf, .bin y texturas</small></label>}</article>)}</div>
     {modelReport && <div className={`media-3d-health ${modelHeavy ? "is-warning" : "is-ready"}`}><div><span className="eyebrow">3D HEALTH CHECK</span><strong>{modelReportText}</strong></div><span>{modelReport.animationCount === null ? "Revisa el modelo en el visor al abrir la ficha." : modelReport.animationCount ? "El comprador podrá reproducir sus animaciones." : "No trae clips internos; el visor mostrará rotación y zoom."}</span>{modelReport.animationNames?.length > 0 && <small className="media-3d-animation-names">Clips: {modelReport.animationNames.join(" · ")}</small>}{modelHeavy && <small>Archivo pesado: conviene optimizar texturas o polígonos para evitar esperas en móviles.</small>}</div>}
     {uploadError && <p className="media-upload-error">{uploadError}</p>}
@@ -671,15 +601,6 @@ function BrandPickerBase({ vehicles, form, onChange, taxonomy = { brands: [] } }
   const visible = records.filter((item) => item.isActive !== false && item.name.toLowerCase().includes(query.trim().toLowerCase()));
   const choose = (record) => { onChange("brand", record.name); onChange("brandLogoUrl", record.logoUrl || getAdminBrandLogoUrl(record.name)); setOpen(false); };
   return <section className="brand-picker"><div className="brand-picker-head"><div><span className="eyebrow">IDENTIDAD DE MARCA</span><h3>{form.brand || "Selecciona una marca"}</h3><p>Elige una marca administrada desde Marcas y categorías.</p></div><button type="button" className="secondary-action" onClick={() => setOpen(true)}>Elegir marca</button></div>{form.brand && <div className="brand-picker-selected"><AdminBrandLogo brand={form.brand} logoUrl={form.brandLogoUrl} size="wizard" /><div><strong>{form.brand}</strong><small>Logo conectado a esta ficha</small></div></div>}{open && <div className="brand-picker-dialog" role="dialog" aria-modal="true" aria-label="Seleccionar marca"><div className="brand-picker-dialog-head"><h3>Selecciona la marca</h3><button type="button" className="wizard-close" onClick={() => setOpen(false)} aria-label="Cerrar marcas">×</button></div><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar marca..." aria-label="Buscar marca" /><div className="brand-picker-grid">{visible.map((record) => <button type="button" key={record.id || record.name} className={form.brand === record.name ? "is-selected" : ""} onClick={() => choose(record)}><AdminBrandLogo brand={record.name} logoUrl={record.logoUrl} size="picker" /><strong>{record.name}</strong><small>{vehicles.filter((vehicle) => vehicle.brand === record.name).length} modelos</small></button>)}</div>{!visible.length && <p className="empty-state">No hay marcas disponibles que coincidan.</p>}</div>}</section>;
-}
-
-function LegacyInventoryModule({ vehicles, form, editingId, loading, message, onChange, onSave, onEdit, onCancel, onDeactivate, onDuplicate, onRefresh, onUpload }) {
-  const fields = ["brand", "brandLogoUrl", "category", "model", "variant", "year", "priceUsd", "stockNumber", "engine", "power", "transmission", "drive", "fuelType", "exteriorColor", "interiorColor", "doors", "seats", "mileageKm", "location", "warranty", "features", "description", "seoTitle", "seoDescription", "stock", "maxDiscountPercent"];
-  const fieldLabels = { brand: "Marca", category: "Categoría", model: "Modelo", variant: "Versión / variante", year: "Año", priceUsd: "Precio USD", stockNumber: "Número de inventario", engine: "Motor", power: "Potencia", transmission: "Transmisión", drive: "Tracción", fuelType: "Combustible", exteriorColor: "Color exterior", interiorColor: "Color interior", doors: "Puertas", seats: "Asientos", mileageKm: "Kilometraje (km)", location: "Ubicación", warranty: "Garantía", features: "Equipamiento (separado por comas)", description: "Descripción comercial", stock: "Unidades", maxDiscountPercent: "Descuento máximo %" };
-  const columns = useMemo(() => [{ accessorKey: "brand", header: "Marca" }, { accessorKey: "model", header: "Modelo" }, { accessorKey: "year", header: "Año" }, { accessorKey: "status", header: "Estado" }, { accessorKey: "priceUsd", header: "Precio", cell: ({ getValue }) => formatPrice(getValue()) }, { id: "actions", header: "", cell: ({ row }) => <div className="table-actions"><button className="text-button" onClick={() => onEdit(row.original)}>Editar</button><button className="text-button" onClick={() => onDuplicate(row.original.id)}>Duplicar</button><button className="text-button danger-text" onClick={() => onDeactivate(row.original.id)}>Desactivar</button></div> }], [onDeactivate, onDuplicate, onEdit]);
-  const [globalFilter, setGlobalFilter] = useState("");
-  const table = useReactTable({ data: vehicles, columns, state: { globalFilter }, onGlobalFilterChange: setGlobalFilter, getCoreRowModel: getCoreRowModel(), getFilteredRowModel: getFilteredRowModel() });
-  return <div className="inventory-content"><div className="admin-layout"><form className="admin-form" onSubmit={onSave}><div className="admin-form-head"><h2>{editingId ? "Editar vehículo" : "Nuevo vehículo"}</h2>{editingId && <button type="button" className="text-button" onClick={onCancel}>Cancelar</button>}</div><div className="form-grid">{fields.map((field) => <label key={field}>{fieldLabels[field] || field}<input type={(["year", "priceUsd", "doors", "seats", "mileageKm", "stock", "maxDiscountPercent"].includes(field) ? "number" : "text")} value={form[field] ?? ""} onChange={(event) => onChange(field, event.target.value)} required={field === "brand" || field === "model" || field === "year" || field === "priceUsd"} /></label>)}<label>Estado<select value={form.status} onChange={(event) => onChange("status", event.target.value)}><option value="draft">Borrador</option><option value="published">Publicado</option><option value="reserved">Reservado</option><option value="sold">Vendido</option><option value="inactive">Inactivo</option></select></label><label>Condición<select value={form.condition} onChange={(event) => onChange("condition", event.target.value)}><option value="new">Nuevo</option><option value="used">Usado</option></select></label></div><PhotoEditor value={form.images} altValue={form.imageAltTexts} onChange={(value) => onChange("images", value)} onAltChange={(value) => onChange("imageAltTexts", value)} onUpload={onUpload} />{message && <p className="form-message">{message}</p>}<button className="primary-action" type="submit">{editingId ? "Guardar cambios" : "Crear vehículo"}</button></form><section className="table-panel"><div className="panel-heading"><div><span className="eyebrow">INVENTARIO · {vehicles.length.toString().padStart(2, "0")}</span><h3>Vehículos registrados</h3></div><button className="text-button" onClick={onRefresh}>Actualizar</button></div><input className="table-search" placeholder="Buscar por marca o modelo…" value={globalFilter ?? ""} onChange={(event) => setGlobalFilter(event.target.value)} />{loading ? <p className="empty-state">Cargando inventario…</p> : <div className="table-scroll"><table><thead>{table.getHeaderGroups().map((headerGroup) => <tr key={headerGroup.id}>{headerGroup.headers.map((header) => <th key={header.id}>{flexRender(header.column.columnDef.header, header.getContext())}</th>)}</tr>)}</thead><tbody>{table.getRowModel().rows.map((row) => <tr key={row.id}>{row.getVisibleCells().map((cell) => <td key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>)}</tr>)}</tbody></table>{!table.getRowModel().rows.length && <p className="empty-state">No hay vehículos que coincidan.</p>}</div>}</section></div></div>;
 }
 
 function BrandPicker({ vehicles, form, onChange, taxonomy }) {
@@ -832,7 +753,7 @@ function ReportsModule({ dashboard, vehicles, leads, offers, loading, analytics 
   const acceptedOffers = periodOffers.filter((offer) => offer.status === "accepted");
   const conversion = periodLeads.length ? Math.round((periodLeads.filter((lead) => ["qualified", "closed"].includes(lead.status)).length / periodLeads.length) * 100) : 0;
   const exportReport = () => { const rows = [["Métrica", "Valor"], ["Periodo", period === "all" ? "Histórico" : `Últimos ${period} días`], ["Vehículos publicados", reportPublishedCount], ["Stock disponible", reportStock], ["Leads", periodLeads.length], ["Ofertas", periodOffers.length], ["Ofertas aceptadas", acceptedOffers.length], ["Conversión calificados/cerrados", `${conversion}%`]]; const csv = rows.map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(",")).join("\n"); const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob(["\\ufeff", csv], { type: "text/csv;charset=utf-8" })); link.download = `authentiq-reporte-${new Date().toISOString().slice(0, 10)}.csv`; link.click(); URL.revokeObjectURL(link.href); };
-  return <section className="reports-content"><div className="panel-heading"><div><span className="eyebrow">INTELIGENCIA COMERCIAL</span><h2>Reportes.</h2></div><div className="panel-actions"><select className="report-period" value={period} onChange={(event) => setPeriod(event.target.value)} aria-label="Periodo del reporte"><option value="all">Todo el histórico</option><option value="30">Últimos 30 días</option><option value="90">Últimos 90 días</option></select><button className="secondary-action" onClick={exportReport}>Exportar CSV</button></div></div>{loading ? <p className="empty-state">Preparando reporte…</p> : <><div className="report-kpis"><AnalyticsEventsPanel analytics={analytics} /><StatCard label="Conversión comercial" value={`${conversion}%`} note="Leads calificados o cerrados" /><StatCard label="Ofertas aceptadas" value={acceptedOffers.length} note={`${periodOffers.length} ofertas en el periodo`} /><StatCard label="Inventario publicado" value={reportPublishedCount} note={`${publishedVehicles.length} registros cargados`} /></div><div className="report-grid"><article className="chart-panel report-chart"><div className="panel-heading"><div><span className="eyebrow">EMBUDO</span><h3>Interés que se convierte en acción</h3></div></div><div className="chart-box"><ResponsiveContainer width="100%" height="100%"><BarChart data={funnel} layout="vertical" margin={{ top: 8, right: 20, left: 18, bottom: 0 }}><XAxis type="number" allowDecimals={false} axisLine={false} tickLine={false} /><YAxis type="category" dataKey="name" width={70} axisLine={false} tickLine={false} /><Tooltip formatter={(value) => [`${value}`, "Registros"]} /><Bar dataKey="value" radius={[0, 3, 3, 0]}>{funnel.map((item) => <Cell key={item.name} fill={item.fill} />)}</Bar></BarChart></ResponsiveContainer></div></article><article className="report-insight"><span className="eyebrow">LECTURA RÁPIDA</span><h3>{conversion >= 30 ? "El interés está avanzando." : "Hay oportunidad en el seguimiento."}</h3><p>{conversion >= 30 ? "La operación está convirtiendo una parte saludable de sus leads en conversaciones calificadas." : "Prioriza los leads nuevos y contactados para aumentar el paso hacia ofertas."}</p><div className="insight-line"><span>Valor de inventario</span><strong>{formatPrice(reportInventoryValue)}</strong></div><div className="insight-line"><span>Stock disponible</span><strong>{reportStock} unidades</strong></div></article></div></>}</section>;
+  return <section className="reports-content"><div className="panel-heading"><div><span className="eyebrow">CÓMO VA EL NEGOCIO</span><h2>Reportes.</h2></div><div className="panel-actions"><select className="report-period" value={period} onChange={(event) => setPeriod(event.target.value)} aria-label="Periodo del reporte"><option value="all">Todo el histórico</option><option value="30">Últimos 30 días</option><option value="90">Últimos 90 días</option></select><button className="secondary-action" onClick={exportReport}>Exportar CSV</button></div></div>{loading ? <p className="empty-state">Preparando reporte…</p> : <><div className="report-kpis"><AnalyticsEventsPanel analytics={analytics} /><StatCard label="Conversión comercial" value={`${conversion}%`} note="Leads calificados o cerrados" /><StatCard label="Ofertas aceptadas" value={acceptedOffers.length} note={`${periodOffers.length} ofertas en el periodo`} /><StatCard label="Inventario publicado" value={reportPublishedCount} note={`${publishedVehicles.length} registros cargados`} /></div><div className="report-grid"><article className="chart-panel report-chart"><div className="panel-heading"><div><span className="eyebrow">EMBUDO</span><h3>Interés que se convierte en acción</h3></div></div><div className="chart-box"><ResponsiveContainer width="100%" height="100%"><BarChart data={funnel} layout="vertical" margin={{ top: 8, right: 20, left: 18, bottom: 0 }}><XAxis type="number" allowDecimals={false} axisLine={false} tickLine={false} /><YAxis type="category" dataKey="name" width={70} axisLine={false} tickLine={false} /><Tooltip formatter={(value) => [`${value}`, "Registros"]} /><Bar dataKey="value" radius={[0, 3, 3, 0]}>{funnel.map((item) => <Cell key={item.name} fill={item.fill} />)}</Bar></BarChart></ResponsiveContainer></div></article><article className="report-insight"><span className="eyebrow">LECTURA RÁPIDA</span><h3>{conversion >= 30 ? "El interés está avanzando." : "Hay oportunidad en el seguimiento."}</h3><p>{conversion >= 30 ? "La operación está convirtiendo una parte saludable de sus leads en conversaciones calificadas." : "Prioriza los leads nuevos y contactados para aumentar el paso hacia ofertas."}</p><div className="insight-line"><span>Valor de inventario</span><strong>{formatPrice(reportInventoryValue)}</strong></div><div className="insight-line"><span>Stock disponible</span><strong>{reportStock} unidades</strong></div></article></div></>}</section>;
 }
 
 
@@ -904,13 +825,6 @@ function PublicVehicleActions({ vehicle }) {
   const path = publicVehiclePath(vehicle);
   const url = `${window.location.origin}${path}`;
   return <div className="public-vehicle-actions"><a className="text-button" href={path} target="_blank" rel="noreferrer">Abrir ficha</a><CopyAction value={url} label="URL pública" /></div>;
-}
-
-function LegacyLeadContactActions({ lead, onLoadHistory }) {
-  const [events, setEvents] = useState(null);
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const toggleHistory = async () => { const next = !historyOpen; setHistoryOpen(next); if (next && !events) setEvents(await onLoadHistory(lead.id)); };
-  return <div className="lead-history"><div className="lead-history-actions"><CopyAction value={lead.phone} label="teléfono" /><CopyAction value={lead.email} label="correo" /><button className="text-button" type="button" onClick={toggleHistory}>{historyOpen ? "Ocultar historial" : "Ver historial"}</button></div>{historyOpen && <div className="lead-events">{events?.length ? events.map((event) => <div className="lead-event" key={event.id}><strong>{event.eventType}</strong><span>{event.note || "Sin detalle"}</span><small>{formatDate(event.createdAt)} · {event.actorName || "Sistema"}</small></div>) : <span>{events ? "Aún no hay eventos registrados." : "Cargando historial…"}</span>}</div>}</div>;
 }
 
 
@@ -1014,34 +928,57 @@ function AppointmentSettingsFields({ form, onChange }) {
   return <div className="settings-section appointment-settings"><span className="eyebrow">AGENDA DE CITAS</span><p className="settings-section-note">Define cuándo puede reservar un comprador y cuántas visitas puede atender el equipo al mismo tiempo.</p><div className="form-grid"><label>Inicio<input type="time" value={form.appointmentStart || "09:00"} onChange={(event) => onChange("appointmentStart", event.target.value)} /></label><label>Cierre<input type="time" value={form.appointmentEnd || "18:00"} onChange={(event) => onChange("appointmentEnd", event.target.value)} /></label><label>Duración (minutos)<input type="number" min="15" max="240" step="15" value={form.appointmentDurationMinutes || 60} onChange={(event) => onChange("appointmentDurationMinutes", Number(event.target.value))} /></label><label>Antelación mínima (horas)<input type="number" min="0" max="720" value={form.appointmentMinNoticeHours ?? 2} onChange={(event) => onChange("appointmentMinNoticeHours", Number(event.target.value))} /></label><label>Máximo de días para reservar<input type="number" min="1" max="365" value={form.appointmentMaxDaysAhead || 30} onChange={(event) => onChange("appointmentMaxDaysAhead", Number(event.target.value))} /></label><label>Citas simultáneas<input type="number" min="1" max="20" value={form.appointmentCapacity || 1} onChange={(event) => onChange("appointmentCapacity", Number(event.target.value))} /></label></div><div className="appointment-days"><span>Días disponibles</span><div>{days.map(([day, label]) => <button className={selectedDays.includes(day) ? "is-active" : ""} type="button" key={day} onClick={() => toggleDay(day)} aria-pressed={selectedDays.includes(day)}>{label}</button>)}</div></div></div>;
 }
 
-function LegacySettingsModule({ form, onChange, onSave, loading, message }) {
-  return <section className="records-content"><div className="panel-heading"><div><span className="eyebrow">MARCA · OPERACIÓN</span><h2>Configuración.</h2></div></div><form className="settings-form admin-form" onSubmit={onSave}>{loading ? <p className="empty-state">Cargando configuración…</p> : <><div className="settings-section"><span className="eyebrow">IDENTIDAD</span><div className="form-grid"><label>Nombre comercial<input value={form.businessName} onChange={(event) => onChange("businessName", event.target.value)} required /></label><label>Logo URL<input value={form.logoUrl || ""} onChange={(event) => onChange("logoUrl", event.target.value)} placeholder="/assets/logo.svg" /></label></div></div><div className="settings-section"><span className="eyebrow">CONTACTO</span><div className="form-grid"><label>Teléfono<input value={form.phone || ""} onChange={(event) => onChange("phone", event.target.value)} /></label><label>WhatsApp<input value={form.whatsapp || ""} onChange={(event) => onChange("whatsapp", event.target.value)} /></label><label>Correo<input type="email" value={form.email || ""} onChange={(event) => onChange("email", event.target.value)} /></label><label>Moneda<input value={form.currency || "USD"} onChange={(event) => onChange("currency", event.target.value)} maxLength="8" /></label></div><label>Dirección<input value={form.address || ""} onChange={(event) => onChange("address", event.target.value)} /></label><label>Horario<input value={form.hours || ""} onChange={(event) => onChange("hours", event.target.value)} placeholder="Lun–Sáb · 9:00–18:00" /></label></div><div className="settings-section"><span className="eyebrow">CANALES</span><div className="form-grid"><label>Instagram<input value={form.instagramUrl || ""} onChange={(event) => onChange("instagramUrl", event.target.value)} /></label><label>Facebook<input value={form.facebookUrl || ""} onChange={(event) => onChange("facebookUrl", event.target.value)} /></label></div></div>{message && <p className="form-message">{message}</p>}<button className="primary-action" type="submit">Guardar configuración</button></>}</form></section>;
-}
 
 
+// Fuente única de verdad de la personalización: el asistente de bienvenida y el
+// panel de Configuración deben contar los mismos bloques y el mismo porcentaje.
+// Antes cada uno tenía su propia lista y mostraban cifras distintas del mismo estado.
+const onboardingGroups = [
+  { id: "brand", label: "Tu marca", hint: "Cómo se llama y cómo se ve tu concesionario.", destination: "settings" },
+  { id: "showcase", label: "Tu vitrina", hint: "Lo que el comprador va a mirar.", destination: "inventory" },
+  { id: "operation", label: "Tu operación", hint: "Cómo te contactan y cuándo te visitan.", destination: "settings" },
+];
 
-function LegacySettingsModuleWithAppointments({ form, onChange, onSave, loading, message }) {
-  const days = [[1, "Lun"], [2, "Mar"], [3, "Mié"], [4, "Jue"], [5, "Vie"], [6, "Sáb"], [7, "Dom"]];
-  const selectedDays = Array.isArray(form.appointmentDays) ? form.appointmentDays : [1, 2, 3, 4, 5, 6];
-  const toggleDay = (day) => onChange("appointmentDays", selectedDays.includes(day) ? selectedDays.filter((item) => item !== day) : [...selectedDays, day].sort((a, b) => a - b));
-  return <section className="records-content"><div className="panel-heading"><div><span className="eyebrow">MARCA · OPERACIÓN</span><h2>Configuración.</h2></div></div><form className="settings-form admin-form" onSubmit={onSave}>{loading ? <p className="empty-state">Cargando configuración…</p> : <><div className="settings-section"><span className="eyebrow">IDENTIDAD</span><div className="form-grid"><label>Nombre comercial<input value={form.businessName} onChange={(event) => onChange("businessName", event.target.value)} required /></label><label>Logo URL<input value={form.logoUrl || ""} onChange={(event) => onChange("logoUrl", event.target.value)} placeholder="/assets/logo.svg" /></label></div></div><div className="settings-section"><span className="eyebrow">CONTACTO</span><div className="form-grid"><label>Teléfono<input value={form.phone || ""} onChange={(event) => onChange("phone", event.target.value)} /></label><label>WhatsApp<input value={form.whatsapp || ""} onChange={(event) => onChange("whatsapp", event.target.value)} /></label><label>Correo<input type="email" value={form.email || ""} onChange={(event) => onChange("email", event.target.value)} /></label><label>Moneda<input value={form.currency || "USD"} onChange={(event) => onChange("currency", event.target.value)} maxLength="8" /></label></div><label>Dirección<input value={form.address || ""} onChange={(event) => onChange("address", event.target.value)} /></label><label>Horario visible<input value={form.hours || ""} onChange={(event) => onChange("hours", event.target.value)} placeholder="Lun–Sáb · 9:00–18:00" /></label></div><div className="settings-section appointment-settings"><span className="eyebrow">AGENDA DE CITAS</span><p className="settings-section-note">Define cuándo puede reservar un comprador y cuántas visitas puede atender el equipo al mismo tiempo.</p><div className="form-grid"><label>Inicio<input type="time" value={form.appointmentStart || "09:00"} onChange={(event) => onChange("appointmentStart", event.target.value)} /></label><label>Cierre<input type="time" value={form.appointmentEnd || "18:00"} onChange={(event) => onChange("appointmentEnd", event.target.value)} /></label><label>Duración (minutos)<input type="number" min="15" max="240" step="15" value={form.appointmentDurationMinutes || 60} onChange={(event) => onChange("appointmentDurationMinutes", Number(event.target.value))} /></label><label>Antelación mínima (horas)<input type="number" min="0" max="720" value={form.appointmentMinNoticeHours ?? 2} onChange={(event) => onChange("appointmentMinNoticeHours", Number(event.target.value))} /></label><label>Máximo de días para reservar<input type="number" min="1" max="365" value={form.appointmentMaxDaysAhead || 30} onChange={(event) => onChange("appointmentMaxDaysAhead", Number(event.target.value))} /></label><label>Citas simultáneas<input type="number" min="1" max="20" value={form.appointmentCapacity || 1} onChange={(event) => onChange("appointmentCapacity", Number(event.target.value))} /></label></div><div className="appointment-days"><span>Días disponibles</span><div>{days.map(([day, label]) => <button className={selectedDays.includes(day) ? "is-active" : ""} type="button" key={day} onClick={() => toggleDay(day)} aria-pressed={selectedDays.includes(day)}>{label}</button>)}</div></div></div><div className="settings-section"><span className="eyebrow">CANALES</span><div className="form-grid"><label>Instagram<input value={form.instagramUrl || ""} onChange={(event) => onChange("instagramUrl", event.target.value)} /></label><label>Facebook<input value={form.facebookUrl || ""} onChange={(event) => onChange("facebookUrl", event.target.value)} /></label></div></div>{message && <p className="form-message">{message}</p>}<button className="primary-action" type="submit">Guardar configuración</button></>}</form></section>;
+// El progreso siempre se mide sobre lo esencial: lo opcional (dominio propio,
+// redes) no debe hacer sentir al concesionario que su showroom está incompleto.
+function buildOnboardingGroups(onboarding) {
+  const steps = onboarding?.steps || [];
+  const groups = onboardingGroups
+    .map((group) => {
+      const groupSteps = steps.filter((step) => (step.group || "operation") === group.id);
+      const essential = groupSteps.filter((step) => step.essential);
+      const pending = essential.filter((step) => !step.done);
+      const done = groupSteps.length > 0 && pending.length === 0;
+      // El asistente necesita una frase: si falta algo, dice exactamente qué falta.
+      const detail = done ? group.hint : `Falta: ${pending.slice(0, 2).map((step) => step.label.toLowerCase()).join(" · ")}${pending.length > 2 ? ` · +${pending.length - 2}` : ""}`;
+      return { ...group, steps: groupSteps, essentialTotal: essential.length, essentialDone: essential.length - pending.length, done, detail, nextStep: groupSteps.find((step) => step.essential && !step.done) || groupSteps.find((step) => !step.done) };
+    })
+    .filter((group) => group.steps.length > 0);
+  const essentialTotal = Number(onboarding?.essentialTotal ?? steps.filter((step) => step.essential).length);
+  const essentialDone = Number(onboarding?.essentialDone ?? steps.filter((step) => step.essential && step.done).length);
+  return { groups, essentialTotal, essentialDone, ready: essentialTotal > 0 && essentialDone === essentialTotal, progress: essentialTotal ? Math.round((essentialDone / essentialTotal) * 100) : 100 };
 }
 
 function OnboardingPanel({ onboarding, onNavigate, onOpenPublic }) {
   if (!onboarding) return null;
   const destinations = { identity: "settings", logo: "settings", contact: "settings", appointments: "settings", social: "integrations", legal: "settings", domain: "settings", catalog: "inventory" };
-  const nextStep = onboarding.steps.find((step) => !step.done);
-  const completed = Number(onboarding.completed ?? onboarding.steps.filter((step) => step.done).length);
-  const isComplete = onboarding.steps.length > 0 && completed === onboarding.steps.length;
+  const steps = onboarding.steps || [];
+  const { groups, essentialTotal, essentialDone, ready, progress: essentialProgress } = buildOnboardingGroups(onboarding);
+  const nextStep = steps.find((step) => step.essential && !step.done) || steps.find((step) => !step.done);
   const goToStep = (step) => {
     onNavigate?.(destinations[step.id] || "settings");
     window.setTimeout(() => document.querySelector(".settings-form")?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
   };
   return <section className="onboarding-panel" aria-label="Estado de personalización del showroom">
-    <div className="onboarding-heading"><div><span className="eyebrow">PUESTA A PUNTO DEL SHOWROOM</span><h3>{isComplete ? "Tu showroom está listo para presentar." : "Haz que el concesionario se sienta propio."}</h3><p>{isComplete ? "La base comercial, visual y operativa ya está configurada." : "Completa lo esencial y deja el showroom listo para recibir compradores."}</p></div><div className="onboarding-heading-meta"><strong>{onboarding.progress}%</strong><small>{completed}/{onboarding.steps.length} completados</small></div></div>
-    <div className="onboarding-progress"><span style={{ width: `${onboarding.progress}%` }} /></div>
-    <div className="onboarding-steps">{onboarding.steps.map((step, index) => <div className={step.done ? "onboarding-step is-done" : "onboarding-step"} key={step.id}><span>{step.done ? "✓" : String(index + 1).padStart(2, "0")}</span><div><strong>{step.label}</strong><small>{step.detail}</small></div><button type="button" onClick={() => goToStep(step)}>{step.done ? "Revisar" : "Configurar"} →</button></div>)}</div>
-    {isComplete ? <div className="onboarding-complete"><span>✓</span><div><strong>Lista para enseñar</strong><p>Abre el catálogo público y comprueba la experiencia como comprador.</p></div><button className="onboarding-next-action" type="button" onClick={onOpenPublic}>Abrir catálogo ↗</button></div> : nextStep && <button className="onboarding-next-action" type="button" onClick={() => goToStep(nextStep)}>Continuar con {nextStep.label.toLowerCase()} →</button>}
+    <div className="onboarding-heading"><div><span className="eyebrow">PERSONALIZAR TU SHOWROOM</span><h3>{ready ? "Tu showroom está listo para recibir compradores." : "Faltan " + (essentialTotal - essentialDone) + " cosas para poder abrir."}</h3><p>{ready ? "Lo esencial ya está. Lo demás son mejoras que puedes hacer cuando quieras." : "Solo lo esencial. Lo opcional queda debajo y no bloquea nada."}</p></div><div className="onboarding-heading-meta"><strong>{essentialProgress}%</strong><small>{essentialDone}/{essentialTotal} esenciales</small></div></div>
+    <div className="onboarding-progress"><span style={{ width: `${essentialProgress}%` }} /></div>
+    <div className="onboarding-groups">{groups.map((group) => {
+      return <div className="onboarding-group" key={group.id}>
+        <div className="onboarding-group-head"><strong>{group.label}</strong><small>{group.hint}</small></div>
+        <div className="onboarding-steps">{group.steps.map((step) => <div className={step.done ? "onboarding-step is-done" : step.essential ? "onboarding-step is-required" : "onboarding-step is-optional"} key={step.id}><span aria-hidden="true">{step.done ? "✓" : step.essential ? "!" : "+"}</span><div><strong>{step.label}{!step.essential && !step.done && <em> · opcional</em>}</strong><small>{step.detail}</small></div><button type="button" onClick={() => goToStep(step)}>{step.done ? "Revisar" : "Configurar"} →</button></div>)}</div>
+      </div>;
+    })}</div>
+    {ready ? <div className="onboarding-complete"><span>✓</span><div><strong>Lista para enseñar</strong><p>Abre el catálogo público y compruébalo como lo verá un comprador.</p></div><button className="onboarding-next-action" type="button" onClick={onOpenPublic}>Abrir catálogo ↗</button></div> : nextStep && <button className="onboarding-next-action" type="button" onClick={() => goToStep(nextStep)}>Continuar con {nextStep.label.toLowerCase()} →</button>}
   </section>;
 }
 
@@ -1057,60 +994,13 @@ const onboardingMeta = {
   domain: { eyebrow: "08 · DOMINIO", title: "Pon tu nombre en la dirección.", copy: "Conecta el dominio del dealer cuando estés listo. Es opcional para empezar y no bloquea la configuración." },
 };
 
-function LegacyWelcomeOnboarding({ onboarding, organization, onNavigate, onDismiss, onOpenPublic }) {
-  const onboardingGroups = [
-    { id: "identity", stepIds: ["identity", "logo"], label: "Marca", detail: "Nombre, enlace y logo listos para que el showroom se sienta propio.", destination: "settings" },
-    { id: "operation", stepIds: ["contact", "appointments"], label: "Operación", detail: "Canales de contacto y horarios preparados para atender compradores.", destination: "settings" },
-    { id: "catalog", stepIds: ["catalog"], label: "Inventario", detail: "Publica al menos un vehículo para comenzar a recibir consultas.", destination: "inventory" },
-    { id: "reach", stepIds: ["social"], label: "Difusión", detail: "Prepara tus redes y crea contenido desde el backoffice.", destination: "integrations" },
-    { id: "publish", stepIds: ["legal", "domain"], label: "Publicación", detail: "Revisa la información legal y conecta tu dominio cuando estés listo.", destination: "settings" },
-  ];
-  const groupDone = (group) => onboarding.steps.filter((step) => group.stepIds.includes(step.id)).every((step) => step.done);
-  const displaySteps = onboardingGroups.map((group) => ({ ...group, done: groupDone(group) }));
-  const firstPending = displaySteps.find((step) => !step.done);
-  const [selectedId, setSelectedId] = useState(firstPending?.id || displaySteps[0]?.id || "identity");
-  const selected = displaySteps.find((step) => step.id === selectedId) || firstPending || displaySteps[0];
-  const meta = onboardingMeta[selected?.stepIds?.find((id) => onboardingMeta[id]) || "identity"] || onboardingMeta.identity;
-  const completed = displaySteps.filter((step) => step.done).length;
-  const progress = Math.round((completed / displaySteps.length) * 100);
-  const isComplete = completed === displaySteps.length;
-
-  useEffect(() => {
-    document.body.style.overflow = "hidden";
-    const closeOnEscape = (event) => { if (event.key === "Escape") onDismiss(); };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => { document.body.style.overflow = ""; window.removeEventListener("keydown", closeOnEscape); };
-  }, [onDismiss]);
-
-  const openSelected = () => {
-    onDismiss();
-    onNavigate?.(selected.destination || onboardingDestinations[selected.id] || "settings");
-  };
-
-  return <motion.div className="welcome-onboarding-backdrop" role="presentation" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-    <motion.section className="welcome-onboarding" role="dialog" aria-modal="true" aria-labelledby="welcome-onboarding-title" initial={{ opacity: 0, y: 18, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 12, scale: .98 }} transition={{ duration: .28, ease: [0.22, 1, 0.36, 1] }}>
-      <header className="welcome-onboarding-header"><div><span className="eyebrow">PERSONALIZA TU SHOWROOM</span><h2 id="welcome-onboarding-title">{organization?.name || "Tu showroom"}<br /><em>empieza aquí.</em></h2><p>Configura lo esencial en minutos. Puedes guardar y volver cuando quieras.</p></div><button className="welcome-onboarding-close" type="button" onClick={onDismiss} aria-label="Cerrar personalización">×</button></header>
-      <div className="welcome-onboarding-progress"><span><b>{onboarding.progress}%</b> configurado</span><div><i style={{ width: `${onboarding.progress}%` }} /></div><small>{completed} de {onboarding.steps.length} pasos</small></div>
-      <div className="welcome-onboarding-layout"><aside className="welcome-onboarding-list" aria-label="Pasos de configuración">{onboarding.steps.map((step, index) => <button type="button" className={step.id === selected.id ? "is-selected" : ""} key={step.id} onClick={() => setSelectedId(step.id)}><span className={step.done ? "welcome-step-number is-done" : "welcome-step-number"}>{step.done ? "✓" : String(index + 1).padStart(2, "0")}</span><span><strong>{step.label}</strong><small>{step.done ? "Completado · puedes revisarlo" : step.detail}</small></span><b>→</b></button>)}</aside><div className="welcome-onboarding-detail"><span className="eyebrow">{meta.eyebrow}</span><h3>{isComplete ? "Todo listo para presentar." : meta.title}</h3><p>{isComplete ? "Tu identidad, operación y vitrina ya están configuradas. Mira ahora la experiencia desde el lado del comprador." : meta.copy}</p><div className="welcome-onboarding-surface"><div className="welcome-surface-mark">{organization?.logoUrl ? <img src={organization.logoUrl} alt="" /> : <span>{(organization?.name || "A").slice(0, 2).toUpperCase()}</span>}</div><div><small>PRÓXIMA ACCIÓN</small><strong>{isComplete ? "Abrir el showroom público" : selected.label}</strong><p>{isComplete ? "Comprueba que el dealer se vea y se sienta como propio." : selected.detail}</p></div></div><div className="welcome-onboarding-actions"><button className="primary-action" type="button" onClick={isComplete ? onOpenPublic : openSelected}>{isComplete ? "Abrir showroom público ↗" : `${selected.done ? "Revisar" : "Configurar"} ${selected.label.toLowerCase()} →`}</button><button className="text-button" type="button" onClick={onDismiss}>Lo haré después</button></div></div></div><footer className="welcome-onboarding-footer"><span>Los cambios se guardan por concesionario.</span><span>Centro de inicio disponible desde el backoffice.</span></footer>
-    </motion.section>
-  </motion.div>;
-}
-
 function WelcomeOnboarding({ onboarding, organization, onNavigate, onDismiss, onOpenPublic }) {
-  const groups = [
-    { id: "identity", ids: ["identity", "logo"], label: "Marca", detail: "Nombre, enlace y logo listos para que el showroom se sienta propio.", destination: "settings" },
-    { id: "operation", ids: ["contact", "appointments"], label: "Operación", detail: "Canales de contacto y horarios preparados para atender compradores.", destination: "settings" },
-    { id: "catalog", ids: ["catalog"], label: "Inventario", detail: "Publica al menos un vehículo para comenzar a recibir consultas.", destination: "inventory" },
-    { id: "reach", ids: ["social"], label: "Difusión", detail: "Prepara tus redes y crea contenido desde el backoffice.", destination: "integrations" },
-    { id: "publish", ids: ["legal", "domain"], label: "Publicación", detail: "Revisa la información legal y conecta tu dominio cuando estés listo.", destination: "settings" },
-  ];
-  const displaySteps = groups.map((group) => ({ ...group, done: onboarding.steps.filter((step) => group.ids.includes(step.id)).every((step) => step.done) }));
+  const { groups: displaySteps, essentialTotal, essentialDone, ready, progress } = buildOnboardingGroups(onboarding);
   const firstPending = displaySteps.find((step) => !step.done);
-  const [selectedId, setSelectedId] = useState(firstPending?.id || displaySteps[0].id);
+  const [selectedId, setSelectedId] = useState(firstPending?.id || displaySteps[0]?.id);
   const selected = displaySteps.find((step) => step.id === selectedId) || firstPending || displaySteps[0];
-  const completed = displaySteps.filter((step) => step.done).length;
-  const progress = Math.round((completed / displaySteps.length) * 100);
-  const isComplete = completed === displaySteps.length;
+  const selectedIndex = Math.max(0, displaySteps.findIndex((step) => step.id === selected?.id));
+  const isComplete = ready;
   useEffect(() => {
     document.body.style.overflow = "hidden";
     const closeOnEscape = (event) => { if (event.key === "Escape") onDismiss(); };
@@ -1120,340 +1010,11 @@ function WelcomeOnboarding({ onboarding, organization, onNavigate, onDismiss, on
   const openSelected = () => { onDismiss(); onNavigate?.(selected.destination); };
   return <motion.div className="welcome-onboarding-backdrop" role="presentation" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
     <motion.section className="welcome-onboarding" role="dialog" aria-modal="true" aria-labelledby="welcome-onboarding-title" initial={{ opacity: 0, y: 18, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 12, scale: .98 }} transition={{ duration: .28, ease: [0.22, 1, 0.36, 1] }}>
-      <header className="welcome-onboarding-header"><div><span className="eyebrow">PERSONALIZA TU SHOWROOM</span><h2 id="welcome-onboarding-title">{organization?.name || "Tu showroom"}<br /><em>empieza aquí.</em></h2><p>Configura lo esencial en cinco áreas. Puedes guardar y volver cuando quieras.</p></div><button className="welcome-onboarding-close" type="button" onClick={onDismiss} aria-label="Cerrar personalización">×</button></header>
-      <div className="welcome-onboarding-progress"><span><b>{progress}%</b> configurado</span><div><i style={{ width: `${progress}%` }} /></div><small>{completed} de {displaySteps.length} áreas</small></div>
-      <div className="welcome-onboarding-layout"><aside className="welcome-onboarding-list" aria-label="Áreas de configuración">{displaySteps.map((step, index) => <button type="button" className={step.id === selected.id ? "is-selected" : ""} key={step.id} onClick={() => setSelectedId(step.id)}><span className={step.done ? "welcome-step-number is-done" : "welcome-step-number"}>{step.done ? "✓" : String(index + 1).padStart(2, "0")}</span><span><strong>{step.label}</strong><small>{step.done ? "Completado · puedes revisarlo" : step.detail}</small></span><b>→</b></button>)}</aside><div className="welcome-onboarding-detail"><span className="eyebrow">{String(completed + 1).padStart(2, "0")} · {selected.label.toUpperCase()}</span><h3>{isComplete ? "Todo listo para presentar." : `Prepara ${selected.label.toLowerCase()}.`}</h3><p>{isComplete ? "Tu identidad, operación y vitrina ya están configuradas. Mira ahora la experiencia desde el lado del comprador." : selected.detail}</p><div className="welcome-onboarding-surface"><div className="welcome-surface-mark">{organization?.logoUrl ? <img src={organization.logoUrl} alt="" /> : <span>{(organization?.name || "A").slice(0, 2).toUpperCase()}</span>}</div><div><small>PRÓXIMA ACCIÓN</small><strong>{isComplete ? "Abrir el showroom público" : selected.label}</strong><p>{isComplete ? "Comprueba que el dealer se vea y se sienta como propio." : selected.detail}</p></div></div><div className="welcome-onboarding-actions"><button className="primary-action" type="button" onClick={isComplete ? onOpenPublic : openSelected}>{isComplete ? "Abrir showroom público ↗" : `${selected.done ? "Revisar" : "Configurar"} ${selected.label.toLowerCase()} →`}</button><button className="text-button" type="button" onClick={onDismiss}>Lo haré después</button></div></div></div><footer className="welcome-onboarding-footer"><span>Los cambios se guardan por concesionario.</span><span>Centro de inicio disponible desde el backoffice.</span></footer>
+      <header className="welcome-onboarding-header"><div><span className="eyebrow">PERSONALIZA TU SHOWROOM</span><h2 id="welcome-onboarding-title">{organization?.name || "Tu showroom"}<br /><em>empieza aquí.</em></h2><p>Configura lo esencial y vuelve cuando quieras. Lo opcional no bloquea nada.</p></div><button className="welcome-onboarding-close" type="button" onClick={onDismiss} aria-label="Cerrar personalización">×</button></header>
+      <div className="welcome-onboarding-progress"><span><b>{progress}%</b> configurado</span><div><i style={{ width: `${progress}%` }} /></div><small>{essentialDone} de {essentialTotal} esenciales</small></div>
+      <div className="welcome-onboarding-layout"><aside className="welcome-onboarding-list" aria-label="Áreas de configuración">{displaySteps.map((step, index) => <button type="button" className={step.id === selected.id ? "is-selected" : ""} key={step.id} onClick={() => setSelectedId(step.id)}><span className={step.done ? "welcome-step-number is-done" : "welcome-step-number"}>{step.done ? "✓" : String(index + 1).padStart(2, "0")}</span><span><strong>{step.label}</strong><small>{step.done ? "Completado · puedes revisarlo" : step.detail}</small></span><b>→</b></button>)}</aside><div className="welcome-onboarding-detail"><span className="eyebrow">{String(selectedIndex + 1).padStart(2, "0")} · {selected.label.toUpperCase()}</span><h3>{isComplete ? "Todo listo para presentar." : `Prepara ${selected.label.toLowerCase()}.`}</h3><p>{isComplete ? "Tu identidad, operación y vitrina ya están configuradas. Mira ahora la experiencia desde el lado del comprador." : selected.detail}</p><div className="welcome-onboarding-surface"><div className="welcome-surface-mark">{organization?.logoUrl ? <img src={organization.logoUrl} alt="" /> : <span>{(organization?.name || "A").slice(0, 2).toUpperCase()}</span>}</div><div><small>PRÓXIMA ACCIÓN</small><strong>{isComplete ? "Abrir el showroom público" : selected.label}</strong><p>{isComplete ? "Comprueba que el dealer se vea y se sienta como propio." : selected.detail}</p></div></div><div className="welcome-onboarding-actions"><button className="primary-action" type="button" onClick={isComplete ? onOpenPublic : openSelected}>{isComplete ? "Abrir showroom público ↗" : `${selected.done ? "Revisar" : "Configurar"} ${selected.label.toLowerCase()} →`}</button><button className="text-button" type="button" onClick={onDismiss}>Lo haré después</button></div></div></div><footer className="welcome-onboarding-footer"><span>Los cambios se guardan por concesionario.</span><span>Centro de inicio disponible desde el backoffice.</span></footer>
     </motion.section>
   </motion.div>;
-}
-
-function WindowStickerModal({ vehicle, organization, settings, onClose }) {
-  if (!vehicle) return null;
-  const slug = organization?.slug || "authentiq";
-  const customDomain = organization?.customDomain;
-  const normalizedCustomDomain = String(customDomain || "").replace(/^https?:\/\//i, "").replace(/\/+$/, "").toLowerCase();
-  const customDomainReady = Boolean(normalizedCustomDomain && window.location.hostname.toLowerCase() === normalizedCustomDomain);
-  const path = publicVehiclePath(vehicle);
-  const publicUrl = useMemo(() => {
-    if (customDomainReady) return `https://${normalizedCustomDomain}${path}`;
-    return `${window.location.origin}${path}?dealer=${slug}`;
-  }, [customDomainReady, normalizedCustomDomain, path, slug]);
-
-  const qrSvg = useMemo(() => generateQRCodeSVG(publicUrl, 160), [publicUrl]);
-
-  const numPrice = Number(vehicle.priceUsd) || 0;
-  const downPayment = Math.round(numPrice * 0.2);
-  const loanAmount = Math.max(numPrice - downPayment, 0);
-  const estRate = 0.095 / 12;
-  const estMonthly = loanAmount ? Math.round((loanAmount * estRate * Math.pow(1 + estRate, 60)) / (Math.pow(1 + estRate, 60) - 1)) : 0;
-
-  return (
-    <div className="sticker-modal-backdrop" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="sticker-modal-container" role="dialog" aria-modal="true" aria-label="Cartel de Vitrina">
-        <div className="sticker-toolbar">
-          <div>
-            <strong style={{ fontSize: "14px" }}>Cartel de Vitrina / Parabrisas (Hoja de Exhibición)</strong>
-            <small style={{ display: "block", color: "#aaa" }}>Listo para imprimir y colocar en el vehículo físico</small>
-          </div>
-          <div style={{ display: "flex", gap: "10px" }}>
-            <button className="primary-action" type="button" onClick={() => window.print()}>
-              🖨️ Imprimir Cartel
-            </button>
-            <button className="secondary-action" type="button" onClick={onClose}>
-              Cerrar
-            </button>
-          </div>
-        </div>
-
-        <div className="sticker-sheet">
-          <div className="sticker-header">
-            <div className="sticker-dealer-info">
-              <h2>{settings?.businessName || organization?.name || "AUTHENTIQ MOTORS"}</h2>
-              <p>{settings?.address || "Concesionario Autorizado"} {settings?.phone ? `· Tel: ${settings.phone}` : ""}</p>
-            </div>
-            <div style={{ textAlign: "right" }}>
-              <span className="eyebrow" style={{ color: "#888" }}>STOCK #{vehicle.stockNumber || "DISPONIBLE"}</span>
-              <strong style={{ display: "block", fontSize: "16px", color: "#000" }}>{vehicle.warranty || "Garantía Incluida"}</strong>
-            </div>
-          </div>
-
-          <div className="sticker-vehicle-title">
-            <div>
-              <h1>{vehicle.brand} {vehicle.model}</h1>
-              <p style={{ margin: "4px 0 0", color: "#555", fontSize: "16px" }}>{vehicle.variant || "Configuración Premium"}</p>
-            </div>
-            <span>{vehicle.year} · {vehicle.condition === "new" ? "NUEVO" : "CERTIFICADO"}</span>
-          </div>
-
-          <div className="sticker-price-bar">
-            <div>
-              <small>PRECIO DE VENTA SUGERIDO</small>
-              <strong>{formatPrice(vehicle.priceUsd)}</strong>
-            </div>
-            {estMonthly > 0 && (
-              <div style={{ textAlign: "right" }}>
-                <small>FINANCIAMIENTO DESDE (20% INICIAL)</small>
-                <div style={{ fontSize: "20px", fontWeight: "700", color: "#b28b37" }}>
-                  {formatPrice(estMonthly)} / mes (60 meses)
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="sticker-specs-grid">
-            <div className="sticker-spec-item">
-              <small>KILOMETRAJE</small>
-              <strong>{Number(vehicle.mileageKm).toLocaleString("en-US")} km</strong>
-            </div>
-            <div className="sticker-spec-item">
-              <small>MOTOR</small>
-              <strong>{vehicle.engine || "N/D"}</strong>
-            </div>
-            <div className="sticker-spec-item">
-              <small>POTENCIA</small>
-              <strong>{vehicle.power || "N/D"}</strong>
-            </div>
-            <div className="sticker-spec-item">
-              <small>TRANSMISIÓN</small>
-              <strong>{vehicle.transmission || "Automática"}</strong>
-            </div>
-            <div className="sticker-spec-item">
-              <small>TRACCIÓN</small>
-              <strong>{vehicle.drive || "N/D"}</strong>
-            </div>
-            <div className="sticker-spec-item">
-              <small>COMBUSTIBLE</small>
-              <strong>{vehicle.fuelType || "Gasolina"}</strong>
-            </div>
-            <div className="sticker-spec-item">
-              <small>COLOR EXTERIOR</small>
-              <strong>{vehicle.exteriorColor || "N/D"}</strong>
-            </div>
-            <div className="sticker-spec-item">
-              <small>COLOR INTERIOR</small>
-              <strong>{vehicle.interiorColor || "N/D"}</strong>
-            </div>
-          </div>
-
-          {vehicle.features && vehicle.features.length > 0 && (
-            <div className="sticker-features-block">
-              <strong>EQUIPAMIENTO DESTACADO</strong>
-              <div className="sticker-features-pills">
-                {vehicle.features.slice(0, 8).map((f) => (
-                  <span key={f} className="sticker-feature-tag">{f}</span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="sticker-qr-section">
-            <div className="sticker-qr-image" dangerouslySetInnerHTML={{ __html: qrSvg }} />
-            <div className="sticker-qr-text">
-              <h4>Escanea con tu teléfono 📱</h4>
-              <p>
-                Apunta tu cámara hacia este código QR para abrir instantáneamente la <strong>ficha técnica interactiva en 3D</strong>, ver la galería en alta resolución y solicitar una prueba de manejo con nuestro equipo.
-              </p>
-              <small style={{ color: "#e5c36d", marginTop: "6px", display: "block" }}>
-                {publicUrl}
-              </small>
-            </div>
-          </div>
-
-          <div className="sticker-footer">
-            <span>{settings?.businessName || organization?.name || "AUTHENTIQ"} · Inventario Verificado · Todos los derechos reservados</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function SocialFlyerStudio({ vehicles = [], organization, settings }) {
-  const [selectedId, setSelectedId] = useState(vehicles[0]?.id || "");
-  const [format, setFormat] = useState("story");
-  const canvasRef = useRef(null);
-
-  const currentVehicle = vehicles.find((v) => v.id === selectedId) || vehicles[0];
-
-  useEffect(() => {
-    if (!currentVehicle || !canvasRef.current) return;
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext("2d");
-
-    let width = 1080;
-    let height = 1920;
-    if (format === "post") {
-      width = 1080;
-      height = 1080;
-    } else if (format === "banner") {
-      width = 1920;
-      height = 1080;
-    }
-
-    canvas.width = width;
-    canvas.height = height;
-
-    const bgGrad = ctx.createLinearGradient(0, 0, 0, height);
-    bgGrad.addColorStop(0, "#0e1112");
-    bgGrad.addColorStop(0.5, "#151a1b");
-    bgGrad.addColorStop(1, "#090b0c");
-    ctx.fillStyle = bgGrad;
-    ctx.fillRect(0, 0, width, height);
-
-    const imgUrl = currentVehicle.images?.[0]?.url || "/assets/hero-highway.webp";
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => {
-      const imgAspect = img.width / img.height;
-      const targetAspect = width / (height * 0.55);
-      let sx, sy, sWidth, sHeight;
-
-      if (imgAspect > targetAspect) {
-        sHeight = img.height;
-        sWidth = img.height * targetAspect;
-        sx = (img.width - sWidth) / 2;
-        sy = 0;
-      } else {
-        sWidth = img.width;
-        sHeight = img.width / targetAspect;
-        sx = 0;
-        sy = (img.height - sHeight) / 2;
-      }
-
-      const imgY = format === "story" ? 280 : format === "post" ? 120 : 80;
-      const imgH = format === "story" ? 900 : format === "post" ? 560 : 700;
-      ctx.drawImage(img, sx, sy, sWidth, sHeight, 0, imgY, width, imgH);
-
-      const overlayGrad = ctx.createLinearGradient(0, imgY, 0, imgY + imgH);
-      overlayGrad.addColorStop(0, "rgba(14,17,18,0.8)");
-      overlayGrad.addColorStop(0.2, "rgba(14,17,18,0)");
-      overlayGrad.addColorStop(0.8, "rgba(14,17,18,0.2)");
-      overlayGrad.addColorStop(1, "rgba(14,17,18,1)");
-      ctx.fillStyle = overlayGrad;
-      ctx.fillRect(0, imgY, width, imgH);
-
-      ctx.fillStyle = "#c8a24b";
-      ctx.font = "bold 28px 'Inter Tight', sans-serif";
-      ctx.textAlign = "left";
-      ctx.fillText((settings?.businessName || organization?.name || "AUTHENTIQ MOTORS").toUpperCase(), 60, format === "story" ? 140 : 80);
-
-      ctx.fillStyle = "#888888";
-      ctx.font = "20px 'IBM Plex Mono', monospace";
-      ctx.fillText("INVENTARIO CERTIFICADO", 60, format === "story" ? 180 : 110);
-
-      const contentY = format === "story" ? 1280 : format === "post" ? 740 : 840;
-
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 64px 'Inter Tight', sans-serif";
-      ctx.fillText(`${currentVehicle.brand} ${currentVehicle.model}`, 60, contentY);
-
-      ctx.fillStyle = "#c8a24b";
-      ctx.font = "32px 'Inter Tight', sans-serif";
-      ctx.fillText(`${currentVehicle.year} · ${currentVehicle.engine || "Premium Edition"} · ${currentVehicle.transmission || "Automático"}`, 60, contentY + 54);
-
-      const priceY = contentY + 110;
-      ctx.fillStyle = "#c8a24b";
-      ctx.beginPath();
-      ctx.roundRect(60, priceY, 360, 80, 8);
-      ctx.fill();
-
-      ctx.fillStyle = "#0b0d0e";
-      ctx.font = "bold 44px 'Inter Tight', sans-serif";
-      ctx.fillText(formatPrice(currentVehicle.priceUsd), 84, priceY + 56);
-
-      ctx.fillStyle = "#f2efe9";
-      ctx.font = "24px 'IBM Plex Mono', monospace";
-      ctx.fillText(settings?.phone ? `📲 ${settings.phone}` : "AGENDA TU CITA HOY", 60, priceY + 140);
-    };
-    img.onerror = () => {
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 48px sans-serif";
-      ctx.fillText(`${currentVehicle.brand} ${currentVehicle.model}`, 60, height / 2);
-    };
-    img.src = imgUrl;
-  }, [currentVehicle, format, organization, settings]);
-
-  const downloadFlyer = () => {
-    if (!canvasRef.current || !currentVehicle) return;
-    const link = document.createElement("a");
-    link.download = `flyer-${slugify(`${currentVehicle.brand}-${currentVehicle.model}`)}-${format}.png`;
-    link.href = canvasRef.current.toDataURL("image/png");
-    link.click();
-  };
-
-  return (
-    <article className="social-flyer-studio" aria-label="Estudio Creativo de Marketing">
-      <div className="flyer-canvas-card">
-        <canvas ref={canvasRef} />
-      </div>
-
-      <div className="flyer-control-panel">
-        <div>
-          <span className="eyebrow">ESTUDIO CREATIVO · MARKETING SUITE</span>
-          <h3 style={{ margin: "6px 0 12px", fontSize: "20px" }}>Generador de Flyers</h3>
-          <p style={{ margin: 0, fontSize: "13px", color: "var(--auth-muted)" }}>
-            Genera imágenes profesionales listas para publicar en tus redes sociales con el logo y precio de tu vehículo.
-          </p>
-        </div>
-
-        <label style={{ display: "grid", gap: "6px", font: "500 11px 'IBM Plex Mono', monospace" }}>
-          VEHÍCULO
-          <select value={selectedId} onChange={(e) => setSelectedId(e.target.value)}>
-            {vehicles.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.brand} {v.model} ({v.year}) - {formatPrice(v.priceUsd)}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <div>
-          <span style={{ display: "block", font: "500 11px 'IBM Plex Mono', monospace", marginBottom: "6px", color: "var(--auth-muted)" }}>
-            FORMATO DE PUBLICACIÓN
-          </span>
-          <div className="flyer-format-selector">
-            <button
-              type="button"
-              className={`flyer-format-btn ${format === "story" ? "is-active" : ""}`}
-              onClick={() => setFormat("story")}
-            >
-              Story 9:16
-            </button>
-            <button
-              type="button"
-              className={`flyer-format-btn ${format === "post" ? "is-active" : ""}`}
-              onClick={() => setFormat("post")}
-            >
-              Post 1:1
-            </button>
-            <button
-              type="button"
-              className={`flyer-format-btn ${format === "banner" ? "is-active" : ""}`}
-              onClick={() => setFormat("banner")}
-            >
-              Banner 16:9
-            </button>
-          </div>
-        </div>
-
-        <button className="primary-action" type="button" onClick={downloadFlyer} style={{ width: "100%", marginTop: "12px" }}>
-          Descargar Imagen PNG 📥
-        </button>
-      </div>
-    </article>
-  );
-}
-
-function LegacyIntegrationsModule({ integrations, billing, health, drafts, vehicles, organization, settings, loading, onRefresh, onCreateDraft, onExportCalendar, onConnectGoogleCalendar }) {
-  const [platform, setPlatform] = useState("both");
-  const [vehicleId, setVehicleId] = useState(vehicles[0]?.id || "");
-  const [caption, setCaption] = useState("");
-  const integration = (provider) => integrations.find((item) => item.provider === provider) || {};
-  const createDraft = async (event) => { event.preventDefault(); if (!caption.trim()) return; await onCreateDraft({ platform, vehicleId: vehicleId || null, caption, hashtags: ["vehiculos", "showroom", "autentiqu"] }); setCaption(""); };
-  const statusLabel = (item) => ({ ready: "ACTIVO", oauth_ready: "LISTO PARA CONECTAR", connected: "CONECTADO", local_export_ready: "EXPORTACIÓN MANUAL", drafts_ready: "BORRADORES LISTOS", checkout_ready: "LISTO PARA COBRAR", verified: "VERIFICADO", dns_pending: "DOMINIO PENDIENTE", not_configured: "FALTA CONFIGURAR", local_demo: "MODO DEMO" }[item?.status] || "PENDIENTE");
-  const healthItems = [health?.email, health?.googleCalendar, health?.metaSocial, health?.billing, health?.domain].filter(Boolean);
-  const googleConnected = integration("google_calendar").status === "connected";
-  return <section className="records-content integrations-content"><div className="panel-heading"><div><span className="eyebrow">OPERACIÓN WHITE-LABEL</span><h2>Integraciones y Marketing.</h2><p>Herramientas automáticas de difusión, agenda y conexiones para tu concesionario.</p></div><button className="secondary-action" type="button" onClick={onRefresh}>Actualizar</button></div>{loading ? <p className="empty-state">Cargando integraciones…</p> : <><div className="integration-health-grid">{healthItems.map((item, index) => <article className="integration-health-card" key={`${item.provider || "domain"}-${index}`}><span className="eyebrow">{item.provider === "google_calendar" ? "GOOGLE CALENDAR" : item.provider === "meta_social" ? "META SOCIAL" : item.provider === "resend" ? "EMAIL" : item.provider === "none" ? "PAGOS" : "DOMINIO"}</span><strong className={`integration-status ${["ready", "oauth_ready", "connected", "checkout_ready", "verified", "local_export_ready", "drafts_ready"].includes(item.status) ? "ready" : "trial"}`}>{statusLabel(item)}</strong><p>{item.detail}</p></article>)}</div><div className="integration-grid"><article className="integration-card"><span className="integration-icon">↗</span><div><span className="eyebrow">CALENDARIO</span><h3>Agenda del showroom</h3><p>Las nuevas citas se pueden crear automáticamente en el calendario del dealer.</p></div><strong className={`integration-status ${googleConnected ? "ready" : "trial"}`}>{googleConnected ? "CONECTADO" : "PENDIENTE"}</strong>{googleConnected ? <button className="secondary-action" type="button" onClick={onRefresh}>Actualizar conexión</button> : <button className="primary-action" type="button" onClick={onConnectGoogleCalendar}>Conectar Google Calendar</button>}<button className="secondary-action" type="button" onClick={onExportCalendar}>Descargar agenda .ics</button><small>{integration("google_calendar").config?.calendarName || "Agenda del showroom"} · {googleConnected ? "Sincronización automática activa" : "También puedes usar exportación manual"}</small></article><article className="integration-card"><span className="integration-icon">◎</span><div><span className="eyebrow">REDES SOCIALES</span><h3>Contenido listo para publicar</h3><p>Genera captions por vehículo y guárdalos como borradores para Instagram y Facebook.</p></div><strong className="integration-status ready">BORRADORES LISTOS</strong><form className="social-draft-form" onSubmit={createDraft}><select value={vehicleId} onChange={(event) => setVehicleId(event.target.value)}><option value="">Publicación general</option>{vehicles.map((vehicle) => <option value={vehicle.id} key={vehicle.id}>{vehicle.brand} {vehicle.model}</option>)}</select><select value={platform} onChange={(event) => setPlatform(event.target.value)}><option value="both">Instagram + Facebook</option><option value="instagram">Instagram</option><option value="facebook">Facebook</option></select><textarea value={caption} onChange={(event) => setCaption(event.target.value)} placeholder="Escribe el caption de la publicación…" rows="3" /><button className="primary-action" type="submit">Guardar borrador</button></form><div className="social-draft-list">{drafts.slice(0, 3).map((draft) => <article key={draft.id}><strong>{draft.model ? `${draft.brand} ${draft.model}` : "Publicación general"}</strong><span>{formatPlatform(draft.platform)} · {formatStatus(draft.status)}</span><p>{draft.caption}</p></article>)}{!drafts.length && <small>Aún no hay borradores. Crea el primero arriba.</small>}</div></article><article className="integration-card"><span className="integration-icon">$</span><div><span className="eyebrow">SUSCRIPCIÓN DEL SERVICIO</span><h3>Facturación recurrente</h3><p>El plan está representado localmente para la demo. No se solicita tarjeta ni se procesa dinero en este modo.</p></div><strong className="integration-status trial">{billing?.status === "active" ? "ACTIVA" : "TRIAL LOCAL"}</strong><div className="billing-summary"><span>Plan <b>{billing?.planName || billing?.planCode || "starter"}</b></span><span>Inventario <b>{billing?.vehicleLimit ? `${billing?.vehicleUsage || 0}/${billing.vehicleLimit}` : `${billing?.vehicleUsage || 0} / ilimitado`}</b></span><span>Mensualidad <b>{billing?.monthlyAmount ? `$${billing.monthlyAmount} ${billing.currency || "USD"}` : "Pendiente de proveedor"}</b></span><span>Checkout <b>{billing?.checkoutReady ? "Listo" : "Pendiente"}</b></span></div><small>Proveedor actual: {health?.billing?.provider || "none"} · Después se conecta el webhook.</small></article></div><SocialFlyerStudio vehicles={vehicles} organization={organization} settings={settings} /><div className="integration-note"><span>PRÓXIMO PASO EXTERNO</span><p>Google Calendar queda listo al añadir las credenciales OAuth del dealer. Meta requiere una app y una cuenta profesional; los pagos requieren proveedor, cuenta comercial y webhooks. Email queda listo al añadir Resend. El dominio requiere apuntar DNS al hosting.</p></div></>}</section>;
 }
 
 function IntegrationsModule({ integrations = [], billing, health, drafts = [], vehicles = [], organization, settings, loading, onRefresh, onCreateDraft, onExportCalendar, onConnectGoogleCalendar }) {
@@ -1498,9 +1059,19 @@ function LegalSettingsFields({ form, onChange }) {
 
 function SettingsModule({ form, organization, onboarding, onChange, onOrganizationChange, onSave, onOrganizationSave, onUpload, onNavigate, onOpenPublic, loading, message, organizationMessage }) {
   const [activeSection, setActiveSection] = useState("brand");
+  // Cada pestaña avisa si le falta algo: evita que el operador tenga que abrir
+  // las cinco secciones para saber qué queda pendiente.
+  const sectionReady = {
+    brand: Boolean(organization?.logoUrl || form.faviconUrl),
+    showroom: Boolean(form.heroHeadline || form.heroImageUrl),
+    contact: Boolean(form.phone || form.whatsapp || form.email),
+    appointments: Boolean(form.appointmentStart && form.appointmentEnd && form.appointmentDays?.length),
+    legal: Boolean(form.privacyText && form.termsText && !/borrador|pendiente de revisión/i.test(`${form.privacyText} ${form.termsText}`)),
+  };
   const sections = [["brand", "Marca"], ["showroom", "Portada"], ["contact", "Contacto"], ["appointments", "Agenda"], ["legal", "Legal"]];
+  const pendingSections = sections.filter(([id]) => !sectionReady[id]);
   const isOwner = Boolean(organization?.id);
-  return <section className="records-content"><div className="panel-heading"><div><span className="eyebrow">PERSONALIZACIÓN</span><h2>Tu showroom, a tu manera.</h2><p>Actualiza solo lo que necesitas. Los cambios se guardan por concesionario.</p></div></div><OnboardingPanel onboarding={onboarding} onNavigate={onNavigate} onOpenPublic={onOpenPublic} /><div className="settings-form admin-form"><nav className="settings-tabs" aria-label="Secciones de personalización">{sections.map(([id, label]) => <button key={id} type="button" className={activeSection === id ? "is-active" : ""} aria-current={activeSection === id ? "page" : undefined} onClick={() => setActiveSection(id)}>{label}</button>)}</nav>{activeSection === "brand" && isOwner && <form onSubmit={onOrganizationSave} className="settings-section organization-profile"><span className="eyebrow">PERFIL DEL CONCESIONARIO</span><p className="settings-section-note">Nombre, dirección del showroom y dominio. Solo el dueño puede cambiar estos datos de cuenta.</p><div className="form-grid"><label>Nombre del concesionario<input value={organization.name || ""} onChange={(event) => onOrganizationChange("name", event.target.value)} required /></label><label>Nombre del enlace público<input value={organization.slug || ""} onChange={(event) => onOrganizationChange("slug", event.target.value)} pattern="[a-z0-9]+(?:-[a-z0-9]+)*" required /><small>Ejemplo: concesionario-jordi. Se usará en tu dirección pública.</small></label><BrandAssetField label="Logo del concesionario" value={organization.logoUrl} onChange={(value) => onOrganizationChange("logoUrl", value)} onUpload={onUpload} placeholder="/uploads/logo.webp" /><label>Dominio personalizado <span>Opcional</span><input value={organization.customDomain || ""} onChange={(event) => onOrganizationChange("customDomain", event.target.value)} placeholder="www.concesionario.com" inputMode="url" /><small>{organization.subdomain ? <>Tu showroom ya está disponible en <strong>{organization.subdomain}</strong>. Usa un dominio propio solo si ya lo tienes.</> : "Después de guardarlo, apunta este dominio al hosting."}</small></label></div>{organizationMessage && <p className="form-message">{organizationMessage}</p>}<button className="secondary-action" type="submit">Guardar datos de cuenta</button></form>}<form onSubmit={onSave}>{loading ? <p className="empty-state">Cargando configuración…</p> : <>{activeSection === "brand" && <div className="settings-section branding-settings"><span className="eyebrow">IDENTIDAD VISUAL</span><p className="settings-section-note">Elige los colores y el icono que verán los compradores. Puedes comprobarlos antes de publicar.</p><div className="branding-layout"><div className="branding-controls"><div className="form-grid"><label>Color principal<div className="color-input-row"><input type="color" value={form.primaryColor || "#c8a24b"} onChange={(event) => onChange("primaryColor", event.target.value)} /><input value={form.primaryColor || "#c8a24b"} onChange={(event) => onChange("primaryColor", event.target.value)} pattern="#[0-9a-fA-F]{6}" /></div></label><label>Color de acento<div className="color-input-row"><input type="color" value={form.accentColor || "#b28b37"} onChange={(event) => onChange("accentColor", event.target.value)} /><input value={form.accentColor || "#b28b37"} onChange={(event) => onChange("accentColor", event.target.value)} pattern="#[0-9a-fA-F]{6}" /></div></label></div><BrandAssetField label="Icono del navegador" value={form.faviconUrl} onChange={(value) => onChange("faviconUrl", value)} onUpload={onUpload} placeholder="/uploads/favicon.png" /></div><BrandingPreview form={form} organization={organization} onOpenPublic={onOpenPublic} /></div></div>}{activeSection === "showroom" && <div className="settings-section"><span className="eyebrow">PORTADA Y SECCIONES</span><p className="settings-section-note">Define la primera impresión y qué información verá un comprador.</p><div className="form-grid"><label>Titular principal<input value={form.heroHeadline || ""} onChange={(event) => onChange("heroHeadline", event.target.value)} placeholder="Elige lo que te mueve." maxLength="160" /><small>Si lo dejas vacío se utilizará el titular principal del sistema.</small></label><label>Subtítulo<input value={form.heroSubheadline || ""} onChange={(event) => onChange("heroSubheadline", event.target.value)} placeholder="Vehículos con carácter, información clara..." maxLength="280" /></label></div><BrandAssetField label="Imagen de portada" value={form.heroImageUrl} onChange={(value) => onChange("heroImageUrl", value)} onUpload={onUpload} placeholder="/uploads/portada.webp" /><div className="settings-toggle-grid"><label><input type="checkbox" checked={form.showFinancing !== false} onChange={(event) => onChange("showFinancing", event.target.checked)} /> Mostrar opciones de financiamiento</label><label><input type="checkbox" checked={form.showBrandRail !== false} onChange={(event) => onChange("showBrandRail", event.target.checked)} /> Mostrar marcas disponibles</label><label><input type="checkbox" checked={form.showModelLineRail !== false} onChange={(event) => onChange("showModelLineRail", event.target.checked)} /> Mostrar tipos de vehículos</label><label><input type="checkbox" checked={form.showBlog !== false} onChange={(event) => onChange("showBlog", event.target.checked)} /> Mostrar artículos y novedades</label></div></div>}{activeSection === "contact" && <div className="settings-section"><span className="eyebrow">CONTACTO Y REDES</span><p className="settings-section-note">Deja una forma clara de contactarte desde cada vehículo.</p><div className="form-grid"><label>Teléfono<input value={form.phone || ""} onChange={(event) => onChange("phone", event.target.value)} /></label><label>WhatsApp<input value={form.whatsapp || ""} onChange={(event) => onChange("whatsapp", event.target.value)} /></label><label>Correo<input type="email" value={form.email || ""} onChange={(event) => onChange("email", event.target.value)} /></label><label>Moneda<input value={form.currency || "USD"} onChange={(event) => onChange("currency", event.target.value)} maxLength="8" /></label><label>Instagram<input value={form.instagramUrl || ""} onChange={(event) => onChange("instagramUrl", event.target.value)} /></label><label>Facebook<input value={form.facebookUrl || ""} onChange={(event) => onChange("facebookUrl", event.target.value)} /></label></div><label>Dirección<input value={form.address || ""} onChange={(event) => onChange("address", event.target.value)} /></label><label>Horario visible<input value={form.hours || ""} onChange={(event) => onChange("hours", event.target.value)} placeholder="Lun–Sáb · 9:00–18:00" /></label></div>}{activeSection === "appointments" && <AppointmentSettingsFields form={form} onChange={onChange} />}{activeSection === "legal" && <LegalSettingsFields form={form} onChange={onChange} />}{message && <p className="form-message">{message}</p>}<div className="settings-save-bar"><span>Revisa el resultado antes de compartir el enlace.</span><div><button className="secondary-action" type="button" onClick={onOpenPublic}>Vista previa</button><button className="primary-action" type="submit">Guardar cambios</button></div></div></>}</form></div></section>;
+  return <section className="records-content"><div className="panel-heading"><div><span className="eyebrow">PERSONALIZACIÓN</span><h2>Tu showroom, a tu manera.</h2><p>Actualiza solo lo que necesitas. Los cambios se guardan por concesionario.</p></div></div><OnboardingPanel onboarding={onboarding} onNavigate={onNavigate} onOpenPublic={onOpenPublic} /><div className="settings-form admin-form"><nav className="settings-tabs" aria-label="Secciones de personalización">{sections.map(([id, label]) => <button key={id} type="button" className={`${activeSection === id ? "is-active" : ""}${sectionReady[id] ? " is-ready" : " is-pending"}`} aria-current={activeSection === id ? "page" : undefined} onClick={() => setActiveSection(id)}>{label}<span className="settings-tab-mark" aria-hidden="true">{sectionReady[id] ? "✓" : "•"}</span><span className="visually-hidden">{sectionReady[id] ? " (completa)" : " (falta información)"}</span></button>)}</nav>{pendingSections.length > 0 && <p className="settings-pending-hint">Falta información en: {pendingSections.map(([, label]) => label).join(", ")}.</p>}{activeSection === "brand" && isOwner && <form onSubmit={onOrganizationSave} className="settings-section organization-profile"><span className="eyebrow">PERFIL DEL CONCESIONARIO</span><p className="settings-section-note">Nombre, dirección del showroom y dominio. Solo el dueño puede cambiar estos datos de cuenta.</p><div className="form-grid"><label>Nombre del concesionario<input value={organization.name || ""} onChange={(event) => onOrganizationChange("name", event.target.value)} required /></label><label>Nombre del enlace público<input value={organization.slug || ""} onChange={(event) => onOrganizationChange("slug", event.target.value)} pattern="[a-z0-9]+(?:-[a-z0-9]+)*" required /><small>Ejemplo: concesionario-jordi. Se usará en tu dirección pública.</small></label><BrandAssetField label="Logo del concesionario" value={organization.logoUrl} onChange={(value) => onOrganizationChange("logoUrl", value)} onUpload={onUpload} placeholder="/uploads/logo.webp" /><label>Dominio personalizado <span>Opcional</span><input value={organization.customDomain || ""} onChange={(event) => onOrganizationChange("customDomain", event.target.value)} placeholder="www.concesionario.com" inputMode="url" /><small>{organization.subdomain ? <>Tu showroom ya está disponible en <strong>{organization.subdomain}</strong>. Usa un dominio propio solo si ya lo tienes.</> : "Después de guardarlo, apunta este dominio al hosting."}</small></label></div>{organizationMessage && <p className="form-message">{organizationMessage}</p>}<button className="secondary-action" type="submit">Guardar datos de cuenta</button></form>}<form onSubmit={onSave}>{loading ? <p className="empty-state">Cargando configuración…</p> : <>{activeSection === "brand" && <div className="settings-section branding-settings"><span className="eyebrow">IDENTIDAD VISUAL</span><p className="settings-section-note">Elige los colores y el icono que verán los compradores. Puedes comprobarlos antes de publicar.</p><div className="branding-layout"><div className="branding-controls"><div className="form-grid"><label>Color principal<div className="color-input-row"><input type="color" value={form.primaryColor || "#c8a24b"} onChange={(event) => onChange("primaryColor", event.target.value)} /><input value={form.primaryColor || "#c8a24b"} onChange={(event) => onChange("primaryColor", event.target.value)} pattern="#[0-9a-fA-F]{6}" /></div></label><label>Color de acento<div className="color-input-row"><input type="color" value={form.accentColor || "#b28b37"} onChange={(event) => onChange("accentColor", event.target.value)} /><input value={form.accentColor || "#b28b37"} onChange={(event) => onChange("accentColor", event.target.value)} pattern="#[0-9a-fA-F]{6}" /></div></label></div><BrandAssetField label="Icono del navegador" value={form.faviconUrl} onChange={(value) => onChange("faviconUrl", value)} onUpload={onUpload} placeholder="/uploads/favicon.png" /></div><BrandingPreview form={form} organization={organization} onOpenPublic={onOpenPublic} /></div></div>}{activeSection === "showroom" && <div className="settings-section"><span className="eyebrow">PORTADA Y SECCIONES</span><p className="settings-section-note">Define la primera impresión y qué información verá un comprador.</p><div className="form-grid"><label>Titular principal<input value={form.heroHeadline || ""} onChange={(event) => onChange("heroHeadline", event.target.value)} placeholder="Elige lo que te mueve." maxLength="160" /><small>Si lo dejas vacío se utilizará el titular principal del sistema.</small></label><label>Subtítulo<input value={form.heroSubheadline || ""} onChange={(event) => onChange("heroSubheadline", event.target.value)} placeholder="Vehículos con carácter, información clara..." maxLength="280" /></label></div><BrandAssetField label="Imagen de portada" value={form.heroImageUrl} onChange={(value) => onChange("heroImageUrl", value)} onUpload={onUpload} placeholder="/uploads/portada.webp" /><div className="settings-toggle-grid"><label><input type="checkbox" checked={form.showFinancing !== false} onChange={(event) => onChange("showFinancing", event.target.checked)} /> Mostrar opciones de financiamiento</label><label><input type="checkbox" checked={form.showBrandRail !== false} onChange={(event) => onChange("showBrandRail", event.target.checked)} /> Mostrar marcas disponibles</label><label><input type="checkbox" checked={form.showModelLineRail !== false} onChange={(event) => onChange("showModelLineRail", event.target.checked)} /> Mostrar tipos de vehículos</label><label><input type="checkbox" checked={form.showBlog !== false} onChange={(event) => onChange("showBlog", event.target.checked)} /> Mostrar artículos y novedades</label></div></div>}{activeSection === "contact" && <div className="settings-section"><span className="eyebrow">CONTACTO Y REDES</span><p className="settings-section-note">Deja una forma clara de contactarte desde cada vehículo.</p><div className="form-grid"><label>Teléfono<input value={form.phone || ""} onChange={(event) => onChange("phone", event.target.value)} /></label><label>WhatsApp<input value={form.whatsapp || ""} onChange={(event) => onChange("whatsapp", event.target.value)} /></label><label>Correo<input type="email" value={form.email || ""} onChange={(event) => onChange("email", event.target.value)} /></label><label>Moneda<input value={form.currency || "USD"} onChange={(event) => onChange("currency", event.target.value)} maxLength="8" /></label><label>Instagram<input value={form.instagramUrl || ""} onChange={(event) => onChange("instagramUrl", event.target.value)} /></label><label>Facebook<input value={form.facebookUrl || ""} onChange={(event) => onChange("facebookUrl", event.target.value)} /></label></div><label>Dirección<input value={form.address || ""} onChange={(event) => onChange("address", event.target.value)} /></label><label>Horario visible<input value={form.hours || ""} onChange={(event) => onChange("hours", event.target.value)} placeholder="Lun–Sáb · 9:00–18:00" /></label></div>}{activeSection === "appointments" && <AppointmentSettingsFields form={form} onChange={onChange} />}{activeSection === "legal" && <LegalSettingsFields form={form} onChange={onChange} />}{message && <p className="form-message">{message}</p>}<div className="settings-save-bar"><span>Revisa el resultado antes de compartir el enlace.</span><div><button className="secondary-action" type="button" onClick={onOpenPublic}>Vista previa</button><button className="primary-action" type="submit">Guardar cambios</button></div></div></>}</form></div></section>;
 }
 
 const leadStages = [
@@ -1553,12 +1124,6 @@ function LeadAppointmentBadge({ lead }) {
 }
 
 
-function LegacyAppointmentsModule({ appointments, loading, onRefresh, onStatusChange }) {
-  const [dateFilter, setDateFilter] = useState("");
-  const visible = appointments.filter((appointment) => !dateFilter || String(appointment.date).slice(0, 10) === dateFilter);
-  return <section className="records-content appointments-content"><div className="panel-heading"><div><span className="eyebrow">AGENDA COMERCIAL</span><h2>Citas.</h2></div><div className="panel-actions"><input type="date" value={dateFilter} onChange={(event) => setDateFilter(event.target.value)} aria-label="Filtrar citas por fecha" /><button className="secondary-action" type="button" onClick={onRefresh}>Actualizar</button></div></div><div className="appointments-summary"><span><strong>{visible.length}</strong> cita{visible.length === 1 ? "" : "s"} {dateFilter ? "para este día" : "registradas"}</span><span>Los horarios se bloquean automáticamente al alcanzar la capacidad configurada.</span></div>{loading ? <p className="empty-state">Cargando agenda…</p> : visible.length ? <div className="appointments-list">{visible.map((appointment) => <article className="appointment-admin-row" key={appointment.id}><div className="appointment-date"><strong>{formatDate(appointment.date)}</strong><span>{String(appointment.time).slice(0, 5)} · 60 min</span></div><div className="appointment-main"><strong>{appointment.customerName}</strong><span>{appointment.brand ? `${appointment.brand} ${appointment.model} · ${appointment.year}` : "Vehículo no disponible"}</span><small>{appointment.customerEmail || appointment.customerPhone || "Sin contacto"}</small>{appointment.notes && <p>{appointment.notes}</p>}</div><div className="appointment-actions"><span className={`status-pill ${appointment.status}`}>{appointment.status === "confirmed" ? "Confirmada" : appointment.status === "cancelled" ? "Cancelada" : "Pendiente"}</span><select value={appointment.status} onChange={(event) => onStatusChange(appointment.id, event.target.value)} aria-label={`Estado de la cita de ${appointment.customerName}`}><option value="pending">Pendiente</option><option value="confirmed">Confirmada</option><option value="cancelled">Cancelada</option></select></div></article>)}</div> : <AdminEmptyState eyebrow="AGENDA VACÍA" title="No hay citas para mostrar." text="Cuando un comprador solicite una visita, la cita aparecerá aquí para confirmarla." />}</section>;
-}
-
 function AppointmentsModule({ appointments, blocks, loading, onRefresh, onStatusChange, onCreateBlock, onDeleteBlock, canManageBlocks, onExport }) {
   const [dateFilter, setDateFilter] = useState("");
   const [blockForm, setBlockForm] = useState({ date: "", start: "", end: "", reason: "" });
@@ -1576,335 +1141,6 @@ emptyVehicle.imageAltTexts = "";
 const emptyUser = { name: "", email: "", password: "", role: "seller" };
 const emptySettings = { businessName: "AUTHENTIQ", logoUrl: "", primaryColor: "#c8a24b", accentColor: "#b28b37", faviconUrl: "", phone: "", whatsapp: "", email: "", address: "", hours: "", instagramUrl: "", facebookUrl: "", currency: "USD", privacyText: "", termsText: "", appointmentTimezone: "America/Santo_Domingo", appointmentStart: "09:00", appointmentEnd: "18:00", appointmentDurationMinutes: 60, appointmentMinNoticeHours: 2, appointmentMaxDaysAhead: 30, appointmentDays: [1, 2, 3, 4, 5, 6], appointmentCapacity: 1, heroHeadline: "", heroSubheadline: "", heroImageUrl: "", showFinancing: true, showBrandRail: true, showModelLineRail: true, showBlog: true };
 const emptyOrganization = { id: "", name: "AUTHENTIQ", slug: "authentiq", logoUrl: "", customDomain: "", isActive: true };
-
-function DealerRegistrationWizard({ onRegisterSuccess, onCancel, apiUrl }) {
-  const [step, setStep] = useState(1);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [registeredData, setRegisteredData] = useState(null);
-  const [turnstileToken, setTurnstileToken] = useState("");
-
-  const [form, setForm] = useState({
-    dealershipName: "",
-    slug: "",
-    phone: "",
-    whatsapp: "",
-    address: "",
-    adminName: "",
-    adminEmail: "",
-    adminPassword: "",
-    confirmPassword: "",
-  });
-
-  const [slugManuallyEdited, setSlugManuallyEdited] = useState(false);
-
-  const updateField = (field, value) => {
-    setForm((prev) => {
-      const next = { ...prev, [field]: value };
-      if (field === "dealershipName" && !slugManuallyEdited) {
-        const autoSlug = value
-          .toLowerCase()
-          .normalize("NFD")
-          .replace(/[\u0300-\u036f]/g, "")
-          .replace(/[^a-z0-9]+/g, "-")
-          .replace(/^-+|-+$/g, "")
-          .slice(0, 50);
-        next.slug = autoSlug;
-      }
-      return next;
-    });
-  };
-
-  const handleSlugChange = (e) => {
-    setSlugManuallyEdited(true);
-    const cleaned = e.target.value
-      .toLowerCase()
-      .replace(/[^a-z0-9-]/g, "")
-      .slice(0, 50);
-    setForm((prev) => ({ ...prev, slug: cleaned }));
-  };
-
-  const validateStep1 = () => {
-    if (!form.dealershipName.trim() || form.dealershipName.trim().length < 2) {
-      setError("El nombre del concesionario debe tener al menos 2 caracteres.");
-      return false;
-    }
-    if (!form.slug || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(form.slug)) {
-      setError("El nombre del enlace debe usar solo minúsculas, números y guiones.");
-      return false;
-    }
-    setError("");
-    return true;
-  };
-
-  const handleNextStep = (e) => {
-    e.preventDefault();
-    if (step === 1 && validateStep1()) {
-      setStep(2);
-    }
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setError("");
-    if (!form.adminName.trim() || form.adminName.trim().length < 2) {
-      setError("Introduce tu nombre completo.");
-      return;
-    }
-    if (!/^\S+@\S+\.\S+$/.test(form.adminEmail)) {
-      setError("Introduce un correo electrónico válido.");
-      return;
-    }
-    if (form.adminPassword.length < 8) {
-      setError("La contraseña debe tener al menos 8 caracteres.");
-      return;
-    }
-    if (form.adminPassword !== form.confirmPassword) {
-      setError("Las contraseñas no coinciden.");
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const response = await fetch(`${apiUrl}/api/auth/register-dealer`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          dealershipName: form.dealershipName.trim(),
-          slug: form.slug.trim(),
-          phone: form.phone.trim(),
-          whatsapp: form.whatsapp.trim() || form.phone.trim(),
-          address: form.address.trim(),
-          adminName: form.adminName.trim(),
-          adminEmail: form.adminEmail.trim().toLowerCase(),
-          adminPassword: form.adminPassword,
-          turnstileToken,
-        }),
-      });
-      const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload.error || "No se pudo registrar el concesionario");
-      }
-      // Se guarda de inmediato: el botón "Vista previa privada" de esta misma pantalla
-      // abre una pestaña nueva que necesita el token en localStorage para autenticar
-      // su vista previa, y eso todavía no pasa hasta que se entra al backoffice.
-      localStorage.setItem("authentiq_admin_token", payload.token);
-      localStorage.setItem("authentiq_admin_user", JSON.stringify(payload.user));
-      setRegisteredData(payload);
-      setStep(3);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const origin = window.location.origin;
-  const previewUrl = `${origin}/?preview=1`;
-
-  if (step === 3 && registeredData) {
-    return (
-      <div className="admin-login dealer-register-success">
-        <span className="eyebrow">¡ENHORABUENA! · TU SHOWROOM ESTÁ EN REVISIÓN</span>
-        <h1>¡Bienvenido a <em>{registeredData.organization?.name || form.dealershipName}!</em></h1>
-        <p className="account-welcome">
-          Tu showroom fue creado con tu cuenta de administrador y tiene un periodo de prueba activo de 14 días. Todavía no es público: personalízalo con calma y se publicará cuando el equipo de AUTHENTIQ lo apruebe.
-        </p>
-
-        <div className="dealer-url-box" style={{ margin: "16px 0" }}>
-          <span className="dealer-url-text">{registeredData.dealerUrl || previewUrl}</span>
-          <button
-            className="dealer-copy-btn"
-            type="button"
-            onClick={() => {
-              navigator.clipboard.writeText(registeredData.dealerUrl || previewUrl);
-              alert("¡Enlace copiado al portapapeles!");
-            }}
-          >
-            Copiar Enlace
-          </button>
-        </div>
-
-        {registeredData.futurePublicUrl && (
-          <p className="account-welcome" style={{ margin: "-8px 0 16px", fontSize: "13px" }}>
-            Tu dirección pública, en cuanto se apruebe tu showroom, será <strong>{registeredData.futurePublicUrl.replace(/^https?:\/\//i, "")}</strong> — no tienes que comprar ni configurar nada.
-          </p>
-        )}
-
-        <div className="register-success-actions" style={{ display: "grid", gap: "10px" }}>
-          <button
-            className="primary-action"
-            type="button"
-            onClick={() => onRegisterSuccess(registeredData)}
-          >
-            Entrar al Backoffice de mi Concesionario →
-          </button>
-          <button
-            className="secondary-action"
-            type="button"
-            onClick={() => window.open(registeredData.dealerUrl || previewUrl, "_blank", "noopener,noreferrer")}
-          >
-            Vista previa privada ↗
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <form className="admin-login dealer-register-form" onSubmit={step === 1 ? handleNextStep : handleSubmit}>
-      <span className="eyebrow">AUTHENTIQ · NUEVO SHOWROOM</span>
-      <h1>Crea tu <em>Showroom Digital.</em></h1>
-      <p className="account-welcome">
-        {step === 1
-          ? "Paso 1 de 2: Datos de tu Concesionario e Identificador Único."
-          : "Paso 2 de 2: Crea tu cuenta de Administrador."}
-      </p>
-
-      <div className="wizard-step-indicator" style={{ display: "flex", gap: "8px", marginBottom: "8px" }}>
-        <div style={{ flex: 1, height: "4px", background: step >= 1 ? "var(--auth-gold, #c8a24b)" : "#ccc", borderRadius: "2px" }} />
-        <div style={{ flex: 1, height: "4px", background: step >= 2 ? "var(--auth-gold, #c8a24b)" : "#ccc", borderRadius: "2px" }} />
-      </div>
-
-      {step === 1 && (
-        <>
-          <label>
-            Nombre del concesionario
-            <input
-              type="text"
-              placeholder="Ej. Bella Vista Motors, Luxury Cars RD"
-              value={form.dealershipName}
-              onChange={(e) => updateField("dealershipName", e.target.value)}
-              required
-            />
-          </label>
-
-          <label>
-            Nombre del enlace público
-            <input
-              type="text"
-              placeholder="bellavista-motors"
-              value={form.slug}
-              onChange={handleSlugChange}
-              required
-            />
-            <small style={{ textTransform: "none", color: "var(--auth-muted, #888)", marginTop: "4px" }}>
-              Será parte de la dirección de tu showroom. Usa minúsculas, números y guiones; podrás cambiarlo antes de publicar.
-            </small>
-          </label>
-
-          <label>
-            Teléfono de Contacto
-            <input
-              type="tel"
-              placeholder="Ej. +1 (809) 555-0199"
-              value={form.phone}
-              onChange={(e) => updateField("phone", e.target.value)}
-            />
-          </label>
-
-          <label>
-            WhatsApp Comercial
-            <input
-              type="tel"
-              placeholder="Ej. +1 (809) 555-0199 (opcional)"
-              value={form.whatsapp}
-              onChange={(e) => updateField("whatsapp", e.target.value)}
-            />
-          </label>
-
-          <label>
-            Dirección / Ubicación Física
-            <input
-              type="text"
-              placeholder="Ej. Av. Winston Churchill #102, Santo Domingo"
-              value={form.address}
-              onChange={(e) => updateField("address", e.target.value)}
-            />
-          </label>
-
-          {error && <p className="state-message error">{error}</p>}
-
-          <div style={{ display: "flex", gap: "10px", marginTop: "8px" }}>
-            <button className="primary-action" type="submit" style={{ flex: 1 }}>
-              Siguiente: Administrador →
-            </button>
-            <button className="text-button" type="button" onClick={onCancel}>
-              Volver a Iniciar Sesión
-            </button>
-          </div>
-        </>
-      )}
-
-      {step === 2 && (
-        <>
-          <label>
-            Nombre Completo del Titular
-            <input
-              type="text"
-              placeholder="Ej. Carlos Mendoza"
-              value={form.adminName}
-              onChange={(e) => updateField("adminName", e.target.value)}
-              required
-            />
-          </label>
-
-          <label>
-            Correo Electrónico (Tu acceso al Backoffice)
-            <input
-              type="email"
-              placeholder="carlos@concesionario.com"
-              value={form.adminEmail}
-              onChange={(e) => updateField("adminEmail", e.target.value)}
-              required
-            />
-          </label>
-
-          <label>
-            Contraseña
-            <input
-              type="password"
-              placeholder="Mínimo 8 caracteres"
-              value={form.adminPassword}
-              onChange={(e) => updateField("adminPassword", e.target.value)}
-              minLength={8}
-              required
-            />
-          </label>
-
-          <label>
-            Confirmar Contraseña
-            <input
-              type="password"
-              placeholder="Repite tu contraseña"
-              value={form.confirmPassword}
-              onChange={(e) => updateField("confirmPassword", e.target.value)}
-              minLength={8}
-              required
-            />
-          </label>
-
-          <TurnstileField onTokenChange={setTurnstileToken} />
-
-          {error && <p className="state-message error">{error}</p>}
-
-          <div style={{ display: "flex", gap: "10px", marginTop: "8px" }}>
-            <button className="secondary-action" type="button" onClick={() => setStep(1)} disabled={loading}>
-              ← Atrás
-            </button>
-            <button className="primary-action" type="submit" style={{ flex: 1 }} disabled={loading}>
-              {loading ? "Creando Showroom…" : "Crear mi Showroom y Entrar →"}
-            </button>
-          </div>
-          <button className="text-button" type="button" onClick={onCancel} disabled={loading}>
-            Cancelar
-          </button>
-        </>
-      )}
-    </form>
-  );
-}
 
 export default function Backoffice({ onBack, onVehiclesChanged, initialMode = "login", impersonation = null }) {
   // Sesión de soporte del admin de plataforma: vive solo en memoria de esta pestaña.
@@ -1988,7 +1224,7 @@ export default function Backoffice({ onBack, onVehiclesChanged, initialMode = "l
     const favicon = document.querySelector("link[data-authentiq-favicon]");
     if (favicon) favicon.href = settings.faviconUrl || "/favicon.svg";
   }, [settings.primaryColor, settings.accentColor, settings.faviconUrl]);
-  useEffect(() => { if (!token) return; const role = currentUser?.role; loadDashboard(); loadNotifications(); if (["admin", "editor", "seller"].includes(role)) { loadVehicles(); loadOffers(); loadQuotes(); loadAnalytics(); loadLeads(); loadAppointments(); loadUsers(); } if (["admin", "editor"].includes(role)) { loadAppointmentBlocks(); loadTaxonomy(); loadSettings(); } if (["admin", "editor", "content_editor"].includes(role)) { loadBlog(); loadSocialDrafts(); } if (role === "admin") { loadAudit(); loadManagedUsers(); loadOrganization(); loadOnboarding(); loadIntegrations(); } }, [token, currentUser?.role]);
+  useEffect(() => { if (!token) return; const role = currentUser?.role; loadDashboard(); loadNotifications(); if (["admin", "editor", "seller"].includes(role)) { loadVehicles(); loadOffers(); loadQuotes(); loadAnalytics(); loadLeads(); loadAppointments(); loadUsers(); } if (["admin", "editor"].includes(role)) { loadAppointmentBlocks(); loadTaxonomy(); loadSettings(); loadOnboarding(); } if (["admin", "editor", "content_editor"].includes(role)) { loadBlog(); loadSocialDrafts(); } if (role === "admin") { loadAudit(); loadManagedUsers(); loadOrganization(); loadIntegrations(); } }, [token, currentUser?.role]);
   const onboardingStorageKey = currentUser?.id ? `authentiq_onboarding_seen_${currentUser.id}` : "";
   useEffect(() => {
     if (!token || currentUser?.role !== "admin" || !onboarding || onboarding.progress >= 100 || !onboardingStorageKey) { setWelcomeOnboardingOpen(false); return undefined; }
@@ -2113,7 +1349,7 @@ export default function Backoffice({ onBack, onVehiclesChanged, initialMode = "l
   // "?preview=1" fuerza al SPA a resolver la organización por el JWT de esta sesión en
   // vez de por el dominio actual: funciona sin importar si ya hay dominio propio asignado.
   const openPublic = () => window.open("/?preview=1", "_blank", "noopener,noreferrer");
-  const activeView = activeModule === "dashboard" ? <DashboardView data={dashboard} vehicles={vehicles} leads={leads} offers={offers} appointments={appointments} loading={moduleLoading} onNavigate={setActiveModule} onboarding={onboarding} onOpenOnboarding={openOnboarding} onOpenPublic={openPublic} organization={organization} settings={settings} /> : activeModule === "inventory" ? <InventoryModule vehicles={vehicles} form={form} editingId={editingId} loading={loading} message={message} onChange={change} onSave={save} onEdit={edit} onCancel={() => { setEditingId(null); setForm(emptyVehicle); }} onDeactivate={deactivate} onDuplicate={duplicateVehicle} onRefresh={loadVehicles} onUpload={uploadImage} onPackageUpload={uploadMediaPackage} onReview={reviewVehicle} onStatusChange={changeVehicleStatus} onOpenSticker={setStickerVehicle} onOpenSocial={() => setActiveModule("integrations")} /> : activeModule === "leads" ? <LeadsControlRoom records={leads} users={users} loading={moduleLoading} onRefresh={loadLeads} onUpdate={updateLead} onLoadHistory={loadLeadHistory} onAddAppointment={setAppointmentLead} onCreateQuote={openQuoteForLead} /> : activeModule === "appointments" ? <AppointmentsModule appointments={appointments} blocks={appointmentBlocks} loading={moduleLoading} onRefresh={() => Promise.all([loadAppointments(), loadAppointmentBlocks()])} onStatusChange={updateAppointment} onCreateBlock={createAppointmentBlock} onDeleteBlock={deleteAppointmentBlock} canManageBlocks={["admin", "editor"].includes(currentUser?.role)} /> : activeModule === "quotes" ? <QuotesModule quotes={quotes} leads={leads} vehicles={vehicles} loading={moduleLoading} initialLead={quoteLead} onRefresh={loadQuotes} onCreate={createQuote} onStatusChange={updateQuoteStatus} onShare={shareQuote} /> : activeModule === "blog" ? <BlogModule posts={posts} form={blogForm} editingId={editingPostId} loading={moduleLoading} message={message} onChange={changeBlog} onSave={saveBlog} onEdit={editBlog} onCancel={() => { setEditingPostId(null); setBlogForm(emptyBlog); }} onArchive={archiveBlog} onRefresh={loadBlog} /> : activeModule === "offers" ? <RecordsModule kind="offers" records={offers} loading={moduleLoading} onRefresh={loadOffers} onStatusChange={(id, status) => updateStatus("offers", id, status)} /> : activeModule === "reports" ? <ReportsModule dashboard={dashboard} vehicles={vehicles} leads={leads} offers={offers} loading={moduleLoading} analytics={analytics} /> : activeModule === "audit" ? <AuditModule logs={auditLogs} loading={moduleLoading} onRefresh={loadAudit} /> : activeModule === "users" ? <UsersModule users={managedUsers} form={userForm} onChange={changeUser} onSave={saveUser} onUpdate={updateUser} onResetPassword={resetUserPassword} onDelete={deleteUser} loading={moduleLoading} message={message} /> : activeModule === "integrations" ? <IntegrationsModule integrations={integrations} billing={billing} health={integrationHealth} drafts={socialDrafts} vehicles={vehicles} organization={organization} settings={settings} loading={moduleLoading} onRefresh={() => Promise.all([loadIntegrations(), loadSocialDrafts()])} onCreateDraft={createSocialDraft} onExportCalendar={exportCalendar} onConnectGoogleCalendar={connectGoogleCalendar} /> : <SettingsModule form={settings} organization={organization} onboarding={onboarding} onChange={changeSettings} onOrganizationChange={changeOrganization} onSave={saveSettings} onOrganizationSave={saveOrganization} onUpload={uploadImage} onNavigate={setActiveModule} onOpenPublic={openPublic} loading={moduleLoading} message={message} organizationMessage={organizationMessage} />;
+  const activeView = activeModule === "dashboard" ? <DashboardView data={dashboard} vehicles={vehicles} leads={leads} offers={offers} appointments={appointments} loading={moduleLoading} onNavigate={setActiveModule} onboarding={onboarding} onOpenOnboarding={openOnboarding} onOpenPublic={openPublic} organization={organization} settings={settings} currentUser={currentUser} /> : activeModule === "inventory" ? <InventoryModule vehicles={vehicles} form={form} editingId={editingId} loading={loading} message={message} onChange={change} onSave={save} onEdit={edit} onCancel={() => { setEditingId(null); setForm(emptyVehicle); }} onDeactivate={deactivate} onDuplicate={duplicateVehicle} onRefresh={loadVehicles} onUpload={uploadImage} onPackageUpload={uploadMediaPackage} onReview={reviewVehicle} onStatusChange={changeVehicleStatus} onOpenSticker={setStickerVehicle} onOpenSocial={() => setActiveModule("integrations")} /> : activeModule === "leads" ? <LeadsControlRoom records={leads} users={users} loading={moduleLoading} onRefresh={loadLeads} onUpdate={updateLead} onLoadHistory={loadLeadHistory} onAddAppointment={setAppointmentLead} onCreateQuote={openQuoteForLead} /> : activeModule === "appointments" ? <AppointmentsModule appointments={appointments} blocks={appointmentBlocks} loading={moduleLoading} onRefresh={() => Promise.all([loadAppointments(), loadAppointmentBlocks()])} onStatusChange={updateAppointment} onCreateBlock={createAppointmentBlock} onDeleteBlock={deleteAppointmentBlock} canManageBlocks={["admin", "editor"].includes(currentUser?.role)} /> : activeModule === "quotes" ? <QuotesModule quotes={quotes} leads={leads} vehicles={vehicles} loading={moduleLoading} initialLead={quoteLead} onRefresh={loadQuotes} onCreate={createQuote} onStatusChange={updateQuoteStatus} onShare={shareQuote} /> : activeModule === "blog" ? <BlogModule posts={posts} form={blogForm} editingId={editingPostId} loading={moduleLoading} message={message} onChange={changeBlog} onSave={saveBlog} onEdit={editBlog} onCancel={() => { setEditingPostId(null); setBlogForm(emptyBlog); }} onArchive={archiveBlog} onRefresh={loadBlog} /> : activeModule === "offers" ? <RecordsModule kind="offers" records={offers} loading={moduleLoading} onRefresh={loadOffers} onStatusChange={(id, status) => updateStatus("offers", id, status)} /> : activeModule === "reports" ? <ReportsModule dashboard={dashboard} vehicles={vehicles} leads={leads} offers={offers} loading={moduleLoading} analytics={analytics} /> : activeModule === "audit" ? <AuditModule logs={auditLogs} loading={moduleLoading} onRefresh={loadAudit} /> : activeModule === "users" ? <UsersModule users={managedUsers} form={userForm} onChange={changeUser} onSave={saveUser} onUpdate={updateUser} onResetPassword={resetUserPassword} onDelete={deleteUser} loading={moduleLoading} message={message} /> : activeModule === "integrations" ? <IntegrationsModule integrations={integrations} billing={billing} health={integrationHealth} drafts={socialDrafts} vehicles={vehicles} organization={organization} settings={settings} loading={moduleLoading} onRefresh={() => Promise.all([loadIntegrations(), loadSocialDrafts()])} onCreateDraft={createSocialDraft} onExportCalendar={exportCalendar} onConnectGoogleCalendar={connectGoogleCalendar} /> : <SettingsModule form={settings} organization={organization} onboarding={onboarding} onChange={changeSettings} onOrganizationChange={changeOrganization} onSave={saveSettings} onOrganizationSave={saveOrganization} onUpload={uploadImage} onNavigate={setActiveModule} onOpenPublic={openPublic} loading={moduleLoading} message={message} organizationMessage={organizationMessage} />;
   return (
     <main className="admin-page">
       {impersonation && <div className="impersonation-banner"><span>Modo soporte · viendo la cuenta de <strong>{currentUser?.name || currentUser?.email}</strong>. Los cambios se guardan en su cuenta real.</span><button className="text-button" type="button" onClick={exitImpersonation}>Salir del modo soporte</button></div>}

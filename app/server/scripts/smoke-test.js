@@ -67,6 +67,19 @@ await check("Eventos comerciales aceptados", async () => {
   assert(response.status === 204, `respondió ${response.status}`);
 });
 
+// El catálogo es una SPA: si el servidor deja de escribir el HTML dentro de #root,
+// Google vuelve a recibir un contenedor vacío y el concesionario pierde indexación
+// sin que nada más falle. Por eso se comprueba aquí.
+await check("Portada entrega HTML real para buscadores", async () => {
+  const { response, body } = await request("/");
+  assert(response.ok, `respondió ${response.status}`);
+  const html = String(body || "");
+  assert(!html.includes("__AUTHENTIQ_PRERENDER__"), "el marcador de prerender quedó sin reemplazar");
+  assert(/<div id="root"><main/.test(html), "no hay contenido dentro de #root");
+  assert(/<h1>/.test(html), "falta el encabezado principal");
+  assert(html.includes("application/ld+json") && html.includes("AutoDealer"), "falta el dato estructurado del concesionario");
+});
+
 console.log(checks.join("\n"));
 const failures = checks.filter((item) => item.startsWith("FAIL"));
 if (failures.length) process.exitCode = 1;

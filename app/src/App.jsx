@@ -1,7 +1,9 @@
 import { Component, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion, useInView, useReducedMotion } from "motion/react";
 import { TurnstileField, turnstileSiteKey } from "./utils/turnstile.jsx";
+import { flushSync } from "react-dom";
 import { contrastSafeShade } from "./utils/color.js";
+import { reportError } from "./utils/monitoring.js";
 import { AnimatedNumber, BlurFade, Disclosure, ProgressiveBlur, TextReveal } from "./ui/MotionPrimitives.jsx";
 import { AnimatedThemeTogglerStarDemo } from "./components/ui/animated-theme-toggler-star-demo.jsx";
 
@@ -571,6 +573,8 @@ function Vehicle3DViewer({ vehicle, media }) {
   const [availableAnimations, setAvailableAnimations] = useState([]);
   const [activeAnimation, setActiveAnimation] = useState("");
   const [animationPlaying, setAnimationPlaying] = useState(false);
+  const [hotspots, setHotspots] = useState([]);
+  const [showHotspots, setShowHotspots] = useState(true);
   const model = media.find((item) => item.type === "model_3d");
   const modelUrl = publicMediaUrl(model?.url);
   // "procedural://" fue un marcador de una versión anterior; nunca representa un archivo real.
@@ -655,7 +659,28 @@ function Vehicle3DViewer({ vehicle, media }) {
         setProgress(100);
         setState("ready");
       };
-      const handleLoad = () => { syncAnimations(); setProgress(100); setState("ready"); frameTimer = window.setTimeout(() => { void frameViewer(); }, 80); };
+      const buildHotspots = () => {
+        // Las coordenadas de un punto dependen de cada modelo, asi que se derivan
+        // de su caja envolvente en vez de fijarlas a mano: asi caen sobre el
+        // vehiculo sea cual sea su tamano y su origen.
+        //
+        // Las etiquetas usan datos reales de la ficha (potencia, transmision,
+        // color), nunca afirmaciones sobre la pieza concreta que hay debajo: la
+        // orientacion del modelo no es conocida y decir "faros" podria senalar
+        // el maletero.
+        try {
+          const center = viewer.getBoundingBoxCenter?.();
+          const size = viewer.getDimensions?.();
+          if (!center || !size) return;
+          const points = [
+            { id: "power", label: vehicle.power, caption: vehicle.engine, position: `${center.x} ${center.y + size.y * 0.34} ${center.z + size.z * 0.28}`, normal: "0 1 0" },
+            { id: "drive", label: vehicle.transmission, caption: vehicle.drive, position: `${center.x + size.x * 0.34} ${center.y - size.y * 0.26} ${center.z}`, normal: "1 0 0" },
+            { id: "finish", label: vehicle.exteriorColor, caption: vehicle.interiorColor ? `Interior ${vehicle.interiorColor}` : null, position: `${center.x - size.x * 0.34} ${center.y + size.y * 0.12} ${center.z - size.z * 0.18}`, normal: "-1 0 0" },
+          ].filter((point) => point.label);
+          setHotspots(points);
+        } catch { setHotspots([]); }
+      };
+      const handleLoad = () => { syncAnimations(); setProgress(100); setState("ready"); buildHotspots(); frameTimer = window.setTimeout(() => { void frameViewer(); }, 80); };
       const handleProgress = (event) => setProgress(Math.max(0, Math.min(100, Math.round(Number(event.detail?.totalProgress || 0) * 100))));
       const handleError = () => setState("error");
       const handlePointerDown = () => stopAutoRotate();
@@ -732,13 +757,21 @@ function Vehicle3DViewer({ vehicle, media }) {
     <div className="vehicle-studio-heading"><div><span className="eyebrow">AUTHENTIQ / REAL 3D</span><h2>Explóralo en detalle.</h2></div><span className="vehicle-3d-status">{state === "ready" ? "MODELO LISTO" : state === "error" ? "NO DISPONIBLE" : "CARGANDO MODELO"}</span></div>
     <div ref={stageRef} className={`vehicle-3d-stage ${state === "loading" ? "is-loading" : ""}`}>
       <div className="vehicle-3d-backdrop" />
-      <model-viewer ref={viewerRef} src={shouldLoad ? modelUrl : undefined} poster={poster} alt={model.altText || `${vehicle.brand} ${vehicle.model}, modelo 3D`} camera-controls auto-rotate auto-rotate-delay="1600" rotation-per-second="10deg" shadow-intensity="1" shadow-softness=".72" exposure="1" tone-mapping="aces" touch-action="pan-y" loading="eager" reveal="auto" ar ar-modes="webxr scene-viewer quick-look" />
+      <model-viewer ref={viewerRef} src={shouldLoad ? modelUrl : undefined} poster={poster} alt={model.altText || `${vehicle.brand} ${vehicle.model}, modelo 3D`} camera-controls auto-rotate auto-rotate-delay="1600" rotation-per-second="10deg" shadow-intensity="1" shadow-softness=".72" exposure="1" tone-mapping="aces" touch-action="pan-y" loading="eager" reveal="auto" ar ar-modes="webxr scene-viewer quick-look">
+        {showHotspots && hotspots.map((point) => (
+          <button className="vehicle-3d-hotspot" key={point.id} slot={`hotspot-${point.id}`} data-position={point.position} data-normal={point.normal} data-visibility-attribute="visible" type="button">
+            <span className="vehicle-3d-hotspot-dot" aria-hidden="true" />
+            <span className="vehicle-3d-hotspot-label"><strong>{point.label}</strong>{point.caption && <small>{point.caption}</small>}</span>
+          </button>
+        ))}
+      </model-viewer>
       {state === "loading" && <div className="vehicle-3d-loading" role="status" aria-live="polite"><div className="vehicle-3d-loader-mark" aria-hidden="true"><span /><i /><b /></div><span>{shouldLoad ? "Preparando la experiencia 3D" : "Preparando el estudio visual"}</span><div className="vehicle-3d-loading-track"><i style={{ transform: `scaleX(${Math.max(progress / 100, shouldLoad ? 0.08 : 0.02)})` }} /></div></div>}
       {state === "ready" && availableAnimations.length > 0 && <div className="vehicle-3d-animation-controls" aria-label="Animaciones del modelo 3D">
         <button type="button" onClick={toggleAnimation} aria-pressed={animationPlaying}>{animationPlaying ? "Pausar animación" : "Reproducir animación"}</button>
         {availableAnimations.length > 1 && <select value={activeAnimation} onChange={chooseAnimation} aria-label="Seleccionar animación del modelo 3D">{availableAnimations.map((name) => <option key={name} value={name}>{name}</option>)}</select>}
         <span>{availableAnimations.length} {availableAnimations.length === 1 ? "clip detectado" : "clips detectados"}</span>
       </div>}
+      {state === "ready" && hotspots.length > 0 && <button className="vehicle-3d-hotspot-toggle" type="button" aria-pressed={showHotspots} onClick={() => setShowHotspots((current) => !current)}>{showHotspots ? "Ocultar detalles" : "Ver detalles"}</button>}
       {state !== "error" && <div className="vehicle-3d-hint"><span>ROTAR</span><span>ZOOM</span><span>ARRASTRAR</span></div>}
       {state === "error" && <div className="vehicle-3d-fallback"><span className="eyebrow">VISTA 3D NO DISPONIBLE</span><p>Estamos preparando el modelo tridimensional de este vehículo. Mientras tanto, la galería y el estudio visual muestran cada detalle.</p><button className="secondary-action" type="button" onClick={() => document.getElementById("vehicle-studio")?.scrollIntoView({ behavior: "smooth", block: "start" })}>Ver el estudio visual ↓</button></div>}
     </div>
@@ -948,7 +981,14 @@ function VehicleCard({ vehicle, onOpen, onToggleCompare, isCompared, isFavorite,
   const image = publicMediaUrl(vehicle.images?.[0]?.url) || "/assets/hero-highway.webp";
   // La vista de ficha se registra al cambiar de ruta (cubre también los enlaces directos),
   // así que aquí no se emite un segundo vehicle_view para no duplicar la métrica.
-  const open = () => onOpen(vehicle);
+  const open = (event) => {
+    const photo = event?.currentTarget?.querySelector?.(".vehicle-image");
+    if (photo && typeof document.startViewTransition === "function") {
+      photo.style.viewTransitionName = "vehicle-hero";
+      window.setTimeout(() => { photo.style.viewTransitionName = ""; }, 800);
+    }
+    onOpen(vehicle);
+  };
   const preloadDetail = () => {
     const model = vehicle.media?.find((item) => item.type === "model_3d");
     if (model?.posterUrl) ensurePreload(publicMediaUrl(model.posterUrl), "image");
@@ -1278,7 +1318,7 @@ function VehicleDetail({ vehicle, vehicles = [], onBack, isFavorite = false, onT
                 aria-label={`Ver imagen ${index + 1} de ${vehicle.brand} ${vehicle.model}`}
                 aria-pressed={index === activeImage}
               >
-                <img src={publicMediaUrl(item.url)} alt="" />
+                <img src={publicMediaUrl(item.url)} alt="" loading="lazy" decoding="async" />
                 </button>
               ))}
             </div>
@@ -1690,10 +1730,17 @@ function App() {
 
   const navigate = (path) => {
     const demoSearch = requestedDealerSlug ? `?dealer=${encodeURIComponent(requestedDealerSlug)}` : "";
-    window.history.pushState({}, "", `${path}${demoSearch}`);
-    setPathname(path);
-    setSelected(null);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    const applyRoute = () => {
+      window.history.pushState({}, "", `${path}${demoSearch}`);
+      setPathname(path);
+      setSelected(null);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    };
+    // Transición nativa del navegador: la foto de la tarjeta crece hasta la ficha
+    // en vez de cortar de golpe. Sin librería y sin cambiar la navegación: donde
+    // no existe la API, o si el comprador pidió menos movimiento, se navega igual.
+    if (typeof document.startViewTransition !== "function" || prefersReducedMotion) return applyRoute();
+    document.startViewTransition(() => { flushSync(applyRoute); });
   };
 
   const refreshVehicles = async () => {
@@ -1928,7 +1975,7 @@ function App() {
 class AppErrorBoundary extends Component {
   constructor(props) { super(props); this.state = { failed: false }; }
   static getDerivedStateFromError() { return { failed: true }; }
-  componentDidCatch(error, info) { console.error("[AUTHENTIQ] Error global de interfaz", error, info); }
+  componentDidCatch(error, info) { console.error("[AUTHENTIQ] Error global de interfaz", error, info); reportError(error, { componentStack: info?.componentStack }); }
   render() {
     if (!this.state.failed) return this.props.children;
     return <main className="app-error-boundary"><span className="eyebrow">{getBrandName()}</span><h1>Estamos afinando esta experiencia.</h1><p>La página encontró un problema inesperado. Puedes volver a cargarla para continuar.</p><button className="primary-action" type="button" onClick={() => window.location.reload()}>Recargar página</button></main>;

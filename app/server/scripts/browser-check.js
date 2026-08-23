@@ -202,10 +202,18 @@ async function main() {
           .filter((el) => el.getBoundingClientRect().right > window.innerWidth + 2)
           .slice(0, 4)
           .map((el) => (el.tagName + '.' + String(el.className || '')).slice(0, 70));
-        const small = [...document.querySelectorAll('button, a[href], select, input')]
-          .filter((el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && r.height < 28; }).length;
+        const smallEls = [...document.querySelectorAll('button, a[href], select, input')]
+          .filter((el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && r.height < 28; });
+        const small = smallEls.length;
+        // Contar no basta: hay que poder localizar el control para arreglarlo.
+        const smallList = smallEls.slice(0, 6).map((el) => {
+          const r = el.getBoundingClientRect();
+          const name = (el.tagName + (el.className ? '.' + String(el.className).trim().split(/\s+/).join('.') : '')).slice(0, 60);
+          const text = (el.textContent || el.getAttribute('aria-label') || '').trim().slice(0, 24);
+          return name + ' "' + text + '" ' + Math.round(r.width) + 'x' + Math.round(r.height);
+        });
         return {
-          overflow, wide, small,
+          overflow, wide, small, smallList,
           cards: document.querySelectorAll('.vehicle-card').length,
           title: document.title,
           root: (document.getElementById('root')?.innerHTML || '').length,
@@ -217,8 +225,48 @@ async function main() {
       check(`${viewport.name} · el catálogo pinta vehículos`, metrics.cards > 0, `${metrics.cards} tarjetas`);
       check(`${viewport.name} · sin errores de consola`, consoleErrors.length === 0, consoleErrors.slice(0, 2).join(" || "));
       check(`${viewport.name} · sin peticiones fallidas`, failedRequests.length === 0, failedRequests.slice(0, 2).join(" || "));
-      if (metrics.small > 0) console.log(`      nota: ${metrics.small} controles con menos de 28px de alto`);
+      if (metrics.small > 0) console.log(`      nota: ${metrics.small} controles con menos de 28px de alto — ${(metrics.smallList || []).join(" | ")}`);
     }
+
+    // ---- Transición catálogo → ficha --------------------------------------
+    // La navegación va envuelta en document.startViewTransition. Si esa envoltura
+    // se rompe con un error, la ficha podría no abrirse: aquí se comprueba que
+    // la transición arranca Y que el comprador acaba en la ficha correcta.
+    await setViewport(viewports[2]);
+    // Chrome sin interfaz reporta prefers-reduced-motion: reduce, y la app respeta
+    // esa preferencia saltándose la transición. Para probar el camino normal hay
+    // que emular a un comprador que no la ha pedido.
+    await cdp.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "no-preference" }] });
+    await navigate(appUrl("/"));
+    await wait(1200);
+    await cdp.evaluate(`(() => {
+      window.__vt = 0;
+      const original = document.startViewTransition?.bind(document);
+      if (original) document.startViewTransition = (cb) => { window.__vt += 1; return original(cb); };
+    })()`);
+    const clicked = await cdp.evaluate(`(() => {
+      const button = document.querySelector('.vehicle-card-image-button');
+      if (!button) return false;
+      button.click();
+      return true;
+    })()`);
+    await wait(1400);
+    const afterClick = await cdp.evaluate(`(() => ({ transitions: window.__vt || 0, reduced: window.matchMedia('(prefers-reduced-motion: reduce)').matches, hasApi: typeof document.startViewTransition === 'function', path: location.pathname, heading: document.querySelector('.vehicle-detail h1, .detail-heading h1')?.textContent || document.querySelector('h1')?.textContent || '' }))()`);
+    check("Pulsar una tarjeta abre la ficha", clicked && afterClick.path.startsWith("/vehiculos/"), `ruta ${afterClick.path}`);
+    check("La apertura usa transición de vista", afterClick.transitions > 0, `llamadas=${afterClick.transitions} api=${afterClick.hasApi} reducirMovimiento=${afterClick.reduced}`);
+    check("La ficha abierta muestra el vehículo", Boolean(afterClick.heading.trim()), afterClick.heading);
+
+    // Y con la preferencia de reducir movimiento activa NO debe animarse, pero la
+    // ficha tiene que abrirse igual: la accesibilidad no puede romper la navegación.
+    await cdp.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
+    await navigate(appUrl("/"));
+    await wait(1200);
+    await cdp.evaluate(`(() => { window.__vt = 0; const original = document.startViewTransition?.bind(document); if (original) document.startViewTransition = (cb) => { window.__vt += 1; return original(cb); }; })()`);
+    await cdp.evaluate(`document.querySelector('.vehicle-card-image-button')?.click()`);
+    await wait(1000);
+    const reducedRun = await cdp.evaluate(`(() => ({ transitions: window.__vt || 0, path: location.pathname }))()`);
+    check("Con movimiento reducido la ficha abre sin animar", reducedRun.path.startsWith("/vehiculos/") && reducedRun.transitions === 0, `ruta ${reducedRun.path}, llamadas ${reducedRun.transitions}`);
+    await cdp.send("Emulation.setEmulatedMedia", { features: [] });
 
     // ---- Ficha de vehículo con modelo 3D ---------------------------------
     // ---- Presentación guiada ----------------------------------------------
@@ -281,10 +329,23 @@ async function main() {
     if (!skip3d) await wait(30000);
     const viewer = await cdp.evaluate(`(() => {
       const el = document.querySelector('model-viewer');
-      return el ? { present: true, loaded: Boolean(el.loaded), src: el.getAttribute('src') || '', status: document.querySelector('.vehicle-3d-status')?.textContent || '', fallback: Boolean(document.querySelector('.vehicle-3d-fallback')) } : { present: false };
+      return el ? { present: true, hotspots: el.querySelectorAll('[slot^="hotspot-"]').length, hotspotToggle: Boolean(document.querySelector('.vehicle-3d-hotspot-toggle')), loaded: Boolean(el.loaded), src: el.getAttribute('src') || '', status: document.querySelector('.vehicle-3d-status')?.textContent || '', fallback: Boolean(document.querySelector('.vehicle-3d-fallback')) } : { present: false };
     })()`);
     if (viewer.present && !skip3d) {
       check("El modelo 3D real carga en el navegador", viewer.loaded === true, `estado en pantalla: "${viewer.status}"`);
+      // Los puntos de interés se calculan desde la caja del modelo al terminar la
+      // carga: si esa derivación se rompe, el 3D sigue cargando y nada más falla.
+      if (viewer.loaded) {
+        check("El modelo 3D muestra puntos de interés", viewer.hotspots > 0, `encontrados ${viewer.hotspots}`);
+        check("Los puntos de interés se pueden ocultar", viewer.hotspotToggle === true);
+        // El interruptor debe hacer algo de verdad, no solo existir.
+        await cdp.evaluate(`document.querySelector('.vehicle-3d-hotspot-toggle')?.click()`);
+        // React actualiza en el siguiente ciclo: medir en el mismo tick leería el DOM anterior.
+        await wait(400);
+        const toggled = await cdp.evaluate(`(() => ({ after: document.querySelectorAll('[slot^="hotspot-"]').length, label: (document.querySelector('.vehicle-3d-hotspot-toggle')?.textContent || '').trim() }))()`);
+        check("Ocultar detalles retira los puntos del modelo", toggled.after === 0, `quedaron ${toggled.after}, botón dice "${toggled.label}"`);
+        await cdp.evaluate(`document.querySelector('.vehicle-3d-hotspot-toggle')?.click()`);
+      }
       check("El visor no cayó al estado de error", viewer.fallback === false);
     } else if (!viewer.present) {
       console.log("      (este vehículo no tiene modelo 3D)");

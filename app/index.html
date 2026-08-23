@@ -21,9 +21,13 @@
     <meta name="twitter:image" content="__AUTHENTIQ_IMAGE__" />
     <link rel="canonical" href="__AUTHENTIQ_CANONICAL__" />
     <title>__AUTHENTIQ_TITLE__</title>
+    <!--__AUTHENTIQ_JSONLD__-->
   </head>
   <body>
-    <div id="root"></div>
+    <!-- El servidor escribe aquí el catálogo o la ficha en HTML real antes de responder.
+         React lo sustituye al montar; sirve para buscadores, redes sociales y para que
+         la página no quede en blanco si el JavaScript falla o tarda. -->
+    <div id="root"><!--__AUTHENTIQ_PRERENDER__--></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

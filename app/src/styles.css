@@ -537,6 +537,12 @@ html[data-theme="dark"] .admin-nav { background: #111315; }
 .priority-panel, .quick-action { border: 1px solid #d9d3c8; background: #fff; }
 .priority-panel { padding: 20px; }
 .priority-list { display: grid; }
+.priority-panel-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.priority-scope { display: inline-flex; border: 1px solid var(--auth-line); }
+.priority-scope button { min-height: 30px; padding: 4px 10px; border: 0; background: transparent; color: var(--auth-muted); font: 600 10px "IBM Plex Mono", monospace; letter-spacing: .05em; text-transform: uppercase; cursor: pointer; }
+.priority-scope button + button { border-left: 1px solid var(--auth-line); }
+.priority-scope button.is-active { background: color-mix(in srgb, var(--tenant-primary) 12%, transparent); color: var(--tenant-primary-ink, var(--auth-ink)); }
+@media (max-width: 620px) { .priority-panel-actions { width: 100%; justify-content: space-between; } }
 .priority-item { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto 18px; align-items: center; gap: 12px; width: 100%; padding: 13px 0; border: 0; border-top: 1px solid #ebe6dc; background: transparent; color: inherit; text-align: left; cursor: pointer; }
 .priority-item:hover .priority-copy strong, .priority-item:focus-visible .priority-copy strong { color: #a27e27; }
 .priority-index { color: #a89779; font: 10px "IBM Plex Mono", monospace; }
@@ -748,7 +754,7 @@ html[data-theme="dark"] .appointment-actions select { background: #111315; color
 .onboarding-heading-meta small { color: var(--auth-muted); font: 9px "IBM Plex Mono", monospace; letter-spacing: .04em; text-transform: uppercase; }
 .onboarding-progress { height: 3px; margin: 20px 0; background: var(--auth-line); }
 .onboarding-progress span { display: block; height: 100%; background: var(--auth-gold); transition: width .45s ease; }
-.onboarding-steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.onboarding-steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 8px; }
 .onboarding-step { display: flex; gap: 9px; min-height: 62px; padding: 10px; border: 1px solid var(--auth-line); background: rgba(255,255,255,.03); }
 .onboarding-step > span { color: var(--auth-gold); font: 11px "IBM Plex Mono", monospace; }
 .onboarding-step strong, .onboarding-step small { display: block; }
@@ -756,6 +762,19 @@ html[data-theme="dark"] .appointment-actions select { background: #111315; color
 .onboarding-step small { margin-top: 4px; color: var(--auth-muted); font-size: 10px; line-height: 1.35; }
 .onboarding-step.is-done { border-color: rgba(201, 159, 67, .55); }
 .onboarding-step.is-done > span { color: #7da879; }
+.onboarding-groups { display: grid; gap: 14px; }
+.onboarding-group-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin-bottom: 7px; }
+.onboarding-group-head strong { font: 600 11px "IBM Plex Mono", monospace; letter-spacing: .06em; text-transform: uppercase; }
+.onboarding-group-head small { color: var(--auth-muted); font-size: 10px; }
+.onboarding-step.is-required > span { color: var(--tenant-primary, var(--auth-gold)); }
+.onboarding-step.is-optional { background: transparent; border-style: dashed; }
+.onboarding-step.is-optional > span { color: var(--auth-muted); }
+.onboarding-step strong em { color: var(--auth-muted); font-style: normal; font-weight: 500; text-transform: none; }
+.settings-tab-mark { margin-left: 6px; font-size: 10px; }
+.settings-tabs button.is-ready .settings-tab-mark { color: #7da879; }
+.settings-tabs button.is-pending .settings-tab-mark { color: var(--auth-gold); }
+.settings-pending-hint { margin: 8px 0 0; color: var(--auth-muted); font-size: 11px; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
 .integrations-content > .panel-heading p { max-width: 620px; margin: 8px 0 0; color: var(--auth-muted); font-size: 12px; line-height: 1.45; }
 .integration-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .integration-card { display: grid; align-content: start; gap: 12px; min-width: 0; padding: 20px; border: 1px solid var(--auth-line); background: var(--auth-surface); }
@@ -1257,7 +1276,7 @@ html[data-theme="dark"] .detail-decision-summary-grid article { border-color: va
 .showroom-trust-rail strong { font-size: 16px; font-weight: 500; }
 .showroom-trust-rail p { margin: 0; color: var(--auth-muted); font-size: 12px; line-height: 1.4; }
 .showroom-trust-action > div { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 5px; }
-.showroom-trust-action button, .detail-trust-action { padding: 0; border: 0; background: transparent; color: var(--tenant-primary-ink, var(--tenant-primary)); font: 500 10px "IBM Plex Mono", monospace; letter-spacing: .04em; text-align: left; text-transform: uppercase; cursor: pointer; }
+.showroom-trust-action button, .detail-trust-action { display: inline-flex; align-items: center; min-height: 32px; padding: 0; border: 0; background: transparent; color: var(--tenant-primary-ink, var(--tenant-primary)); font: 500 10px "IBM Plex Mono", monospace; letter-spacing: .04em; text-align: left; text-transform: uppercase; cursor: pointer; }
 .showroom-trust-action button:hover, .showroom-trust-action button:focus-visible, .detail-trust-action:hover, .detail-trust-action:focus-visible { color: var(--auth-ink); text-decoration: underline; text-underline-offset: 4px; }
 .buyer-request-intro { max-width: 500px; margin: 0 0 22px; color: var(--auth-muted); font-size: 13px; line-height: 1.5; }
 .hero-tertiary-action { border: 0; background: transparent; color: rgba(250,248,245,.82); cursor: pointer; }
@@ -1546,6 +1565,7 @@ button, input, select, textarea { max-width: 100%; }
   .admin-form label, .lead-management label, .settings-section label { font-size: 11px; }
   .onboarding-panel { padding: 16px; }
   .onboarding-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .onboarding-groups { gap: 12px; }
   .integration-grid { grid-template-columns: 1fr; }
   .integration-health-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .admin-form input, .admin-form select, .admin-form textarea, .table-search { font-size: 16px; }
@@ -3490,4 +3510,45 @@ html[data-theme="dark"] .flyer-format-btn {
   .sticker-specs-grid {
     grid-template-columns: repeat(2, 1fr);
   }
+}
+
+
+/* ---- Transición nativa entre catálogo y ficha ----
+   La foto de la tarjeta crece hasta la foto grande de la ficha en vez de cortar
+   de golpe. Es API del navegador: donde no existe, la navegación es la de
+   siempre. El nombre lo pone JavaScript solo en la tarjeta pulsada, porque dos
+   elementos con el mismo view-transition-name cancelan la animación. */
+@media (prefers-reduced-motion: no-preference) {
+  ::view-transition-old(root), ::view-transition-new(root) { animation-duration: .32s; animation-timing-function: var(--ease-out-quint, cubic-bezier(.22,1,.36,1)); }
+  ::view-transition-group(vehicle-hero) { animation-duration: .42s; animation-timing-function: cubic-bezier(.22,1,.36,1); }
+  .detail-image-wrap .detail-image { view-transition-name: vehicle-hero; }
+}
+
+/* Sin esto, el navegador anima toda la página además del elemento compartido y
+   la foto parece deslizarse dos veces. */
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
+}
+
+/* ---- Puntos de interés sobre el modelo 3D ----
+   Anclados por model-viewer a coordenadas del propio modelo. El punto queda
+   siempre visible; la etiqueta aparece al acercarse o al enfocar con teclado,
+   para no tapar el vehículo. */
+.vehicle-3d-hotspot { display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; background: transparent; cursor: pointer; }
+.vehicle-3d-hotspot-dot { width: 11px; height: 11px; border: 1px solid rgba(255,255,255,.9); border-radius: 50%; background: var(--tenant-primary, #c8a24b); box-shadow: 0 0 0 4px rgba(0,0,0,.28); transition: transform .2s ease; }
+.vehicle-3d-hotspot:hover .vehicle-3d-hotspot-dot, .vehicle-3d-hotspot:focus-visible .vehicle-3d-hotspot-dot { transform: scale(1.35); }
+.vehicle-3d-hotspot-label { position: absolute; left: 18px; top: 50%; display: grid; gap: 2px; min-width: max-content; padding: 7px 11px; transform: translateY(-50%) scale(.96); transform-origin: left center; border: 1px solid rgba(255,255,255,.16); background: rgba(16,18,18,.92); color: #f2eee7; text-align: left; opacity: 0; pointer-events: none; transition: opacity .18s ease, transform .18s ease; }
+.vehicle-3d-hotspot:hover .vehicle-3d-hotspot-label, .vehicle-3d-hotspot:focus-visible .vehicle-3d-hotspot-label { opacity: 1; transform: translateY(-50%) scale(1); }
+.vehicle-3d-hotspot-label strong { font-size: 12px; font-weight: 500; }
+.vehicle-3d-hotspot-label small { color: #b8bdb8; font: 10px "IBM Plex Mono", monospace; letter-spacing: .04em; text-transform: uppercase; }
+.vehicle-3d-hotspot-toggle { position: absolute; right: 16px; top: 16px; z-index: 2; min-height: 32px; padding: 7px 12px; border: 1px solid rgba(255,255,255,.2); background: rgba(16,18,18,.72); color: #f2eee7; font: 500 10px "IBM Plex Mono", monospace; letter-spacing: .06em; text-transform: uppercase; cursor: pointer; }
+.vehicle-3d-hotspot-toggle:hover, .vehicle-3d-hotspot-toggle:focus-visible { border-color: var(--tenant-primary, #c8a24b); }
+/* En móvil la etiqueta no cabe a la derecha del punto: se coloca encima. */
+@media (max-width: 620px) {
+  .vehicle-3d-hotspot-label { left: 50%; top: auto; bottom: 20px; transform: translateX(-50%) scale(.96); transform-origin: bottom center; max-width: 62vw; }
+  .vehicle-3d-hotspot:hover .vehicle-3d-hotspot-label, .vehicle-3d-hotspot:focus-visible .vehicle-3d-hotspot-label { transform: translateX(-50%) scale(1); }
+  .vehicle-3d-hotspot-toggle { right: 12px; top: 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .vehicle-3d-hotspot-dot, .vehicle-3d-hotspot-label { transition: none; }
 }
