@@ -177,7 +177,7 @@ export default function DealerRegistrationWizard({ onRegisterSuccess, onCancel, 
         </div>
 
         {registeredData.futurePublicUrl && (
-          <p className="account-welcome" style={{ margin: "-8px 0 16px", fontSize: "13px" }}>
+          <p className="account-welcome" style={{ margin: "-8px 0 16px", fontSize: "14px" }}>
             Tu dirección pública, en cuanto se apruebe tu showroom, será <strong>{registeredData.futurePublicUrl.replace(/^https?:\/\//i, "")}</strong> — no tienes que comprar ni configurar nada.
           </p>
         )}

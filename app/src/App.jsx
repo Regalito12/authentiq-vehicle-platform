@@ -60,11 +60,15 @@ function fetch(input, options = {}) {
   return mutated || target !== input ? nativeFetch(target, { ...options, headers }) : nativeFetch(input, options);
 }
 
-function useAccessibleDialog(onClose) {
+// `activo` permite usarlo en diálogos que viven montados y solo se muestran al
+// abrirse (galería ampliada, importador, editor de fotos). Sin él, el foco
+// quedaría atrapado en un diálogo invisible.
+function useAccessibleDialog(onClose, activo = true) {
   const dialogRef = useRef(null);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
   useEffect(() => {
+    if (!activo) return undefined;
     const dialogs = [...document.querySelectorAll('[role="dialog"][aria-modal="true"]')];
     const dialog = dialogRef.current || dialogs[dialogs.length - 1];
     if (!dialog) return undefined;
@@ -88,7 +92,7 @@ function useAccessibleDialog(onClose) {
       document.removeEventListener("keydown", handleKeyDown);
       previousFocus?.focus?.();
     };
-  }, []);
+  }, [activo]);
   return dialogRef;
 }
 
@@ -390,7 +394,7 @@ function FinanceCalculator({ price, vehicle, onApplyFinancing }) {
         <div className="financing-monthly-highlight">
           <span>Cuota mensual estimada</span>
           <div className="financing-monthly-amount">{formatFinancePrice(payment)}</div>
-          <small style={{ color: "var(--auth-muted)", fontSize: "11px" }}>{months} pagos mensuales fijos</small>
+          <small style={{ color: "var(--auth-muted)", fontSize: "14px" }}>{months} pagos mensuales fijos</small>
         </div>
 
         <div className="financing-breakdown">
@@ -1312,14 +1316,9 @@ function VehicleDetail({ vehicle, vehicles = [], onBack, isFavorite = false, onT
     if (model?.posterUrl) ensurePreload(publicMediaUrl(model.posterUrl), "image");
   }, [vehicle.id, vehicle.media]);
 
-  useEffect(() => {
-    if (!lightboxOpen) return undefined;
-    const handleKeyDown = (event) => {
-      if (event.key === "Escape") setLightboxOpen(false);
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [lightboxOpen]);
+  // La galería ampliada ocupa toda la pantalla: quien navega con teclado debe
+  // poder salir y no tabular hacia el catálogo que queda detrás.
+  useAccessibleDialog(() => setLightboxOpen(false), lightboxOpen);
 
   return (
     <motion.main

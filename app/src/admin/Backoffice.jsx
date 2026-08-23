@@ -39,10 +39,13 @@ import {
   UsersThreeIcon,
 } from "@phosphor-icons/react";
 
-function useAdminDialog(onClose) {
+// `activo` permite usarlo en diálogos que viven montados y solo se muestran al
+// abrirse. Sin él, el foco quedaría atrapado en un diálogo invisible.
+function useAdminDialog(onClose, activo = true) {
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
   useEffect(() => {
+    if (!activo) return undefined;
     const dialogs = [...document.querySelectorAll('[role="dialog"][aria-modal="true"]')];
     const dialog = dialogs[dialogs.length - 1];
     if (!dialog) return undefined;
@@ -60,7 +63,7 @@ function useAdminDialog(onClose) {
     };
     document.addEventListener("keydown", onKeyDown);
     return () => { document.removeEventListener("keydown", onKeyDown); previousFocus?.focus?.(); };
-  }, []);
+  }, [activo]);
 }
 
 const chartColors = ["#c8a24b", "#5f6f6b", "#2f3b39", "#a33b2b", "#8d7a55"];
@@ -116,6 +119,7 @@ const importHeaderAliases = { marca: "brand", brand: "brand", fabricante: "brand
 function normalizeImportRow(row) { return Object.entries(row).reduce((result, [key, value]) => { const normalized = String(key || "").trim().toLowerCase(); const field = importHeaderAliases[normalized] || normalized.replaceAll(" ", ""); if (field) result[field] = value; return result; }, {}); }
 
 function InventoryImportModal({ open, onClose, vehicles = [] }) {
+  useAdminDialog(onClose, open);
   const [rows, setRows] = useState([]);
   const [fileName, setFileName] = useState("");
   const [error, setError] = useState("");
@@ -445,6 +449,7 @@ function PhotoEditor({ value, altValue, onChange, onAltChange, onUpload }) {
   const [uploadStatus, setUploadStatus] = useState("");
   const [uploadError, setUploadError] = useState("");
   const [previewIndex, setPreviewIndex] = useState(null);
+  useAdminDialog(() => setPreviewIndex(null), previewIndex !== null);
   const images = String(value || "").split(",").map((url) => url.trim()).filter(Boolean);
   // Los textos alternativos son posicionales: NO se filtran los vacíos, porque eso
   // desplazaría los siguientes y los asignaría a la imagen equivocada.
@@ -618,6 +623,7 @@ function AdminBrandLogo({ brand, logoUrl = "", size = "normal" }) { const src = 
 function BrandPickerBase({ vehicles, form, onChange, taxonomy = { brands: [] } }) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
+  useAdminDialog(() => setOpen(false), open);
   useEffect(() => { if (!open) return undefined; const closeOnEscape = (event) => { if (event.key === "Escape") setOpen(false); }; document.addEventListener("keydown", closeOnEscape); return () => document.removeEventListener("keydown", closeOnEscape); }, [open]);
   const records = taxonomy.brands?.length ? taxonomy.brands : adminBrandDirectory.map((name) => ({ name, logoUrl: getAdminBrandLogoUrl(name), isActive: true }));
   const visible = records.filter((item) => item.isActive !== false && item.name.toLowerCase().includes(query.trim().toLowerCase()));
@@ -1355,7 +1361,7 @@ export default function Backoffice({ onBack, onVehiclesChanged, initialMode = "l
           {loginError && <p className="state-message error">{loginError}</p>}
           <button className="primary-action" type="submit">Entrar al panel</button>
           <div className="dealer-login-switch" style={{ marginTop: "20px", paddingTop: "18px", borderTop: "1px solid var(--auth-line, #ddd)", textAlign: "center" }}>
-            <p style={{ margin: "0 0 10px", fontSize: "13px", color: "var(--auth-muted, #777)" }}>¿Quieres tener tu propio showroom con tu marca y catálogo?</p>
+            <p style={{ margin: "0 0 10px", fontSize: "14px", color: "var(--auth-muted, #777)" }}>¿Quieres tener tu propio showroom con tu marca y catálogo?</p>
             <button className="secondary-action" type="button" onClick={() => setAuthMode("register")} style={{ width: "100%" }}>
               Crear nuevo showroom de concesionario →
             </button>

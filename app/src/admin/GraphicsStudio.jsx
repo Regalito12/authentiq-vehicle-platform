@@ -271,7 +271,7 @@ export function SocialFlyerStudio({ vehicles = [], organization, settings }) {
         <div>
           <span className="eyebrow">PUBLICAR EN REDES</span>
           <h3 style={{ margin: "6px 0 12px", fontSize: "20px" }}>Generador de Flyers</h3>
-          <p style={{ margin: 0, fontSize: "13px", color: "var(--auth-muted)" }}>
+          <p style={{ margin: 0, fontSize: "14px", color: "var(--auth-muted)" }}>
             Genera imágenes profesionales listas para publicar en tus redes sociales con el logo y precio de tu vehículo.
           </p>
         </div>

@@ -22,4 +22,7 @@ node --check src/index.js
 echo "[pre-commit] Verificando componentes JSX..."
 node scripts/check-components.js
 
+echo "[pre-commit] Verificando legibilidad del texto..."
+node scripts/check-readability.mjs
+
 echo "[pre-commit] OK. Recuerda ejecutar 'npm run verify' y 'npm run test:browser' antes de publicar cambios importantes."

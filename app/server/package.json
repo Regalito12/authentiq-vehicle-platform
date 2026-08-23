@@ -15,8 +15,9 @@
     "test:e2e": "node scripts/e2e-test.js",
     "migrate:3d": "node scripts/migrate-local-3d-to-supabase.mjs",
     "check:components": "node scripts/check-components.js",
+    "check:readability": "node scripts/check-readability.mjs",
     "test:browser": "node scripts/browser-check.js",
-    "verify": "node scripts/check-components.js && node scripts/preflight.js && node scripts/smoke-test.js && node scripts/role-matrix-test.js && node scripts/e2e-test.js",
+    "verify": "node scripts/check-components.js && node scripts/check-readability.mjs && node scripts/preflight.js && node scripts/smoke-test.js && node scripts/role-matrix-test.js && node scripts/e2e-test.js",
     "preflight": "node scripts/preflight.js",
     "check:migrations": "node scripts/check-migrations.js",
     "backup:db": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/backup-db.ps1 -Verify"
