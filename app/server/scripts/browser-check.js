@@ -430,6 +430,22 @@ async function main() {
           check(`backoffice/${label} · ${labelText} sin desbordamiento`, state.overflow <= 1, `sobresale ${state.overflow}px · ${state.offenders.join(" | ")}`);
           check(`backoffice/${label} · ${labelText} muestra contenido`, !state.blank);
           check(`backoffice/${label} · ${labelText} sin errores de consola`, consoleErrors.length === 0, consoleErrors.slice(0, 2).join(" || "));
+          // El estudio de flyers estuvo inalcanzable durante meses porque el único
+          // módulo que lo renderizaba quedó sin usar y nadie lo notó: compilaba
+          // igual. Esta comprobación impide que vuelva a desaparecer en silencio.
+          if (key === "integrations") {
+            const flyer = await cdp.evaluate(`(() => {
+              const studio = document.querySelector('.social-flyer-studio');
+              if (!studio) return { present: false };
+              const canvas = studio.querySelector('canvas');
+              return { present: true, formats: studio.querySelectorAll('.flyer-format-btn').length, canvas: Boolean(canvas), painted: canvas ? canvas.width > 0 && canvas.height > 0 : false };
+            })()`);
+            check(`backoffice/${label} · el estudio de flyers está accesible`, flyer.present === true);
+            if (flyer.present) {
+              check(`backoffice/${label} · el flyer se dibuja`, flyer.canvas && flyer.painted, `canvas=${flyer.canvas} pintado=${flyer.painted}`);
+              check(`backoffice/${label} · ofrece los formatos de red social`, flyer.formats >= 3, `encontrados ${flyer.formats}`);
+            }
+          }
           consoleErrors.length = 0;
         }
         await shoot(`backoffice-inventario-${label}`);
