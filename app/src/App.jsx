@@ -753,6 +753,10 @@ function Vehicle3DViewer({ vehicle, media }) {
         window.clearTimeout(jumpTimer);
         window.clearTimeout(interactionResumeTimer);
         viewer.pause?.();
+        // Interrumpir también la descarga de GLTF al cambiar de ficha. Si se
+        // deja el src activo, una navegación rápida mantiene texturas pesadas
+        // en vuelo y el siguiente visor puede fallar por falta de recursos.
+        viewer.removeAttribute("src");
         ModelViewerElement.minimumRenderScale = 1;
       };
     }).catch(() => setState("error"));
