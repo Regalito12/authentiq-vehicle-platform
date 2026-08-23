@@ -1388,7 +1388,10 @@ function VehicleDetail({ vehicle, vehicles = [], onBack, isFavorite = false, onT
               ["Garantía", vehicle.warranty],
             ].map(([label, value]) => <div className="spec-row" key={label}><span>{label}</span><strong>{value || "—"}</strong></div>)}
           </div>
-          <p className="specs-help">Potencia = fuerza del motor · Tracción = ruedas que reciben esa fuerza · Transmisión = cómo cambia las marchas.</p>
+          <details className="specs-glossary">
+            <summary>¿Qué significan estos datos?</summary>
+            <p><strong>Potencia</strong> es la fuerza disponible del motor. <strong>Tracción</strong> indica qué ruedas reciben esa fuerza. <strong>Transmisión</strong> explica cómo cambia las marchas. <strong>Cilindrada</strong> es el tamaño total del motor. <strong>Torque</strong> es la fuerza para acelerar. <strong>Consumo</strong> indica cuánto combustible usa por distancia.</p>
+          </details>
           <FinanceCalculator
             price={vehicle.priceUsd}
             vehicle={vehicle}

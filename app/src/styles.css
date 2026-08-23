@@ -2792,7 +2792,7 @@ html[data-theme="dark"] .admin-nav-icon { opacity: .82; }
 html[data-theme="dark"] .priority-item.is-overdue { background: color-mix(in srgb, #a33b2b 13%, var(--auth-surface)); }
 
 /* Operación rápida: atajos visibles, arrastre claro y carga de fotos ligera. */
-.command-launch kbd { padding: 2px 4px; border: 1px solid currentColor; font: 14px "IBM Plex Mono", monospace; opacity: .7; }
+.command-launch kbd { display: inline-flex; padding: 2px 6px; border: 1px solid currentColor; font: 14px "IBM Plex Mono", monospace; opacity: .7; white-space: nowrap; }
 .command-dialog { position: fixed; z-index: 40; inset: 0; display: grid; place-items: start center; padding: min(14vh, 110px) 18px 24px; background: rgba(15, 17, 16, .62); backdrop-filter: blur(8px); }
 .command-shell { width: min(620px, 100%); overflow: hidden; border: 1px solid color-mix(in srgb, var(--auth-gold) 62%, var(--auth-line)); background: var(--auth-surface); box-shadow: 0 28px 76px rgba(15, 17, 16, .32); }
 .command-search { display: flex; align-items: center; gap: 10px; padding: 16px 18px; border-bottom: 1px solid var(--auth-line); color: var(--auth-gold); }
@@ -2816,7 +2816,7 @@ html[data-theme="dark"] .command-shell { background: #171b1b; }
 html[data-theme="dark"] .command-search input, html[data-theme="dark"] .command-shell [cmdk-item] { color: #f2efe9; }
 html[data-theme="dark"] .command-shell [cmdk-item][data-selected="true"] { background: #e5c36d; color: #141716; }
 html[data-theme="dark"] .photo-upload-status { color: #9bc5a2; background: rgba(79,118,93,.16); }
-@media (max-width: 620px) { .command-launch kbd { display: none; } .command-dialog { padding: 9vh 12px 18px; } .command-shell [cmdk-list] { max-height: 62vh; } }
+@media (max-width: 620px) { .command-launch kbd { display: inline-flex; font-size: 14px; padding-inline: 4px; } .command-dialog { padding: 9vh 12px 18px; } .command-shell [cmdk-list] { max-height: 62vh; } }
 
 /* Centro central de dealers: separado visualmente del workspace de cada concesionario. */
 .platform-page { min-height: 100vh; padding: 42px clamp(22px, 5vw, 76px) 50px; background: var(--auth-paper); color: var(--auth-ink); }
@@ -3568,6 +3568,9 @@ html[data-theme="dark"] .flyer-format-btn {
 .slug-availability.is-free { color: #7da879; }
 .slug-availability.is-taken { color: #a33b2b; }
 .specs-help { max-width: 58ch; margin: 14px 0 0; color: #5f5b54; font-size: 14px; line-height: 1.5; }
+.specs-glossary { max-width: 58ch; margin: 14px 0 0; color: #5f5b54; font-size: 14px; line-height: 1.5; }
+.specs-glossary summary { width: fit-content; color: var(--auth-ink, #24221f); cursor: pointer; font-weight: 600; }
+.specs-glossary p { margin: 9px 0 0; }
 
 /* Legibilidad primero: los textos de operación y formularios no bajan de 12px.
    Conservamos el estilo mono de etiquetas, pero no obligamos a nadie a leer
@@ -3599,7 +3602,7 @@ button, input, select, textarea { font-size: 16px; }
   .welcome-onboarding-header, .welcome-onboarding-progress { padding-left: 20px; padding-right: 20px; }
   .welcome-onboarding-header { gap: 16px; }
   .welcome-onboarding-layout { display: block; }
-  .welcome-onboarding-list { display: flex; gap: 8px; overflow-x: auto; padding: 12px; border-right: 0; border-bottom: 1px solid var(--auth-line); scrollbar-width: thin; }
-  .welcome-onboarding-list button { min-width: min(76vw, 270px); min-height: 64px; }
+  .welcome-onboarding-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; overflow: visible; padding: 12px; border-right: 0; border-bottom: 1px solid var(--auth-line); }
+  .welcome-onboarding-list button { min-width: 0; min-height: 72px; }
   .welcome-onboarding-detail { padding: 28px 20px; }
 }
