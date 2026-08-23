@@ -133,10 +133,28 @@ async function main() {
     const publicToken = shared.body?.data?.url?.split("/cotizaciones/")[1];
     const publicQuote = publicToken ? await api(`/api/public/quotes/${publicToken}`) : { status: 0, body: null };
     check("El enlace público abre la cotización", publicQuote.ok && publicQuote.body?.data?.quoteNumber === quote.body.data.quoteNumber, `status ${publicQuote.status}`);
+    const forgedQuote = await api("/api/public/quotes/no-es-un-token-valido");
+    check("Un token público falsificado se rechaza", forgedQuote.status === 401, `status ${forgedQuote.status}`);
     const changes = publicToken ? await api(`/api/public/quotes/${publicToken}/decision`, { method: "POST", body: JSON.stringify({ decision: "changes", message: `${marker} revisar forma de pago` }) }) : { status: 0, body: null };
     check("El cliente puede solicitar cambios", changes.ok && changes.body?.data?.status === "sent", `status ${changes.status}`);
     const accepted = publicToken ? await api(`/api/public/quotes/${publicToken}/decision`, { method: "POST", body: JSON.stringify({ decision: "accepted", message: `${marker} confirmado` }) }) : { status: 0, body: null };
     check("El cliente puede aceptar la cotización", accepted.ok && accepted.body?.data?.status === "accepted", `status ${accepted.status}`);
+    const repeatedDecision = publicToken ? await api(`/api/public/quotes/${publicToken}/decision`, { method: "POST", body: JSON.stringify({ decision: "accepted" }) }) : { status: 0, body: null };
+    check("Una cotización aceptada no admite una segunda decisión", repeatedDecision.status === 409, `status ${repeatedDecision.status}`);
+
+    const raceQuote = await api("/api/admin/quotes", { token, method: "POST", body: JSON.stringify({ vehicleId: created.vehicleId, leadId: created.leadIds[0] || null, customerName: `Carrera ${marker}`, customerEmail: `race-${stamp}@authentiq.test`, basePriceUsd: 125000, discountUsd: 0, validUntil: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10), notes: `${marker}-race` }) });
+    if (raceQuote.status === 201) {
+      created.quoteIds.push(raceQuote.body.data.id);
+      await api(`/api/admin/quotes/${raceQuote.body.data.id}/status`, { token, method: "PATCH", body: JSON.stringify({ status: "sent" }) });
+      const raceShared = await api(`/api/admin/quotes/${raceQuote.body.data.id}/share`, { token, method: "POST" });
+      const raceToken = raceShared.body?.data?.url?.split("/cotizaciones/")[1];
+      const raceResults = raceToken ? await Promise.all(Array.from({ length: 4 }, () => api(`/api/public/quotes/${raceToken}/decision`, { method: "POST", body: JSON.stringify({ decision: "accepted" }) }))) : [];
+      const acceptedCount = raceResults.filter((result) => result.status === 200).length;
+      const conflictCount = raceResults.filter((result) => result.status === 409).length;
+      check("Aceptación concurrente solo confirma una solicitud", acceptedCount === 1 && conflictCount === 3, `200=${acceptedCount}, 409=${conflictCount}`);
+    } else {
+      check("Aceptación concurrente solo confirma una solicitud", false, `no se pudo preparar la cotización de carrera: ${raceQuote.status}`);
+    }
   }
 
   const badDiscount = await api("/api/admin/quotes", { token, method: "POST", body: JSON.stringify({ customerName: "X", basePriceUsd: 1000, discountUsd: 5000 }) });

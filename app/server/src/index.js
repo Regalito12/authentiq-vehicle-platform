@@ -332,6 +332,10 @@ async function removeSupabaseObject(objectPath) {
   await fetch(endpoint, { method: "DELETE", headers: { Authorization: `Bearer ${supabaseServiceRoleKey}`, apikey: supabaseServiceRoleKey } }).catch(() => {});
 }
 
+async function cleanupUploadedFile(file) {
+  if (file?.path) await fs.unlink(file.path).catch(() => {});
+}
+
 async function rodinRequest(endpoint, options = {}) {
   if (!rodinApiKey) {
     const error = new Error("El proveedor de generación 3D no está configurado. Añade RODIN_API_KEY al servidor.");
@@ -1765,12 +1769,19 @@ app.post("/api/admin/uploads", authenticate, requireRoles("admin", "editor"), (r
     if (error) return res.status(400).json({ error: "Solo se permiten imágenes JPG, PNG, WebP o AVIF" });
     if (!req.file) return res.status(400).json({ error: "Debes seleccionar una imagen" });
     if (!(await isValidImageUpload(req.file))) return res.status(400).json({ error: "La imagen está corrupta o no coincide con su formato" });
-    req.file = await optimizeUploadedImage(req.file);
-    const objectPath = `uploads/${req.file.filename}`;
-    const url = remoteStorageEnabled ? await uploadFileToConfiguredStorage(req.file, objectPath) : `${publicApiUrl || `${req.protocol}://${req.get("host")}`}/uploads/${req.file.filename}`;
-    if (remoteStorageEnabled) await fs.unlink(req.file.path).catch(() => {});
-    await writeAudit(req, "image.upload", "image", null, { filename: req.file.filename, size: req.file.size, mimeType: req.file.mimetype });
-    res.status(201).json({ data: { url, filename: req.file.filename, size: req.file.size } });
+    let objectPath = "";
+    try {
+      req.file = await optimizeUploadedImage(req.file);
+      objectPath = `uploads/${req.file.filename}`;
+      const url = remoteStorageEnabled ? await uploadFileToConfiguredStorage(req.file, objectPath) : `${publicApiUrl || `${req.protocol}://${req.get("host")}`}/uploads/${req.file.filename}`;
+      await writeAudit(req, "image.upload", "image", null, { filename: req.file.filename, size: req.file.size, mimeType: req.file.mimetype });
+      res.status(201).json({ data: { url, filename: req.file.filename, size: req.file.size } });
+    } catch (uploadError) {
+      await cleanupUploadedFile(req.file);
+      if (remoteStorageEnabled && objectPath) await removeSupabaseObject(objectPath);
+      console.error("Image upload failed", uploadError);
+      if (!res.headersSent) res.status(502).json({ error: "No se pudo almacenar la imagen. Intenta nuevamente." });
+    }
   });
 });
 
@@ -1780,25 +1791,27 @@ app.post("/api/admin/media-upload", authenticate, requireRoles("admin", "editor"
     if (error) return res.status(400).json({ error: "Tipo de archivo no compatible. Usa JPG, PNG, WebP, MP4, WebM, GLB o GLTF" });
     if (!req.file) return res.status(400).json({ error: "Debes seleccionar un archivo" });
     if (!(await isValidMediaUpload(req.file))) return res.status(400).json({ error: "El archivo está corrupto o no coincide con su formato declarado" });
-    req.file = await optimizeUploadedImage(req.file);
-    if (path.extname(req.file.originalname).toLowerCase() === ".gltf") {
-      try {
+    let objectPath = "";
+    try {
+      req.file = await optimizeUploadedImage(req.file);
+      if (path.extname(req.file.originalname).toLowerCase() === ".gltf") {
         const entryPath = sanitizeMediaRelativePath(req.file.filename);
         const manifest = await inspectGltfManifest(req.file.path, entryPath, new Set([entryPath]));
         if (manifest.missing.length) {
-          await fs.unlink(req.file.path).catch(() => {});
+          await cleanupUploadedFile(req.file);
           return res.status(400).json({ error: `Este GLTF necesita ${manifest.missing.length} archivo${manifest.missing.length === 1 ? "" : "s"} adicional${manifest.missing.length === 1 ? "" : "es"}. Carga la carpeta completa o conviértelo a GLB.`, code: "GLTF_DEPENDENCIES_MISSING", missing: manifest.missing.slice(0, 12), missingCount: manifest.missing.length });
         }
-      } catch {
-        await fs.unlink(req.file.path).catch(() => {});
-        return res.status(400).json({ error: "El archivo GLTF no contiene un manifiesto válido" });
       }
+      objectPath = `uploads/${req.file.filename}`;
+      const url = remoteStorageEnabled ? await uploadFileToConfiguredStorage(req.file, objectPath) : `${publicApiUrl || `${req.protocol}://${req.get("host")}`}/uploads/${req.file.filename}`;
+      await writeAudit(req, "media.upload", "media", null, { filename: req.file.filename, size: req.file.size, mimeType: req.file.mimetype });
+      res.status(201).json({ data: { url, filename: req.file.filename, size: req.file.size, mimeType: req.file.mimetype } });
+    } catch (uploadError) {
+      await cleanupUploadedFile(req.file);
+      if (remoteStorageEnabled && objectPath) await removeSupabaseObject(objectPath);
+      console.error("Media upload failed", uploadError);
+      if (!res.headersSent) res.status(502).json({ error: "No se pudo almacenar el archivo multimedia. Intenta nuevamente." });
     }
-    const objectPath = `uploads/${req.file.filename}`;
-    const url = remoteStorageEnabled ? await uploadFileToConfiguredStorage(req.file, objectPath) : `${publicApiUrl || `${req.protocol}://${req.get("host")}`}/uploads/${req.file.filename}`;
-    if (remoteStorageEnabled) await fs.unlink(req.file.path).catch(() => {});
-    await writeAudit(req, "media.upload", "media", null, { filename: req.file.filename, size: req.file.size, mimeType: req.file.mimetype });
-    res.status(201).json({ data: { url, filename: req.file.filename, size: req.file.size, mimeType: req.file.mimetype } });
   });
 });
 
@@ -1811,14 +1824,21 @@ app.post("/api/admin/media-package-upload", authenticate, requireRoles("admin", 
     const relativePaths = files.map((file) => sanitizeMediaRelativePath(file.originalname)).filter(Boolean);
     const entryPath = relativePaths.find((filePath) => path.extname(filePath).toLowerCase() === ".gltf");
     if (!entryPath) { await removeMediaPackage(req.mediaPackageId); return res.status(400).json({ error: "La carpeta debe contener al menos un archivo .gltf. Para una carga simple usa un .glb." }); }
+    const uploadedObjects = [];
     try {
+      for (const file of files) {
+        const extension = path.extname(file.originalname || "").toLowerCase();
+        if ([".jpg", ".jpeg", ".png", ".webp", ".avif"].includes(extension) && !(await isValidImageUpload(file))) {
+          await removeMediaPackage(req.mediaPackageId);
+          return res.status(400).json({ error: "Una de las texturas de la carpeta está corrupta o no coincide con su formato" });
+        }
+      }
       const entryFile = files.find((file) => sanitizeMediaRelativePath(file.originalname) === entryPath);
       const manifest = await inspectGltfManifest(entryFile.path, entryPath, new Set(relativePaths));
       if (manifest.missing.length) {
         await removeMediaPackage(req.mediaPackageId);
         return res.status(400).json({ error: `El GLTF todavía tiene ${manifest.missing.length} dependencia${manifest.missing.length === 1 ? "" : "s"} faltante${manifest.missing.length === 1 ? "" : "s"}. Revisa que seleccionaste la carpeta raíz del modelo.`, code: "GLTF_DEPENDENCIES_MISSING", missing: manifest.missing.slice(0, 12), missingCount: manifest.missing.length });
       }
-      const uploadedObjects = [];
       let url = "";
       if (remoteStorageEnabled) {
         for (const file of files) {
@@ -1835,9 +1855,12 @@ app.post("/api/admin/media-package-upload", authenticate, requireRoles("admin", 
       }
       await writeAudit(req, "media.package_upload", "media", null, { packageId: req.mediaPackageId, entryPath, fileCount: files.length, referenceCount: manifest.references.length });
       return res.status(201).json({ data: { url, packageId: req.mediaPackageId, entryPath, fileCount: files.length, referenceCount: manifest.references.length } });
-    } catch {
+    } catch (packageError) {
+      if (remoteStorageEnabled) await Promise.all(uploadedObjects.map((objectPath) => removeSupabaseObject(objectPath)));
       await removeMediaPackage(req.mediaPackageId);
-      return res.status(400).json({ error: "No se pudo leer el manifiesto GLTF de la carpeta" });
+      console.error("Media package upload failed", packageError);
+      const isManifestError = packageError instanceof SyntaxError || packageError?.code === "GLTF_MANIFEST_INVALID";
+      return res.status(isManifestError ? 400 : 502).json({ error: isManifestError ? "No se pudo leer el manifiesto GLTF de la carpeta" : "No se pudo completar la carga del paquete multimedia. Intenta nuevamente." });
     }
   });
 });
@@ -3095,7 +3118,10 @@ app.post("/api/public/quotes/:token/decision", async (req, res) => {
     if (quote.status !== "sent") return res.status(409).json({ error: quote.status === "accepted" ? "Esta cotización ya fue aceptada" : "Esta cotización no admite decisiones" });
 
     const note = `${decision === "accepted" ? "Cliente aceptó" : "Cliente solicitó cambios"} la cotización ${quote.quoteNumber}${message ? `: ${message}` : "."}`;
-    if (decision === "accepted") await pool.query("UPDATE quotes SET status='accepted', updated_at=NOW() WHERE id=$1 AND organization_id=$2 AND status='sent'", [quote.id, payload.organizationId]);
+    if (decision === "accepted") {
+      const updated = await pool.query("UPDATE quotes SET status='accepted', updated_at=NOW() WHERE id=$1 AND organization_id=$2 AND status='sent'", [quote.id, payload.organizationId]);
+      if (!updated.rowCount) return res.status(409).json({ error: "Esta cotización ya fue aceptada" });
+    }
     if (quote.leadId) await pool.query("INSERT INTO lead_events (lead_id, actor_id, event_type, note) VALUES ($1, NULL, $2, $3)", [quote.leadId, decision === "accepted" ? "quote_accepted" : "quote_changes_requested", note]);
     await notifyAdmins({ organizationId: payload.organizationId, type: "quote", title: decision === "accepted" ? "Cotización aceptada" : "Cambios solicitados en cotización", body: `${quote.customerName || "El cliente"} ${decision === "accepted" ? "aceptó" : "solicitó cambios en"} ${quote.quoteNumber}.`, entityType: "quote", entityId: quote.id });
     res.json({ data: { decision, status: decision === "accepted" ? "accepted" : "sent", quoteNumber: quote.quoteNumber } });
