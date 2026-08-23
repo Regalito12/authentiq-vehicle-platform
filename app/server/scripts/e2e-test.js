@@ -16,7 +16,7 @@ const marker = `E2E-${stamp}`;
 
 let passed = 0;
 let failed = 0;
-const created = { vehicleId: null, offerIds: [], quoteIds: [], leadIds: [], organizationSlug: null };
+const created = { vehicleId: null, offerIds: [], quoteIds: [], leadIds: [], organizationSlug: null, appointmentId: null };
 
 function check(label, condition, detail = "") {
   if (condition) { passed += 1; console.log(`PASS  ${label}`); }
@@ -280,6 +280,61 @@ async function checkDealerSignup() {
   check("Un showroom sin completar no se declara listo", onboarding.body?.data?.readyToPublish === (essentials.length === steps.filter((s2) => s2.essential && s2.done).length));
 }
 
+// Reservar una visita es la accion de conversion mas directa del catalogo y no
+// tenia ninguna prueba: se publico rota (el INSERT usaba 'test-drive' y la
+// restriccion de la base solo admite 'test_drive'), asi que TODA reserva moria
+// con un 500 y el comprador leia "No se pudo registrar la cita".
+async function checkAppointmentBooking() {
+  // Se toma un vehiculo del catalogo publico, no el de las pruebas anteriores:
+  // ese ya quedo desactivado por el ultimo paso del flujo principal.
+  const catalog = await api("/api/vehicles");
+  const vehicle = (catalog.body?.data || []).find((item) => item.status === "published");
+  check("Hay un vehiculo publicado con el que reservar", Boolean(vehicle), `${(catalog.body?.data || []).length} en catalogo`);
+  if (!vehicle) return;
+
+  const day = new Date(Date.now() + 21 * 24 * 60 * 60 * 1000);
+  // Domingo no esta en los dias de atencion por defecto (lunes a sabado).
+  if (day.getDay() === 0) day.setDate(day.getDate() + 1);
+  const date = day.toISOString().slice(0, 10);
+
+  const availability = await api(`/api/appointments/availability?date=${date}`);
+  check("La disponibilidad de citas responde", availability.ok, `respondió ${availability.status}`);
+  const slots = availability.body?.data?.slots || availability.body?.slots || [];
+  const slot = slots.find((item) => item.available);
+  check("Hay al menos un horario libre para reservar", Boolean(slot), `${slots.length} horarios devueltos`);
+  if (!slot) return;
+
+  const payload = { vehicleId: vehicle.id, name: `Comprador ${marker}`, email: `comprador-${stamp}@example.com`, phone: "+18095550100", date, time: slot.time, privacyConsent: true, notes: marker };
+
+  const noConsent = await api("/api/appointments", { method: "POST", body: JSON.stringify({ ...payload, privacyConsent: false }) });
+  check("Una cita sin consentimiento de privacidad se rechaza", noConsent.status === 400, `respondió ${noConsent.status}`);
+
+  const noContact = await api("/api/appointments", { method: "POST", body: JSON.stringify({ ...payload, email: "", phone: "" }) });
+  check("Una cita sin forma de contacto se rechaza", noContact.status === 400, `respondió ${noContact.status}`);
+
+  const booked = await api("/api/appointments", { method: "POST", body: JSON.stringify(payload) });
+  check("Un comprador reserva una visita", booked.status === 201, `respondió ${booked.status} ${JSON.stringify(booked.body).slice(0, 90)}`);
+  if (booked.status !== 201) return;
+  created.appointmentId = booked.body?.data?.id || null;
+
+  check("La reserva genera un lead en el CRM", Boolean(booked.body?.data?.leadId));
+
+  // El horario reservado tiene que dejar de ofrecerse: si no, dos compradores
+  // reservan lo mismo y el concesionario descubre el choque en el mostrador.
+  const after = await api(`/api/appointments/availability?date=${date}`);
+  const sameSlot = (after.body?.data?.slots || after.body?.slots || []).find((item) => item.time === slot.time);
+  check("El horario reservado deja de estar disponible", sameSlot ? sameSlot.available === false : true, JSON.stringify(sameSlot));
+
+  const retry = await api("/api/appointments", { method: "POST", body: JSON.stringify(payload) });
+  check("Reservar el mismo horario otra vez se rechaza", retry.status === 409, `respondió ${retry.status}`);
+
+  // Y el concesionario tiene que verla en su agenda.
+  const admin = await api("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
+  const agenda = await api("/api/admin/appointments", { token: admin.body?.token });
+  const mine = (agenda.body?.data || []).some((item) => item.customerName === payload.name);
+  check("La cita aparece en la agenda del concesionario", agenda.ok && mine, `respondió ${agenda.status}`);
+}
+
 async function cleanup() {
   if (!process.env.DATABASE_URL) return;
   const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
@@ -287,6 +342,7 @@ async function cleanup() {
     await pool.query("DELETE FROM quotes WHERE notes = $1 OR customer_name LIKE $2", [marker, `%${marker}%`]);
     await pool.query("DELETE FROM offers WHERE buyer_name LIKE $1 OR message = $2", [`%${marker}%`, marker]);
     await pool.query("DELETE FROM leads WHERE name LIKE $1 OR message = $2", [`%${marker}%`, marker]);
+    await pool.query("DELETE FROM test_drive_requests WHERE customer_name LIKE $1 OR notes = $2", [`%${marker}%`, marker]);
     if (created.vehicleId) {
       await pool.query("DELETE FROM vehicle_media WHERE vehicle_id = $1", [created.vehicleId]);
       await pool.query("DELETE FROM vehicle_images WHERE vehicle_id = $1", [created.vehicleId]);
@@ -310,6 +366,7 @@ async function cleanup() {
 
 try {
   await main();
+  await checkAppointmentBooking();
   await checkDealerSignup();
 } catch (error) {
   failed += 1;

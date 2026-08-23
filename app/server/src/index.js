@@ -1172,7 +1172,23 @@ async function sendTransactionalEmail({ to, subject, text, html }) {
   }
 }
 
-async function notifyAdmins({ organizationId, type = "lead", title, body, entityType = "lead", entityId = null }) {
+// Avisar al concesionario es un efecto secundario, nunca la operación.
+//
+// Se llama once veces, siempre DESPUÉS del COMMIT y dentro del try del endpoint.
+// Sin esta red, un fallo al escribir la notificación hacía que el comprador
+// leyera "no se pudo registrar tu cita" cuando la cita ya existía: rebookeaba y
+// el concesionario acababa con dos, o con el horario ocupado por un fantasma.
+async function notifyAdmins(options) {
+  try {
+    return await deliverAdminNotification(options);
+  } catch (error) {
+    console.error("Admin notification failed", { organizationId: options?.organizationId, title: options?.title, error: error.message });
+    reportServerError(error, { tenant: options?.organizationId, route: "notifyAdmins" });
+    return { notified: false };
+  }
+}
+
+async function deliverAdminNotification({ organizationId, type = "lead", title, body, entityType = "lead", entityId = null }) {
   const admins = await pool.query("SELECT email FROM admin_users WHERE organization_id=$1 AND is_active = TRUE AND email IS NOT NULL", [organizationId]);
   await pool.query(
     `INSERT INTO notifications (user_id, notification_type, title, body, entity_type, entity_id)
@@ -1661,7 +1677,7 @@ app.post("/api/appointments", rateLimit({ windowMs: 10 * 60 * 1000, limit: 15, s
       if (Number(booked.rows[0].count) >= capacity) { await client.query("ROLLBACK"); return res.status(409).json({ error: "Ese horario acaba de completarse. Selecciona otro." }); }
       const leadResult = await client.query(
         `INSERT INTO leads (organization_id, lead_type, vehicle_id, name, email, phone, message, source, privacy_consent, privacy_consent_at, privacy_policy_version, consent_source)
-         VALUES ($1,'test-drive',$2,$3,$4,$5,$6,'appointment',$7,CASE WHEN $7 THEN NOW() ELSE NULL END,$8,'appointment')
+         VALUES ($1,'test_drive',$2,$3,$4,$5,$6,'appointment',$7,CASE WHEN $7 THEN NOW() ELSE NULL END,$8,'appointment')
          RETURNING id, status, created_at AS "createdAt"`,
         [organization.id, vehicleId, name, email, phone, notes, privacyConsent, privacyPolicyVersion],
       );
