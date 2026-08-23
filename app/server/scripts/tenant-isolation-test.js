@@ -69,6 +69,36 @@ for (let index = 0; index < publicData.length; index += 1) {
   }
 }
 
+// La cuenta del comprador es una sola para toda la plataforma, pero lo que ve
+// tiene que ser el showroom en el que está. Sin este filtro, en la vitrina de un
+// concesionario aparecían los favoritos y las ofertas que esa persona hizo a la
+// competencia, con vehículo y precio.
+async function assertCustomerScoping() {
+  const stamp = Date.now();
+  const email = `iso-comprador-${stamp}@example.com`;
+  const password = "Iso-Authentiq-2026!";
+  const [a, b] = publicData;
+  if (!a || !b) return;
+
+  const signup = await request(a.host, "/api/customer/auth/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fullName: "Comprador Aislamiento", email, password }) });
+  const token = signup.token;
+  assert.ok(token, "no se pudo crear la cuenta de comprador para la prueba");
+  const auth = { Authorization: `Bearer ${token}` };
+
+  const vehicleA = a.vehicles[0];
+  const vehicleB = b.vehicles[0];
+  assert.ok(vehicleA && vehicleB, "hacen falta vehículos publicados en ambos concesionarios");
+
+  await request(a.host, `/api/customer/favorites/${vehicleA.id}`, { method: "PUT", headers: auth });
+  const cruzado = await fetch(`${baseUrl}/api/customer/favorites/${vehicleB.id}`, { method: "PUT", headers: { "X-Forwarded-Host": a.host, ...auth } });
+  assert.equal(cruzado.status, 404, `se pudo guardar como favorito un vehículo de ${b.host} desde ${a.host} (respondió ${cruzado.status})`);
+
+  const favoritos = await request(a.host, "/api/customer/favorites", { headers: auth });
+  assert.equal((favoritos.data || []).includes(vehicleB.id), false, `los favoritos de ${a.host} incluyen un vehículo de ${b.host}`);
+}
+
+await assertCustomerScoping();
+
 await assertLoginRejected("dealer-demo.localhost", process.env.LOCAL_VELOCITY_ADMIN_EMAIL || "velocity@dealer.local");
 await assertLoginRejected("velocity-demo.localhost", process.env.LOCAL_DEMO_ADMIN_EMAIL || "demo@dealer.local");
 

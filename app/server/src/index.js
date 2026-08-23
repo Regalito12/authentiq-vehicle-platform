@@ -1500,9 +1500,18 @@ app.get("/api/customer/me", authenticateCustomer, async (req, res) => {
 
 app.get("/api/customer/favorites", authenticateCustomer, async (req, res) => {
   try {
-    const result = await pool.query("SELECT vehicle_id AS \"vehicleId\" FROM vehicle_favorites vf JOIN vehicles v ON v.id=vf.vehicle_id WHERE vf.customer_id=$1 AND v.status IN ('published','reserved') ORDER BY vf.created_at DESC", [req.customer.id]);
+    // Los favoritos se guardan por cuenta, que es global a la plataforma, pero se
+    // consultan siempre dentro de un showroom. Sin filtrar por concesionario, en
+    // la vitrina de A aparecía un recuento que incluía coches de B: el comprador
+    // leía "Mi selección: 2" y solo se dibujaba uno.
+    const organization = await getOrganizationContext(req);
+    const result = await pool.query(
+      "SELECT vf.vehicle_id AS \"vehicleId\" FROM vehicle_favorites vf JOIN vehicles v ON v.id=vf.vehicle_id WHERE vf.customer_id=$1 AND v.organization_id=$2 AND v.status IN ('published','reserved') ORDER BY vf.created_at DESC",
+      [req.customer.id, organization.id],
+    );
     res.json({ data: result.rows.map((row) => row.vehicleId) });
   } catch (error) {
+    if (isOrganizationNotFound(error)) return sendOrganizationNotFound(res);
     console.error("Customer favorites failed", error);
     res.status(500).json({ error: "No se pudieron cargar los favoritos" });
   }
@@ -1510,11 +1519,14 @@ app.get("/api/customer/favorites", authenticateCustomer, async (req, res) => {
 
 app.put("/api/customer/favorites/:vehicleId", authenticateCustomer, async (req, res) => {
   try {
-    const vehicle = await pool.query("SELECT id FROM vehicles WHERE id=$1 AND status IN ('published','reserved')", [req.params.vehicleId]);
+    // Solo se guardan vehículos del showroom que se está mirando.
+    const organization = await getOrganizationContext(req);
+    const vehicle = await pool.query("SELECT id FROM vehicles WHERE id=$1 AND organization_id=$2 AND status IN ('published','reserved')", [req.params.vehicleId, organization.id]);
     if (!vehicle.rowCount) return res.status(404).json({ error: "Vehículo no disponible" });
     await pool.query("INSERT INTO vehicle_favorites (customer_id, vehicle_id) VALUES ($1,$2) ON CONFLICT DO NOTHING", [req.customer.id, req.params.vehicleId]);
     res.status(204).end();
   } catch (error) {
+    if (isOrganizationNotFound(error)) return sendOrganizationNotFound(res);
     console.error("Add customer favorite failed", error);
     res.status(500).json({ error: "No se pudo guardar el favorito" });
   }
@@ -1532,13 +1544,19 @@ app.delete("/api/customer/favorites/:vehicleId", authenticateCustomer, async (re
 
 app.get("/api/customer/activity", authenticateCustomer, async (req, res) => {
   try {
+    // La cuenta del comprador es global a la plataforma, pero su actividad se
+    // mira dentro de un showroom concreto. Sin filtrar por concesionario, la
+    // vitrina de A mostraba la oferta que esta persona hizo a B, con el vehículo
+    // y el precio: datos de un competidor dentro de una página de marca ajena.
+    const organization = await getOrganizationContext(req);
     const [offers, notifications, quotes] = await Promise.all([
-      pool.query(`SELECT o.id, o.status, o.amount_usd AS "amountUsd", o.message, o.created_at AS "createdAt", b.name AS brand, v.model, v.year FROM offers o JOIN vehicles v ON v.id=o.vehicle_id JOIN vehicle_brands b ON b.id=v.brand_id WHERE o.customer_id=$1 ORDER BY o.created_at DESC LIMIT 20`, [req.customer.id]),
+      pool.query(`SELECT o.id, o.status, o.amount_usd AS "amountUsd", o.message, o.created_at AS "createdAt", b.name AS brand, v.model, v.year FROM offers o JOIN vehicles v ON v.id=o.vehicle_id JOIN vehicle_brands b ON b.id=v.brand_id WHERE o.customer_id=$1 AND o.organization_id=$2 ORDER BY o.created_at DESC LIMIT 20`, [req.customer.id, organization.id]),
       pool.query(`SELECT id, notification_type AS "type", title, body, entity_type AS "entityType", entity_id AS "entityId", read_at AS "readAt", created_at AS "createdAt" FROM customer_notifications WHERE customer_id=$1 ORDER BY created_at DESC LIMIT 20`, [req.customer.id]),
-      pool.query(`SELECT q.id, q.quote_number AS "quoteNumber", q.status, q.total_usd AS "totalUsd", q.currency, q.valid_until AS "validUntil", q.created_at AS "createdAt", b.name AS brand, v.model, v.year FROM quotes q LEFT JOIN vehicles v ON v.id=q.vehicle_id LEFT JOIN vehicle_brands b ON b.id=v.brand_id WHERE q.customer_id=$1 ORDER BY q.created_at DESC LIMIT 20`, [req.customer.id]),
+      pool.query(`SELECT q.id, q.quote_number AS "quoteNumber", q.status, q.total_usd AS "totalUsd", q.currency, q.valid_until AS "validUntil", q.created_at AS "createdAt", b.name AS brand, v.model, v.year FROM quotes q LEFT JOIN vehicles v ON v.id=q.vehicle_id LEFT JOIN vehicle_brands b ON b.id=v.brand_id WHERE q.customer_id=$1 AND q.organization_id=$2 ORDER BY q.created_at DESC LIMIT 20`, [req.customer.id, organization.id]),
     ]);
     res.json({ data: { offers: offers.rows, notifications: notifications.rows, quotes: quotes.rows } });
   } catch (error) {
+    if (isOrganizationNotFound(error)) return sendOrganizationNotFound(res);
     console.error("Customer activity failed", error);
     res.status(500).json({ error: "No se pudo cargar tu actividad" });
   }
