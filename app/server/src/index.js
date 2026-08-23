@@ -2429,16 +2429,7 @@ app.get("/api/admin/onboarding", authenticate, requireRoles("admin", "editor"), 
     `, [organizationId]);
     if (!result.rowCount) return res.status(404).json({ error: "Organización no encontrada" });
     const row = result.rows[0];
-    const steps = [
-      { id: "identity", group: "brand", essential: true, label: "Nombre del concesionario", detail: "Así te verá el comprador en todo el sitio.", done: Boolean(row.name && row.slug) },
-      { id: "logo", group: "brand", essential: true, label: "Logo", detail: "Aparece en la navegación y en cada ficha.", done: Boolean(row.logoUrl) },
-      { id: "catalog", group: "showcase", essential: true, label: "Primer vehículo publicado", detail: "Sin inventario no hay nada que enseñar.", done: Number(row.publishedVehicles) > 0 },
-      { id: "contact", group: "operation", essential: true, label: "Cómo te contactan", detail: "Teléfono, WhatsApp o correo.", done: Boolean(row.phone || row.whatsapp || row.email) },
-      { id: "appointments", group: "operation", essential: false, label: "Horario para visitas", detail: "Deja que reserven sin llamarte.", done: Boolean(row.appointmentStart && row.appointmentEnd && row.appointmentDays?.length) },
-      { id: "legal", group: "operation", essential: true, label: "Privacidad y términos", detail: "Revísalos antes de compartir el enlace.", done: Boolean(row.privacyText && row.termsText && !/borrador|pendiente de revisión/i.test(`${row.privacyText} ${row.termsText}`)) },
-      { id: "social", group: "showcase", essential: false, label: "Instagram y Facebook", detail: "Opcional: enlaza tus redes.", done: Boolean(row.instagramUrl || row.facebookUrl) },
-      { id: "domain", group: "brand", essential: false, label: "Dominio propio", detail: "Opcional: usa tu propia dirección web.", done: Boolean(row.customDomain) },
-    ];
+    const steps = dealerSetupSteps(row);
     const completed = steps.filter((step) => step.done).length;
     const essential = steps.filter((step) => step.essential);
     const essentialDone = essential.filter((step) => step.done).length;
@@ -2446,30 +2437,39 @@ app.get("/api/admin/onboarding", authenticate, requireRoles("admin", "editor"), 
   } catch (error) { console.error("Onboarding query failed", error); res.status(500).json({ error: "No se pudo cargar el estado de inicio" }); }
 });
 
+// Requisitos de puesta en marcha de un concesionario. UNA sola definición.
+//
+// Antes vivía copiada en tres sitios: la guía que ve el dealer, el porcentaje
+// que ve la plataforma y la comprobación que decide si se puede aprobar. Ya
+// habían divergido: "horarios de citas" bloqueaba la aprobación pero la guía lo
+// presentaba como opcional, así que el dealer leía "listo para recibir
+// compradores" y la plataforma se negaba a aprobarlo.
+//
+// `essential: true` significa exactamente una cosa: sin esto no se aprueba.
+const dealerSetupRequirements = [
+  { id: "identity", group: "brand", essential: true, label: "Nombre del concesionario", detail: "Así te verá el comprador en todo el sitio.", blocker: "nombre del concesionario", done: (row) => Boolean(row.name && row.slug) },
+  { id: "logo", group: "brand", essential: true, label: "Logo", detail: "Aparece en la navegación y en cada ficha.", blocker: "logo del concesionario", done: (row) => Boolean(row.logoUrl) },
+  { id: "catalog", group: "showcase", essential: true, label: "Primer vehículo publicado", detail: "Sin inventario no hay nada que enseñar.", blocker: "al menos un vehículo publicado", done: (row) => Number(row.publishedVehicles) > 0 },
+  { id: "contact", group: "operation", essential: true, label: "Cómo te contactan", detail: "Teléfono, WhatsApp o correo.", blocker: "canal de contacto", done: (row) => Boolean(row.phone || row.whatsapp || row.email) },
+  { id: "appointments", group: "operation", essential: true, label: "Horario para visitas", detail: "Necesario para poder publicar tu showroom.", blocker: "horarios de citas", done: (row) => Boolean(row.appointmentStart && row.appointmentEnd && row.appointmentDays?.length) },
+  { id: "legal", group: "operation", essential: true, label: "Privacidad y términos", detail: "Revísalos antes de compartir el enlace.", blocker: "políticas de privacidad y términos", done: (row) => Boolean(row.privacyText && row.termsText && !/borrador|pendiente de revisión/i.test(`${row.privacyText} ${row.termsText}`)) },
+  { id: "social", group: "showcase", essential: false, label: "Instagram y Facebook", detail: "Opcional: enlaza tus redes.", recommend: "conectar Instagram o Facebook", done: (row) => Boolean(row.instagramUrl || row.facebookUrl) },
+  { id: "domain", group: "brand", essential: false, label: "Dominio propio", detail: "Opcional: usa tu propia dirección web.", recommend: "configurar el dominio personalizado", done: (row) => Boolean(row.customDomain) },
+];
+
+function dealerSetupSteps(row) {
+  return dealerSetupRequirements.map(({ id, group, essential, label, detail, done }) => ({ id, group, essential, label, detail, done: done(row) }));
+}
+
 function platformSetupProgress(row) {
-  const steps = [
-    Boolean(row.name && row.slug),
-    Boolean(row.logoUrl),
-    Boolean(row.phone || row.whatsapp || row.email),
-    Number(row.publishedVehicles) > 0,
-    Boolean(row.appointmentStart && row.appointmentEnd && row.appointmentDays?.length),
-    Boolean(row.instagramUrl || row.facebookUrl),
-    Boolean(row.privacyText && row.termsText && !/borrador|pendiente de revisión/i.test(`${row.privacyText} ${row.termsText}`)),
-    Boolean(row.customDomain),
-  ];
-  return Math.round((steps.filter(Boolean).length / steps.length) * 100);
+  const steps = dealerSetupSteps(row);
+  return Math.round((steps.filter((step) => step.done).length / steps.length) * 100);
 }
 
 function dealerApprovalCheck(row) {
-  const blockers = [];
-  const recommendations = [];
-  if (!row.logoUrl) blockers.push("logo del concesionario");
-  if (!(row.phone || row.whatsapp || row.email)) blockers.push("canal de contacto");
-  if (Number(row.publishedVehicles) <= 0) blockers.push("al menos un vehículo publicado");
-  if (!(row.appointmentStart && row.appointmentEnd && row.appointmentDays?.length)) blockers.push("horarios de citas");
-  if (!(row.privacyText && row.termsText && !/borrador|pendiente de revisión/i.test(`${row.privacyText} ${row.termsText}`))) blockers.push("políticas de privacidad y términos");
-  if (!(row.instagramUrl || row.facebookUrl)) recommendations.push("conectar Instagram o Facebook");
-  if (!row.customDomain) recommendations.push("configurar el dominio personalizado");
+  const steps = dealerSetupSteps(row);
+  const blockers = dealerSetupRequirements.filter((req, index) => req.essential && !steps[index].done).map((req) => req.blocker);
+  const recommendations = dealerSetupRequirements.filter((req, index) => !req.essential && !steps[index].done).map((req) => req.recommend);
   return { blockers, recommendations, ready: blockers.length === 0 };
 }
 

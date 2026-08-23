@@ -269,6 +269,15 @@ async function checkDealerSignup() {
   check("Su configuración inicial existe", settings.ok && Boolean(settings.body?.data));
   const onboarding = await api("/api/admin/onboarding", { token: relogin.body?.token });
   check("Ve su guía de personalización", onboarding.ok && Array.isArray(onboarding.body?.data?.steps));
+
+  // Lo que la guía llama "esencial" tiene que ser exactamente lo que la
+  // plataforma exige para aprobar. Si divergen, el dealer lee "listo para
+  // recibir compradores" y luego le rechazan la publicación sin entender por qué.
+  const steps = onboarding.body?.data?.steps || [];
+  const essentials = steps.filter((step) => step.essential).map((step) => step.id).sort();
+  const required = ["appointments", "catalog", "contact", "identity", "legal", "logo"];
+  check("Lo esencial coincide con lo que exige la aprobación", JSON.stringify(essentials) === JSON.stringify(required), `guía: ${essentials.join(", ")}`);
+  check("Un showroom sin completar no se declara listo", onboarding.body?.data?.readyToPublish === (essentials.length === steps.filter((s2) => s2.essential && s2.done).length));
 }
 
 async function cleanup() {
