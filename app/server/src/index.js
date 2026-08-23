@@ -464,15 +464,32 @@ app.use("/api", (_req, res, next) => {
   res.setHeader("Cache-Control", "no-store");
   next();
 });
-app.use("/api/customer/auth/login", rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Demasiados intentos. Intenta nuevamente mas tarde." } }));
-app.use("/api/customer/auth/register", rateLimit({ windowMs: 60 * 60 * 1000, limit: 10, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Demasiados registros. Intenta nuevamente mas tarde." } }));
-app.use("/api/auth/login", rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Demasiados intentos. Intenta nuevamente más tarde." } }));
-app.use("/api/auth/register-dealer", rateLimit({ windowMs: 60 * 60 * 1000, limit: 10, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Demasiados registros de dealer. Intenta nuevamente más tarde." } }));
-app.use("/api/leads", rateLimit({ windowMs: 10 * 60 * 1000, limit: 30, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Demasiadas solicitudes. Intenta nuevamente más tarde." } }));
-app.use("/api/offers", rateLimit({ windowMs: 10 * 60 * 1000, limit: 20, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Demasiadas ofertas enviadas. Intenta nuevamente más tarde." } }));
+// Los limitadores reparten la cuota por dirección de origen. En desarrollo eso
+// castiga al propio equipo: repetir la suite de pruebas agota los 10 registros
+// por hora y las siguientes ejecuciones fallan con 429, que se lee igual que una
+// regresión y no lo es. Peor todavía, "localhost" y "127.0.0.1" son cubos
+// distintos, así que el agotamiento parece intermitente.
+//
+// En producción no cambia nada: la exención solo aplica fuera de producción y
+// solo a peticiones que llegan del propio equipo.
+const enProduccion = process.env.NODE_ENV === "production";
+function esLoopback(req) {
+  const ip = String(req.ip || req.socket?.remoteAddress || "");
+  return ip === "::1" || ip === "127.0.0.1" || ip === "::ffff:127.0.0.1";
+}
+function publicRateLimit(options) {
+  return rateLimit({ standardHeaders: "draft-8", legacyHeaders: false, skip: (req) => !enProduccion && esLoopback(req), ...options });
+}
+
+app.use("/api/customer/auth/login", publicRateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Demasiados intentos. Intenta nuevamente mas tarde." } }));
+app.use("/api/customer/auth/register", publicRateLimit({ windowMs: 60 * 60 * 1000, limit: 10, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Demasiados registros. Intenta nuevamente mas tarde." } }));
+app.use("/api/auth/login", publicRateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Demasiados intentos. Intenta nuevamente más tarde." } }));
+app.use("/api/auth/register-dealer", publicRateLimit({ windowMs: 60 * 60 * 1000, limit: 10, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Demasiados registros de dealer. Intenta nuevamente más tarde." } }));
+app.use("/api/leads", publicRateLimit({ windowMs: 10 * 60 * 1000, limit: 30, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Demasiadas solicitudes. Intenta nuevamente más tarde." } }));
+app.use("/api/offers", publicRateLimit({ windowMs: 10 * 60 * 1000, limit: 20, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Demasiadas ofertas enviadas. Intenta nuevamente más tarde." } }));
 // La analítica escribe en base de datos sin autenticación: se limita para que no pueda inundarse.
-app.use("/api/events", rateLimit({ windowMs: 60 * 1000, limit: 120, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Demasiados eventos." } }));
-app.use("/api/public/quotes", rateLimit({ windowMs: 10 * 60 * 1000, limit: 30, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Demasiadas solicitudes para esta cotización." } }));
+app.use("/api/events", publicRateLimit({ windowMs: 60 * 1000, limit: 120, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Demasiados eventos." } }));
+app.use("/api/public/quotes", publicRateLimit({ windowMs: 10 * 60 * 1000, limit: 30, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Demasiadas solicitudes para esta cotización." } }));
 
 const vehicleSelect = `
   SELECT
@@ -1671,7 +1688,7 @@ app.get("/api/appointments/availability", async (req, res) => {
   }
 });
 
-app.post("/api/appointments", rateLimit({ windowMs: 10 * 60 * 1000, limit: 15, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Demasiadas solicitudes de cita. Intenta nuevamente más tarde." } }), verifyPublicForm, async (req, res) => {
+app.post("/api/appointments", publicRateLimit({ windowMs: 10 * 60 * 1000, limit: 15, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Demasiadas solicitudes de cita. Intenta nuevamente más tarde." } }), verifyPublicForm, async (req, res) => {
   const vehicleId = String(req.body.vehicleId || "").trim() || null;
   const name = String(req.body.name || "").trim();
   const email = String(req.body.email || "").trim() || null;

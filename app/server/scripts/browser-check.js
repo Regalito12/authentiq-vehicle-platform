@@ -24,6 +24,7 @@ const appUrl = (pathname = "/") => {
   if (demoTenant) url.searchParams.set("dealer", demoTenant);
   return url.toString();
 };
+const consoleWarnings = [];
 const outputDir = path.resolve(process.cwd(), "browser-check");
 const port = 9333;
 
@@ -149,8 +150,15 @@ async function main() {
     cdp = new Cdp(socket);
 
     const consoleErrors = [];
+    // Las advertencias no rompen nada, pero avisan de cosas que conviene mirar:
+    // texturas mal formadas, APIs en desuso, atributos que el navegador ignora.
+    // No hacen fallar la comprobacion; se listan al final para poder decidir.
     const failedRequests = [];
     cdp.on((method, params) => {
+      if (method === "Runtime.consoleAPICalled" && (params.type === "warning" || params.type === "warn")) {
+        const texto = params.args.map((arg) => arg.value ?? arg.description ?? arg.type).join(" ").slice(0, 220);
+        if (texto && !consoleWarnings.includes(texto)) consoleWarnings.push(texto);
+      }
       if (method === "Runtime.consoleAPICalled" && params.type === "error") {
         consoleErrors.push(params.args.map((arg) => arg.value ?? arg.description ?? arg.type).join(" ").slice(0, 300));
       }
@@ -467,6 +475,11 @@ try {
   failed += 1;
   console.error(`FAIL  Excepción — ${error.message}`);
 } finally {
+  if (consoleWarnings.length) {
+    console.log(`
+Advertencias de consola (no hacen fallar): ${consoleWarnings.length}`);
+    for (const aviso of consoleWarnings.slice(0, 8)) console.log(`  · ${aviso}`);
+  }
   console.log(`\nResultado navegador: ${passed} pasaron, ${failed} fallaron.`);
   process.exit(failed ? 1 : 0);
 }

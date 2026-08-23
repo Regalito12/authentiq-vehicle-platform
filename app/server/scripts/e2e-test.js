@@ -142,6 +142,20 @@ async function main() {
     const repeatedDecision = publicToken ? await api(`/api/public/quotes/${publicToken}/decision`, { method: "POST", body: JSON.stringify({ decision: "accepted" }) }) : { status: 0, body: null };
     check("Una cotización aceptada no admite una segunda decisión", repeatedDecision.status === 409, `status ${repeatedDecision.status}`);
 
+    // El enlace publico va firmado: es lo unico que impide que alguien lea la
+    // cotizacion de otro cliente cambiando unas letras de la direccion.
+    if (publicToken) {
+      const alterado = `${publicToken.slice(0, -2)}${publicToken.slice(-2, -1) === "a" ? "b" : "a"}${publicToken.slice(-1)}`;
+      const manipulado = await api(`/api/public/quotes/${alterado}`);
+      check("Un enlace de cotizacion alterado se rechaza", manipulado.status === 401, `status ${manipulado.status}`);
+      const inventado = await api("/api/public/quotes/no.es.un.token");
+      check("Un enlace de cotizacion inventado se rechaza", inventado.status === 401, `status ${inventado.status}`);
+      const decisionManipulada = await api(`/api/public/quotes/${alterado}/decision`, { method: "POST", body: JSON.stringify({ decision: "accepted" }) });
+      check("No se puede decidir con un enlace alterado", decisionManipulada.status === 401, `status ${decisionManipulada.status}`);
+      const decisionInvalida = await api(`/api/public/quotes/${publicToken}/decision`, { method: "POST", body: JSON.stringify({ decision: "borrar" }) });
+      check("Una decision no prevista se rechaza", decisionInvalida.status === 400, `status ${decisionInvalida.status}`);
+    }
+
     const raceQuote = await api("/api/admin/quotes", { token, method: "POST", body: JSON.stringify({ vehicleId: created.vehicleId, leadId: created.leadIds[0] || null, customerName: `Carrera ${marker}`, customerEmail: `race-${stamp}@authentiq.test`, basePriceUsd: 125000, discountUsd: 0, validUntil: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10), notes: `${marker}-race` }) });
     if (raceQuote.status === 201) {
       created.quoteIds.push(raceQuote.body.data.id);
