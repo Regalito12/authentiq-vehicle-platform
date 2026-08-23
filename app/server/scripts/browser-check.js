@@ -365,7 +365,7 @@ async function main() {
     await setViewport(viewports[2]);
     await navigate(appUrl("/"), "document.querySelectorAll('.vehicle-card').length > 0");
     const backoffice = await cdp.evaluate(`(() => {
-      const button = [...document.querySelectorAll('button')].find((el) => /BACKOFFICE/i.test(el.textContent));
+      const button = document.querySelector('.nav-backoffice-link') || [...document.querySelectorAll('button')].find((el) => /BACKOFFICE|PANEL\s+DE\s+CONTROL/i.test(el.textContent));
       if (button) button.click();
       return Boolean(button);
     })()`);
@@ -396,7 +396,7 @@ async function main() {
         // Inyecta la sesión antes de cargar para entrar directo al backoffice.
         await cdp.send("Page.addScriptToEvaluateOnNewDocument", { source: `try{localStorage.setItem('authentiq_admin_token',${JSON.stringify(token)});localStorage.setItem('authentiq_admin_user',${JSON.stringify(JSON.stringify(user))});}catch(e){}` });
         await navigate(appUrl("/"), "document.querySelectorAll('.vehicle-card').length > 0");
-        await cdp.evaluate(`(() => { const b=[...document.querySelectorAll('button')].find(el=>/BACKOFFICE/i.test(el.textContent)); if(b) b.click(); return true; })()`);
+        await cdp.evaluate(`(() => { const b=document.querySelector('.nav-backoffice-link') || [...document.querySelectorAll('button')].find(el=>/BACKOFFICE|PANEL\s+DE\s+CONTROL/i.test(el.textContent)); if(b) b.click(); return true; })()`);
         await wait(2500);
 
         for (const [key, labelText] of modules) {

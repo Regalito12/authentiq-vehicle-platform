@@ -188,7 +188,7 @@ export default function DealerRegistrationWizard({ onRegisterSuccess, onCancel, 
             type="button"
             onClick={() => onRegisterSuccess(registeredData)}
           >
-            Entrar al Backoffice de mi Concesionario →
+            Entrar al panel de mi concesionario →
           </button>
           <button
             className="secondary-action"
@@ -304,7 +304,7 @@ export default function DealerRegistrationWizard({ onRegisterSuccess, onCancel, 
           </label>
 
           <label>
-            Correo Electrónico (Tu acceso al Backoffice)
+            Correo electrónico (tu acceso al panel)
             <input
               type="email"
               placeholder="carlos@concesionario.com"
