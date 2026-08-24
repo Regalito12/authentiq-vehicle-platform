@@ -150,6 +150,44 @@ html { scroll-behavior: smooth; }
 .landing-reel-controls > span { white-space: nowrap; }
 .landing-scroll-strip { display: flex; justify-content: space-between; gap: 20px; padding: 15px max(30px, calc((100% - 1180px) / 2)); background: #1b1c1b; color: #aaa79f; font: 14px "IBM Plex Mono", monospace; letter-spacing: .1em; text-transform: uppercase; }
 .landing-scroll-strip b { color: #e2b854; font-weight: 500; }
+.landing-story { max-width: 1240px; margin: 0 auto; padding: 132px 30px 150px; }
+.landing-story-heading { display: flex; justify-content: space-between; gap: 42px; align-items: end; margin-bottom: 64px; }
+.landing-story-heading h2 { max-width: 13ch; margin: 18px 0 0; color: #171817; font-size: clamp(38px, 5vw, 68px); font-weight: 300; letter-spacing: -.045em; line-height: .94; text-wrap: balance; }
+.landing-story-heading p { max-width: 32ch; margin: 0 0 4px; color: #67645d; font-size: 17px; line-height: 1.55; }
+.landing-story-grid { display: grid; grid-template-columns: minmax(280px, .72fr) minmax(0, 1.28fr); gap: clamp(42px, 8vw, 118px); align-items: start; }
+.landing-story-steps { display: grid; gap: 0; }
+.landing-story-step { min-height: 190px; padding: 0 0 30px; border-bottom: 1px solid #d1cabd; opacity: .68; transition: opacity .35s ease; }
+.landing-story-step + .landing-story-step { padding-top: 30px; }
+.landing-story-step.is-active { opacity: 1; }
+.landing-story-step button { display: flex; width: 100%; align-items: center; gap: 14px; border: 0; padding: 0; background: transparent; color: #67645d; text-align: left; cursor: pointer; }
+.landing-story-step button > span { color: #886921; font: 14px "IBM Plex Mono", monospace; letter-spacing: .08em; }
+.landing-story-step button strong { color: #171817; font-size: 22px; font-weight: 450; }
+.landing-story-step button i { margin-left: auto; color: #886921; font-size: 22px; font-style: normal; transition: transform .25s ease; }
+.landing-story-step.is-active button i { transform: translate(3px, -3px); }
+.landing-story-step-copy { padding: 28px 30px 0 43px; }
+.landing-story-step-copy h3 { max-width: 18ch; margin: 0 0 10px; color: #252622; font-size: 25px; font-weight: 400; letter-spacing: -.025em; line-height: 1.08; }
+.landing-story-step-copy p { max-width: 35ch; margin: 0; color: #6f6b62; font-size: 15px; line-height: 1.58; }
+.landing-story-stage-wrap { min-height: 610px; }
+.landing-story-stage { position: sticky; top: 86px; overflow: hidden; min-height: 540px; border: 1px solid #d2ccbf; background: #242625; color: #f7f4ed; box-shadow: 0 10px 8px rgba(57,49,35,.08); }
+.landing-story-stage::before { position: absolute; right: -15%; bottom: -30%; width: 68%; height: 68%; border: 1px solid rgba(224,183,84,.28); border-radius: 50%; content: ""; transform: rotate(-18deg); }
+.landing-story-stage-top { position: relative; z-index: 1; display: flex; justify-content: space-between; gap: 18px; padding: 17px 20px; border-bottom: 1px solid #454743; color: #aaa79f; font: 14px "IBM Plex Mono", monospace; letter-spacing: .08em; text-transform: uppercase; }
+.landing-story-stage-top i { display: inline-block; width: 6px; height: 6px; margin-right: 7px; border-radius: 50%; background: #83a878; box-shadow: 0 0 9px #83a878; }
+.landing-story-stage-body { position: relative; z-index: 1; display: grid; align-content: center; min-height: 390px; padding: 42px clamp(24px, 5vw, 62px); background: linear-gradient(135deg, rgba(28,30,29,.96), rgba(42,43,39,.78)); }
+.landing-story-stage-label { color: #e0b754; font: 14px "IBM Plex Mono", monospace; letter-spacing: .1em; text-transform: uppercase; }
+.landing-story-record { display: grid; grid-template-columns: auto 1fr auto; gap: 16px; align-items: center; margin-top: 30px; padding: 18px; border: 1px solid #4f514a; background: rgba(16,17,17,.55); }
+.landing-story-record-icon { display: grid; place-items: center; width: 42px; height: 42px; border: 1px solid #d0a63f; color: #e0b754; font-size: 20px; }
+.landing-story-record div { display: grid; gap: 6px; min-width: 0; }
+.landing-story-record strong { overflow: hidden; color: #f7f4ed; font-size: clamp(20px, 3vw, 31px); font-weight: 350; letter-spacing: -.035em; text-overflow: ellipsis; white-space: nowrap; }
+.landing-story-record small { overflow: hidden; color: #aaa79f; font: 14px "IBM Plex Mono", monospace; text-overflow: ellipsis; white-space: nowrap; }
+.landing-story-record > b { color: #e0b754; font-size: 20px; font-weight: 400; }
+.landing-story-stage-line { height: 3px; margin-top: 48px; background: #4e5149; }
+.landing-story-stage-line span { display: block; height: 100%; background: #e0b754; transition: width .5s cubic-bezier(.22, 1, .36, 1); }
+.landing-story-stage-footer { display: flex; justify-content: space-between; align-items: end; gap: 18px; margin-top: 30px; color: #aaa79f; font: 14px "IBM Plex Mono", monospace; letter-spacing: .07em; text-transform: uppercase; }
+.landing-story-stage-footer strong { color: #f7f4ed; font-size: clamp(40px, 5vw, 64px); font-weight: 300; letter-spacing: -.05em; }
+.landing-story-demo { position: relative; z-index: 2; display: flex; justify-content: space-between; width: 100%; border: 0; border-top: 1px solid #454743; padding: 18px 22px; background: #1b1c1b; color: #f7f4ed; font: 500 14px "IBM Plex Mono", monospace; letter-spacing: .06em; text-align: left; text-transform: uppercase; cursor: pointer; transition: color .2s ease, background-color .2s ease; }
+.landing-story-demo:hover, .landing-story-demo:focus-visible { background: #292b28; color: #e0b754; }
+.landing-story-demo span { color: #e0b754; font-size: 18px; }
+.landing-story-demo:focus-visible, .landing-story-step button:focus-visible { outline: 2px solid #886921; outline-offset: 4px; }
 .landing-showcase { padding-top: 130px; }
 .landing-showcase-copy h2, .landing-flow-heading h2 { color: #171817; }
 .landing-showcase-copy p { color: #67645d; }
@@ -170,7 +208,9 @@ html { scroll-behavior: smooth; }
 .landing-cta p { color: #aaa79f; }
 @keyframes landing-card-float { 50% { transform: translateY(-10px) rotate(-1deg); } }
 @media (max-width: 860px) { .landing-nav-links { display: none; } .landing-hero { grid-template-columns: 1fr; min-height: auto; padding-top: 64px; } .landing-hero h1 { max-width: 12ch; } .landing-hero-visual { min-height: 430px; } .landing-scroll-strip { flex-wrap: wrap; } }
+@media (max-width: 860px) { .landing-story { padding: 92px 24px 110px; } .landing-story-heading { display: block; margin-bottom: 42px; } .landing-story-heading p { margin-top: 24px; } .landing-story-grid { grid-template-columns: 1fr; gap: 42px; } .landing-story-stage-wrap { min-height: auto; } .landing-story-stage { position: relative; top: auto; min-height: 470px; } .landing-story-stage-body { min-height: 320px; } }
 @media (max-width: 560px) { .landing-nav { padding: 18px 20px; } .landing-nav-login { display: none; } .landing-nav-cta { padding: 9px 10px; } .landing-hero { padding: 54px 20px 70px; } .landing-hero-proof { gap: 10px; margin-top: 30px; font-size: 14px; } .landing-hero-visual { min-height: 360px; } .landing-visual-card { top: 58px; right: 15px; transform: scale(.85); transform-origin: top right; } .landing-visual-caption { left: 18px; bottom: 70px; } .landing-reel-controls { right: 12px; bottom: 12px; left: 12px; gap: 8px; } .landing-reel-controls > span { font-size: 14px; } .landing-scroll-strip { padding: 14px 20px; font-size: 14px; } }
+@media (max-width: 560px) { .landing-story { padding: 76px 20px 92px; } .landing-story-heading h2 { font-size: clamp(36px, 12vw, 54px); } .landing-story-step { min-height: 0; padding-bottom: 24px; } .landing-story-step + .landing-story-step { padding-top: 24px; } .landing-story-step-copy { padding: 20px 0 0 31px; } .landing-story-step-copy h3 { font-size: 22px; } .landing-story-stage { min-height: 430px; } .landing-story-stage-top { padding: 14px; font-size: 14px; } .landing-story-stage-body { min-height: 290px; padding: 30px 16px; } .landing-story-record { grid-template-columns: auto 1fr; gap: 11px; padding: 14px; } .landing-story-record > b { display: none; } .landing-story-record strong { font-size: 20px; } .landing-story-record small { font-size: 14px; } .landing-story-stage-line { margin-top: 34px; } .landing-story-demo { padding: 16px; font-size: 14px; } }
 @media (prefers-reduced-motion: reduce) { .landing-visual-card, .landing-visual-ring { animation: none; } }
 .app-error-boundary { min-height: 100vh; display: grid; place-content: center; gap: 1rem; padding: 2rem; text-align: center; background: #101111; color: #f4f0e8; }
 .app-error-boundary p { max-width: 34rem; margin: 0 auto 1rem; color: rgba(244,240,232,.68); }

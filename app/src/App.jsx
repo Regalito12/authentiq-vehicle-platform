@@ -284,6 +284,7 @@ function LandingPage({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPrivac
         </motion.div>
       </section>
       <div className="landing-scroll-strip"><span>NO TE LO CONTAMOS</span><b>TE LO ENSEÑAMOS</b><span>SCROLL PARA EXPLORAR ↓</span></div>
+      <LandingStory reduceMotion={reduceMotion} onViewDemo={onViewDemo} />
       <section className="landing-showcase" id="landing-product" aria-label="Demostración de AUTHENTIQ">
         <div className="landing-showcase-copy">
           <span className="eyebrow">DE LA PROMESA A LA EXPERIENCIA</span>
@@ -327,6 +328,36 @@ function LandingPage({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPrivac
       </footer>
     </main>
   );
+}
+
+function LandingStory({ reduceMotion, onViewDemo }) {
+  const [activeStep, setActiveStep] = useState(0);
+  const steps = [
+    { label: "Publica", title: "Tu inventario, listo para vender.", body: "Carga fotos, ficha técnica, precio y disponibilidad. Cada vehículo sale con una experiencia propia." },
+    { label: "Conecta", title: "Cada interés llega al equipo correcto.", body: "Cuando un cliente pregunta, el concesionario ve qué quiere, quién lo atiende y cuál es la próxima acción." },
+    { label: "Convierte", title: "De la conversación a la cita.", body: "Agenda una visita, prepara una cotización y mantén el seguimiento hasta que la venta se cierre." },
+  ];
+  const stage = [
+    { status: "INVENTARIO ACTIVO", title: "Porsche Taycan Turbo S", detail: "Publicado · 14 visitas hoy", metric: "12", metricLabel: "vehículos publicados", icon: "▣" },
+    { status: "NUEVO LEAD", title: "María Rodríguez", detail: "Interesada en Taycan · hace 4 min", metric: "3", metricLabel: "clientes para contactar", icon: "◉" },
+    { status: "PRÓXIMA ACCIÓN", title: "Cita confirmada", detail: "Hoy · 3:30 PM · Sala principal", metric: "86%", metricLabel: "avance del seguimiento", icon: "✓" },
+  ][activeStep];
+  return <section className="landing-story" id="landing-story" aria-label="Cómo funciona AUTHENTIQ">
+    <div className="landing-story-heading"><div><span className="eyebrow">DEL ANUNCIO AL CIERRE</span><h2>Una operación que se entiende mientras avanzas.</h2></div><p>AUTHENTIQ conecta lo que el cliente ve con lo que tu equipo debe hacer después.</p></div>
+    <div className="landing-story-grid">
+      <div className="landing-story-steps" role="tablist" aria-label="Etapas de venta">
+        {steps.map((step, index) => <motion.article key={step.label} className={`landing-story-step${activeStep === index ? " is-active" : ""}`} onViewportEnter={() => setActiveStep(index)} viewport={{ amount: .65 }} initial={reduceMotion ? false : { opacity: .65, y: 18 }} whileInView={reduceMotion ? undefined : { opacity: 1, y: 0 }} transition={{ duration: .45, ease: [0.22, 1, 0.36, 1] }}>
+          <button type="button" role="tab" aria-selected={activeStep === index} onClick={() => setActiveStep(index)}><span>{String(index + 1).padStart(2, "0")}</span><strong>{step.label}</strong><i aria-hidden="true">↗</i></button>
+          <div className="landing-story-step-copy"><h3>{step.title}</h3><p>{step.body}</p></div>
+        </motion.article>)}
+      </div>
+      <div className="landing-story-stage-wrap"><div className="landing-story-stage" aria-live="polite">
+        <div className="landing-story-stage-top"><span><i /> AUTHENTIQ · BACKOFFICE</span><span>{String(activeStep + 1).padStart(2, "0")} / 03</span></div>
+        <div className="landing-story-stage-body"><div className="landing-story-stage-label">{stage.status}</div><div className="landing-story-record"><span className="landing-story-record-icon">{stage.icon}</span><div><strong>{stage.title}</strong><small>{stage.detail}</small></div><b>↗</b></div><div className="landing-story-stage-line"><span style={{ width: `${(activeStep + 1) * 33.33}%` }} /></div><div className="landing-story-stage-footer"><span>{stage.metricLabel}</span><strong>{stage.metric}</strong></div></div>
+        <button type="button" className="landing-story-demo" onClick={onViewDemo}>Ver este flujo en la demo <span>↗</span></button>
+      </div></div>
+    </div>
+  </section>;
 }
 
 function FinanceCalculator({ price, vehicle, onApplyFinancing }) {
