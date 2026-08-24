@@ -1,5 +1,5 @@
 import { Component, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { AnimatePresence, motion, useInView, useReducedMotion } from "motion/react";
+import { AnimatePresence, motion, useInView, useReducedMotion, useScroll, useTransform } from "motion/react";
 import { TurnstileField, turnstileSiteKey } from "./utils/turnstile.jsx";
 import { flushSync } from "react-dom";
 import { contrastSafeShade } from "./utils/color.js";
@@ -284,6 +284,7 @@ function LandingPage({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPrivac
         </motion.div>
       </section>
       <div className="landing-scroll-strip"><span>NO TE LO CONTAMOS</span><b>TE LO ENSEÑAMOS</b><span>SCROLL PARA EXPLORAR ↓</span></div>
+      <LandingMotionReel reduceMotion={reduceMotion} landingVideoUrl={landingVideoUrl} />
       <LandingStory reduceMotion={reduceMotion} onViewDemo={onViewDemo} />
       <section className="landing-showcase" id="landing-product" aria-label="Demostración de AUTHENTIQ">
         <div className="landing-showcase-copy">
@@ -328,6 +329,33 @@ function LandingPage({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPrivac
       </footer>
     </main>
   );
+}
+
+function LandingMotionReel({ reduceMotion, landingVideoUrl }) {
+  const reelRef = useRef(null);
+  const { scrollYProgress } = useScroll({ target: reelRef, offset: ["start end", "end start"] });
+  const roadY = useTransform(scrollYProgress, [0, 1], reduceMotion ? ["0%", "0%"] : ["-9%", "9%"]);
+  const carY = useTransform(scrollYProgress, [0, 1], reduceMotion ? ["0%", "0%"] : ["13%", "-13%"]);
+  const carX = useTransform(scrollYProgress, [0, 1], reduceMotion ? ["0%", "0%"] : ["-4%", "5%"]);
+  const copyY = useTransform(scrollYProgress, [0, 1], reduceMotion ? ["0%", "0%"] : ["8%", "-8%"]);
+  const lineScale = useTransform(scrollYProgress, [0, 1], [0.25, 1]);
+
+  return <section className="landing-motion-reel" ref={reelRef} aria-label="Experiencia visual de AUTHENTIQ">
+    <div className="landing-motion-reel-sticky">
+      <motion.div className="landing-motion-road" style={{ y: roadY }} aria-hidden="true">
+        {landingVideoUrl ? <video autoPlay={!reduceMotion} muted loop playsInline preload="metadata" poster="/assets/hero-highway.webp"><source src={landingVideoUrl} /></video> : <img src="/assets/hero-highway.webp" alt="" />}
+      </motion.div>
+      <div className="landing-motion-shade" aria-hidden="true" />
+      <motion.img className="landing-motion-car" style={{ x: carX, y: carY }} src="/assets/porsche-911-three-quarter.jpg" alt="Porsche presentado en un showroom de vehículos" />
+      <motion.div className="landing-motion-copy" style={{ y: copyY }}>
+        <span>UNA VITRINA QUE AVANZA CONTIGO</span>
+        <h2>Haz que cada vehículo tenga presencia antes de que el cliente llegue.</h2>
+        <p>Un recorrido con fotos, video, detalles y una próxima acción clara. El movimiento acompaña la historia; la venta sigue siendo fácil de entender.</p>
+        <motion.div className="landing-motion-line" style={{ scaleX: lineScale }} aria-hidden="true" />
+      </motion.div>
+      <div className="landing-motion-legend" aria-hidden="true"><span>01 / DESCUBRE</span><span>02 / EXPLORA</span><span>03 / CONTACTA</span></div>
+    </div>
+  </section>;
 }
 
 function LandingStory({ reduceMotion, onViewDemo }) {

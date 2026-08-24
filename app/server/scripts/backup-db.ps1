@@ -4,6 +4,8 @@ param(
   [switch]$Verify
 )
 
+$ErrorActionPreference = "Stop"
+
 if (-not $DatabaseUrl) { throw "Define DATABASE_URL antes de crear el backup." }
 if (-not (Get-Command pg_dump -ErrorAction SilentlyContinue)) { throw "pg_dump no está disponible en PATH." }
 $resolvedOutput = Join-Path (Get-Location) $OutputDirectory
@@ -12,7 +14,14 @@ $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $target = Join-Path $resolvedOutput "authentiq-$stamp.dump"
 pg_dump $DatabaseUrl --format=custom --file=$target --no-owner --no-privileges
 if ($LASTEXITCODE -ne 0) { throw "pg_dump no pudo crear el backup." }
-$hash = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash
+$sha256 = [System.Security.Cryptography.SHA256]::Create()
+$stream = [System.IO.File]::OpenRead($target)
+try {
+  $hash = ([System.BitConverter]::ToString($sha256.ComputeHash($stream))).Replace("-", "")
+} finally {
+  $stream.Dispose()
+  $sha256.Dispose()
+}
 $manifest = [ordered]@{
   createdAt = (Get-Date).ToUniversalTime().ToString("o")
   file = [IO.Path]::GetFileName($target)
