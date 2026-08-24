@@ -3761,6 +3761,7 @@ html[data-theme="dark"] .flyer-format-btn {
 .landing-quiet-action span { color: #e9c86c; }
 .landing-hero-proof { position: absolute; z-index: 3; right: max(30px, calc((100% - 1180px) / 2)); bottom: 38px; left: max(30px, calc((100% - 1180px) / 2)); justify-content: space-between; margin: 0; color: rgba(248,245,237,.74); }
 .landing-hero-proof b { color: #e9c86c; }
+.landing-motion-car { display: none; }
 .landing-visual-status { padding: 24px max(30px, calc((100% - 1180px) / 2)); }
 .landing-visual-caption { left: auto; right: max(30px, calc((100% - 1180px) / 2)); bottom: 105px; text-align: right; }
 .landing-visual-caption strong { font-size: clamp(36px, 4vw, 64px); }
