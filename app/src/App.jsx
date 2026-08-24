@@ -106,7 +106,7 @@ function publicMediaUrl(url) {
 }
 
 const analyticsSessionId = (() => { const key = "authentiq_analytics_session"; const current = localStorage.getItem(key); if (current) return current; const next = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`; localStorage.setItem(key, next); return next; })();
-function trackEvent(eventName, payload = {}) { fetch(`${apiUrl}/api/events`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventName, path: window.location.pathname, sessionId: analyticsSessionId, ...payload }) }).catch(() => {}); }
+function trackEvent(eventName, payload = {}) { if (localStorage.getItem("authentiq_cookie_consent") !== "accepted") return; fetch(`${apiUrl}/api/events`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventName, path: window.location.pathname, sessionId: analyticsSessionId, ...payload }) }).catch(() => {}); }
 
 function formatPrice(value) {
   return `$${Number(value).toLocaleString("en-US")} USD`;
@@ -222,6 +222,10 @@ function ShareAction({ vehicle }) {
     } catch { setShared(false); }
   };
   return <button className="detail-utility-action" type="button" onClick={share}>{shared ? "Enlace copiado ✓" : "Compartir vehículo ↗"}</button>;
+}
+
+function Breadcrumbs({ vehicle }) {
+  return <nav className="breadcrumbs" aria-label="Ruta de navegación"><a href="#catalog">Inventario</a><span aria-hidden="true">/</span><a href="#catalog">{vehicle.brand}</a><span aria-hidden="true">/</span><span aria-current="page">{vehicle.model}</span></nav>;
 }
 
 function NotFoundPage({ onBack }) {
@@ -1173,7 +1177,33 @@ function ContactForm() {
       setStatus({ loading: false, error: "", success: true }); trackEvent("contact_submitted"); setForm({ name: "", email: "", phone: "", message: "", privacyConsent: false });
     } catch (error) { setStatus({ loading: false, error: error.message, success: false }); }
   };
-  return <section className="contact-section" id="contact"><div><span className="eyebrow">CONTACTO DIRECTO</span><h2>Hablemos de tu próximo vehículo.</h2><p>Déjanos tus datos y un asesor de {getBrandName()} se pondrá en contacto contigo.</p></div><form className="contact-form" onSubmit={submit}><label>Nombre<input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required /></label><div className="lead-form-grid"><label>Correo<input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /></label><label>Teléfono<input value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} /></label></div><label>Mensaje<textarea value={form.message} onChange={(event) => setForm({ ...form, message: event.target.value })} required /></label><TurnstileField onTokenChange={setTurnstileToken} /><label className="consent-check"><input type="checkbox" checked={form.privacyConsent} onChange={(event) => setForm({ ...form, privacyConsent: event.target.checked })} required /><span>Acepto la política de privacidad y autorizo el uso de mis datos para responder este mensaje.</span></label>{status.success && <p className="form-message success-message">Mensaje recibido. Te contactaremos pronto.</p>}{status.error && <p className="state-message error">{status.error}</p>}<button className="primary-action" type="submit" disabled={status.loading}>{status.loading ? "Enviando…" : "Enviar mensaje"}</button></form></section>;
+  return <section className="contact-section" id="contact"><div><span className="eyebrow">CONTACTO DIRECTO</span><h2>Hablemos de tu próximo vehículo.</h2><p>Déjanos tus datos y un asesor de {getBrandName()} se pondrá en contacto contigo.</p><p className="response-time-note"><strong>¿Qué pasa después?</strong> Revisaremos tu mensaje durante el horario de atención y te responderemos con el siguiente paso.</p></div><form className="contact-form" onSubmit={submit}><label>Nombre<input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required /></label><div className="lead-form-grid"><label>Correo<input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /></label><label>Teléfono<input value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} /></label></div><label>Mensaje<textarea value={form.message} onChange={(event) => setForm({ ...form, message: event.target.value })} required /></label><TurnstileField onTokenChange={setTurnstileToken} /><label className="consent-check"><input type="checkbox" checked={form.privacyConsent} onChange={(event) => setForm({ ...form, privacyConsent: event.target.checked })} required /><span>Acepto la política de privacidad y autorizo el uso de mis datos para responder este mensaje.</span></label>{status.success && <p className="form-message success-message">Mensaje recibido. Te contactaremos pronto. No necesitas enviarlo otra vez.</p>}{status.error && <p className="state-message error">{status.error}</p>}<button className="primary-action" type="submit" disabled={status.loading}>{status.loading ? "Enviando…" : "Enviar mensaje"}</button></form></section>;
+}
+
+function FaqSection({ settings = {} }) {
+  const defaults = [
+    ["¿Puedo agendar una visita?", "Sí. Elige una fecha y un horario disponible desde la ficha del vehículo; el equipo confirmará la visita."],
+    ["¿Puedo entregar mi vehículo actual?", "Puedes solicitar una orientación de tasación y un asesor revisará la información contigo."],
+    ["¿La cotización es el precio final?", "La cotización es informativa y queda sujeta a disponibilidad, inspección, aprobación comercial y condiciones de financiamiento."],
+    ["¿Cómo me responderán?", "Usaremos el correo, teléfono o WhatsApp que dejaste en la solicitud. Durante el horario del showroom te indicaremos el siguiente paso."],
+  ];
+  return <section className="faq-section" id="preguntas" aria-label="Preguntas frecuentes"><div className="section-head"><div><span className="eyebrow">ANTES DE VISITARNOS</span><h2>Preguntas frecuentes.</h2></div><p>Lo esencial para avanzar con claridad.</p></div><div className="faq-list">{defaults.map(([question, answer]) => <details key={question}><summary>{question}<span aria-hidden="true">+</span></summary><p>{answer}</p></details>)}</div></section>;
+}
+
+function LocationSection({ settings = {} }) {
+  const address = String(settings.address || "").trim();
+  const hours = String(settings.hours || "").trim();
+  if (!address && !hours) return null;
+  const mapHref = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address || getBrandName())}`;
+  return <section className="location-section" id="ubicacion" aria-label="Ubicación y horario"><div><span className="eyebrow">VISÍTANOS</span><h2>Ven a conocerlo en persona.</h2><p>Si quieres verlo con calma, aquí tienes la información del showroom.</p></div><div className="location-details">{address && <div><strong>Ubicación</strong><p>{address}</p><a href={mapHref} target="_blank" rel="noreferrer">Cómo llegar ↗</a></div>}{hours && <div><strong>Horario de atención</strong><p>{hours}</p></div>}</div></section>;
+}
+
+function CookieConsentBanner() {
+  const [visible, setVisible] = useState(() => localStorage.getItem("authentiq_cookie_consent") !== "accepted");
+  if (!visible || window.location.pathname.startsWith("/backoffice")) return null;
+  const accept = () => { localStorage.setItem("authentiq_cookie_consent", "accepted"); setVisible(false); };
+  const reject = () => { localStorage.setItem("authentiq_cookie_consent", "rejected"); setVisible(false); };
+  return <aside className="cookie-consent" role="dialog" aria-label="Preferencias de cookies"><div><strong>Tu privacidad importa.</strong><p>Usamos cookies esenciales para que el showroom funcione. La analítica solo se activa si la aceptas.</p></div><div className="cookie-consent-actions"><button type="button" className="secondary-action" onClick={reject}>Solo esenciales</button><button type="button" className="primary-action" onClick={accept}>Aceptar analítica</button></div></aside>;
 }
 
 function BlogSection({ posts }) {
@@ -1329,6 +1359,7 @@ function VehicleDetail({ vehicle, vehicles = [], onBack, isFavorite = false, onT
     >
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: structuredData }} />
       <div className="detail-topbar"><button className="back-button" onClick={onBack}>Volver al catálogo</button><span className="detail-topbar-context">{vehicle.brand} · {vehicle.model}</span><a href="#similar-vehicles" className="detail-topbar-link">Ver similares ↓</a></div>
+      <Breadcrumbs vehicle={vehicle} />
       <section className="detail-grid">
         <div>
           <div className="detail-image-wrap" role="button" tabIndex="0" aria-label="Ampliar imagen" onClick={() => setLightboxOpen(true)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") setLightboxOpen(true); }}>
@@ -1996,6 +2027,8 @@ function App() {
 
         <CompareTable vehicles={compareVehicles} />
         <ContactForm />
+        <FaqSection settings={businessSettings} />
+        <LocationSection settings={businessSettings} />
         {businessSettings.showBlog !== false && <BlogSection posts={posts} />}
         <footer className="site-footer">
           {(businessSettings.phone || businessSettings.whatsapp || businessSettings.email || businessSettings.instagramUrl || businessSettings.facebookUrl) && <div className="site-footer-contact">{businessSettings.phone && <a href={`tel:${businessSettings.phone}`}>{businessSettings.phone}</a>}{businessSettings.whatsapp && <a href={`https://wa.me/${businessSettings.whatsapp.replace(/\D/g, "")}`} target="_blank" rel="noreferrer">WhatsApp</a>}{businessSettings.email && <a href={`mailto:${businessSettings.email}`}>{businessSettings.email}</a>}{businessSettings.instagramUrl && <a href={businessSettings.instagramUrl} target="_blank" rel="noreferrer">Instagram ↗</a>}{businessSettings.facebookUrl && <a href={businessSettings.facebookUrl} target="_blank" rel="noreferrer">Facebook ↗</a>}</div>}
@@ -2028,5 +2061,5 @@ class AppErrorBoundary extends Component {
 }
 
 export default function AppRoot() {
-  return <AppErrorBoundary><App /></AppErrorBoundary>;
+  return <AppErrorBoundary><App /><CookieConsentBanner /></AppErrorBoundary>;
 }
