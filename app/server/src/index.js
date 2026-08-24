@@ -1271,15 +1271,18 @@ async function dispatchAppointmentReminders() {
   const webhookUrl = String(process.env.APPOINTMENT_REMINDER_WEBHOOK_URL || "").trim();
   if (!webhookUrl && !emailDeliveryConfigured) return;
   const result = await pool.query(`
-    SELECT t.id, t.customer_name AS "customerName", t.customer_email AS "customerEmail", t.customer_phone AS "customerPhone", t.requested_date AS "date", t.requested_time AS "time", t.reminder_24h_sent_at AS "reminder24hSentAt", t.reminder_2h_sent_at AS "reminder2hSentAt", b.name AS brand, v.model
+    SELECT t.id, t.customer_name AS "customerName", t.customer_email AS "customerEmail", t.customer_phone AS "customerPhone", t.requested_date AS "date", t.requested_time AS "time", t.reminder_24h_sent_at AS "reminder24hSentAt", t.reminder_2h_sent_at AS "reminder2hSentAt", b.name AS brand, v.model, os.appointment_timezone AS timezone
     FROM test_drive_requests t
     JOIN vehicles v ON v.id=t.vehicle_id
     JOIN vehicle_brands b ON b.id=v.brand_id
+    LEFT JOIN organization_settings os ON os.organization_id=t.organization_id
     WHERE t.status IN ('pending','confirmed') AND (t.customer_email IS NOT NULL OR t.customer_phone IS NOT NULL)
-      AND (t.requested_date + t.requested_time) BETWEEN NOW() + INTERVAL '1 hour 45 minutes' AND NOW() + INTERVAL '25 hours'`);
+      AND t.requested_date BETWEEN CURRENT_DATE - 1 AND CURRENT_DATE + 2`);
   for (const appointment of result.rows) {
-    const appointmentAt = new Date(`${String(appointment.date).slice(0, 10)}T${String(appointment.time).slice(0, 5)}:00`);
+    let appointmentAt;
+    try { appointmentAt = zonedLocalDateTimeToUtc(String(appointment.date).slice(0, 10), String(appointment.time).slice(0, 5), appointment.timezone || "America/Santo_Domingo"); } catch { continue; }
     const hoursUntil = (appointmentAt.getTime() - Date.now()) / 3600000;
+    if (hoursUntil < 1.75 || hoursUntil > 25) continue;
     const reminderType = hoursUntil >= 20 ? "24h" : hoursUntil <= 4 ? "2h" : null;
     const sentColumn = reminderType === "24h" ? "reminder_24h_sent_at" : reminderType === "2h" ? "reminder_2h_sent_at" : null;
     if (!sentColumn || appointment[reminderType === "24h" ? "reminder24hSentAt" : "reminder2hSentAt"]) continue;
