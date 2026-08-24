@@ -840,6 +840,10 @@ html[data-theme="dark"] .appointment-actions select { background: #111315; color
 .stat-card, .chart-panel, .activity-panel, .table-panel, .records-list, .lead-row, .blog-public-card { transition: border-color .18s var(--ease-out-quart), background-color .18s var(--ease-out-quart), transform .18s var(--ease-out-quart); }
 .lead-row:hover, .user-row:hover { border-color: var(--tenant-primary); }
 .lead-row.is-focused { border-color: var(--tenant-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--tenant-primary) 22%, transparent); background: color-mix(in srgb, var(--tenant-primary) 6%, #fff); }
+.lead-attention-filter { display: flex; justify-content: flex-end; margin: -8px 0 12px; }
+.lead-attention-filter label { display: flex; align-items: center; gap: 10px; color: var(--auth-muted); font: 14px "IBM Plex Mono", monospace; }
+.lead-attention-filter select { min-height: 40px; border: 1px solid var(--auth-line); padding: 8px 32px 8px 10px; background: var(--auth-paper); color: var(--auth-ink); font: inherit; }
+@media (max-width: 620px) { .lead-attention-filter { justify-content: stretch; } .lead-attention-filter label { width: 100%; display: grid; gap: 6px; } .lead-attention-filter select { width: 100%; } }
 .photo-item { transition: border-color .18s ease, transform .18s ease, box-shadow .18s ease; }
 .photo-item:hover { transform: translateY(-2px); border-color: var(--tenant-primary); box-shadow: 0 6px 14px rgba(10,10,10,.1); }
 .form-message { animation: admin-message-in .22s ease-out both; }
