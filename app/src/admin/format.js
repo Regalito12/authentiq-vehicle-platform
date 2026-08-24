@@ -13,6 +13,11 @@ export function formatDate(value) {
   return new Date(value).toLocaleDateString("es-DO", { day: "2-digit", month: "short", year: "numeric" });
 }
 
+export function formatDateTime(value) {
+  if (!value) return "—";
+  return new Date(value).toLocaleString("es-DO", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
 export const statusLabels = {
   new: "Nuevo",
   contacted: "Contactado",
