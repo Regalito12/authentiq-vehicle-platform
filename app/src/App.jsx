@@ -1788,6 +1788,20 @@ function App() {
 
   useEffect(() => { document.documentElement.dataset.theme = theme; localStorage.setItem("authentiq_theme", theme); }, [theme]);
   useEffect(() => {
+    const guardUnconfiguredWhatsapp = async (event) => {
+      const link = event.target.closest?.('a[href*="wa.me/"]');
+      if (!link) return;
+      const url = new URL(link.href, window.location.href);
+      if (url.pathname.replace(/\D/g, "")) return;
+      event.preventDefault();
+      const text = decodeURIComponent(url.searchParams.get("text") || "");
+      const sharedUrl = text.match(/https?:\/\/[^\s]+/)?.[0] || window.location.href;
+      await shareOrCopyUrl(sharedUrl, "Ficha del vehículo").catch(() => null);
+    };
+    document.addEventListener("click", guardUnconfiguredWhatsapp);
+    return () => document.removeEventListener("click", guardUnconfiguredWhatsapp);
+  }, []);
+  useEffect(() => {
     const preloadBackoffice = () => import("./admin/Backoffice.jsx").catch(() => null);
     if (typeof window.requestIdleCallback === "function") {
       const idleId = window.requestIdleCallback(preloadBackoffice, { timeout: 1800 });
