@@ -269,7 +269,7 @@ function LandingPage({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPrivac
       <section className="landing-hero" id="landing-top">
         <motion.div className="landing-hero-copy" initial={reduceMotion ? false : { opacity: 0, y: 24 }} animate={reduceMotion ? undefined : { opacity: 1, y: 0 }} transition={{ duration: .7, ease: [0.22, 1, 0.36, 1] }}>
           <span className="eyebrow">LA VITRINA DIGITAL PARA CONCESIONARIOS</span>
-          <h1>Tu inventario.<br /><em>Una experiencia</em><br />que se mueve.</h1>
+          <h1>Tu inventario.<br /><em>Se siente.</em><br />En movimiento.</h1>
           <p>Presenta cada vehículo con la claridad de una buena visita al lote y la fuerza de una marca que el cliente recuerda.</p>
           <div className="landing-actions"><button className="primary-action vui-shine-action" type="button" onClick={onCreateShowroom}>Crear mi showroom <span>↗</span></button><button className="landing-quiet-action" type="button" onClick={onViewDemo}>Explorar una demo real <span>↓</span></button></div>
           <div className="landing-hero-proof"><span><b>01</b> Marca blanca</span><span><b>02</b> Inventario vivo</span><span><b>03</b> Leads y citas</span></div>

@@ -3959,3 +3959,16 @@ button, input, select, textarea { font-size: 16px; }
   .admin-navigation-shell .admin-context-bar { margin-top: 10px; }
   .admin-nav-more-toggle { min-height: 44px; }
 }
+
+/* Dirección del showroom: el coche es el protagonista y el reel aporta
+   textura de movimiento sin volver el hero un fondo de árboles genérico. */
+.landing-hero .landing-visual-media { background: #101516 url("/assets/authentiq-hero-v1.webp") center / cover no-repeat; }
+.landing-hero .landing-visual-media video { opacity: 0; }
+.landing-hero .landing-visual-wash { background: linear-gradient(90deg, rgba(8,10,10,.92) 0%, rgba(8,10,10,.55) 38%, rgba(8,10,10,.08) 78%), linear-gradient(0deg, rgba(8,10,10,.64), transparent 45%); }
+.landing-hero h1 { max-width: 10.5ch; text-wrap: balance; }
+.landing-hero h1 em { color: #e9c86c; }
+.landing-hero .landing-visual-ring { display: none; }
+@media (max-width: 700px) {
+  .landing-hero h1 { max-width: 9.5ch; }
+  .landing-hero .landing-visual-media video { opacity: .08; }
+}
