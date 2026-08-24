@@ -292,11 +292,12 @@ function DashboardPulse({ data, leads, offers, appointments, onNavigate, current
 
 function DashboardSetupCard({ onboarding, onOpenOnboarding, onOpenPublic }) {
   if (!onboarding?.steps?.length) return null;
-  const completed = Number(onboarding.completed ?? onboarding.steps.filter((step) => step.done).length);
-  const isComplete = completed === onboarding.steps.length;
-  const nextStep = onboarding.steps.find((step) => !step.done);
-  const progress = Math.max(0, Math.min(100, Number(onboarding.progress) || 0));
-  const groupDone = (ids) => onboarding.steps.filter((step) => ids.includes(step.id)).every((step) => step.done);
+  // El centro de inicio debe usar la misma regla que el panel de personalización:
+  // dominio y redes pueden mejorar el showroom, pero no deben impedir que el dealer
+  // empiece a operar si identidad, contacto, agenda y vitrina están listos.
+  const { essentialTotal, essentialDone, ready: isComplete, progress } = buildOnboardingGroups(onboarding);
+  const nextStep = onboarding.steps.find((step) => step.essential && !step.done) || onboarding.steps.find((step) => !step.done);
+  const groupDone = (ids) => onboarding.steps.filter((step) => ids.includes(step.id) && step.essential).every((step) => step.done);
   const signals = [
     { label: "Identidad", done: groupDone(["identity", "logo", "domain"]) },
     { label: "Operación", done: groupDone(["contact", "appointments", "legal"]) },
@@ -306,11 +307,11 @@ function DashboardSetupCard({ onboarding, onOpenOnboarding, onOpenPublic }) {
     <div className="dashboard-setup-main">
       <div className="dashboard-setup-heading"><span className="eyebrow">CENTRO DE INICIO · PERSONALIZACIÓN</span><span className="dashboard-setup-percent">{progress}%</span></div>
       <h3>{isComplete ? "Tu showroom está listo para vender." : "Haz que tu showroom quede listo para vender."}</h3>
-      <p>{isComplete ? "La identidad, la operación y la vitrina ya están configuradas. Ahora puedes revisar la experiencia como comprador." : `Te queda ${onboarding.steps.length - completed} ${onboarding.steps.length - completed === 1 ? "paso" : "pasos"} para dejar tu showroom listo para recibir clientes.`}</p>
+      <p>{isComplete ? "La identidad, la operación y la vitrina ya están configuradas. Ahora puedes revisar la experiencia como comprador." : `Te queda ${essentialTotal - essentialDone} ${essentialTotal - essentialDone === 1 ? "paso esencial" : "pasos esenciales"} para dejar tu showroom listo para recibir clientes.`}</p>
       <div className="dashboard-setup-progress" aria-label={`${progress}% configurado`}><span style={{ width: `${progress}%` }} /></div>
       <div className="dashboard-setup-actions"><button className="primary-action" type="button" onClick={isComplete ? onOpenPublic : onOpenOnboarding}>{isComplete ? "Abrir showroom público ↗" : `Continuar con ${nextStep?.label?.toLowerCase() || "la configuración"} →`}</button>{!isComplete && <button className="text-button" type="button" onClick={onOpenPublic}>Ver vista pública</button>}</div>
     </div>
-      <div className="dashboard-setup-side"><div className="dashboard-setup-side-head"><span className="eyebrow">LECTURA RÁPIDA</span><small>{completed}/{onboarding.steps.length} completados</small></div><div className="dashboard-setup-signals">{signals.map((signal) => <div className={signal.done ? "is-done" : ""} key={signal.label}><span>{signal.done ? "✓" : "·"}</span><strong>{signal.label}</strong><small>{signal.done ? "Listo" : "Pendiente"}</small></div>)}</div><p>{isComplete ? "Comprueba el resultado desde la vista pública antes de compartir el enlace." : "La personalización seguirá disponible desde el botón Personalizar showroom."}</p></div>
+      <div className="dashboard-setup-side"><div className="dashboard-setup-side-head"><span className="eyebrow">LECTURA RÁPIDA</span><small>{essentialDone}/{essentialTotal} esenciales</small></div><div className="dashboard-setup-signals">{signals.map((signal) => <div className={signal.done ? "is-done" : ""} key={signal.label}><span>{signal.done ? "✓" : "·"}</span><strong>{signal.label}</strong><small>{signal.done ? "Listo" : "Pendiente"}</small></div>)}</div><p>{isComplete ? "Comprueba el resultado desde la vista pública antes de compartir el enlace." : "La personalización seguirá disponible desde el botón Personalizar showroom."}</p></div>
   </section>;
 }
 
