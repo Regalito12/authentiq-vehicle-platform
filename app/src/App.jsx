@@ -266,7 +266,7 @@ function LandingPage({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPrivac
           <span className="eyebrow">AUTHENTIQ · PLATAFORMA PARA DEALERS</span>
           <h1>Cada dealer. <em>Su marca.</em><br />Un showroom que se mueve.</h1>
           <p>Convierte tu inventario en una experiencia digital que los clientes entienden, exploran y recuerdan.</p>
-          <div className="landing-actions"><button className="primary-action" type="button" onClick={onCreateShowroom}>Quiero mi showroom <span>↗</span></button><button className="landing-quiet-action" type="button" onClick={onViewDemo}>Ver la demo del producto <span>↓</span></button></div>
+          <div className="landing-actions"><button className="primary-action vui-shine-action" type="button" onClick={onCreateShowroom}>Quiero mi showroom <span>↗</span></button><button className="landing-quiet-action" type="button" onClick={onViewDemo}>Ver la demo del producto <span>↓</span></button></div>
           <div className="landing-hero-proof"><span><b>01</b> Marca blanca</span><span><b>02</b> Inventario vivo</span><span><b>03</b> Leads y citas</span></div>
         </motion.div>
         <motion.div className="landing-hero-visual" initial={reduceMotion ? false : { opacity: 0, scale: .96 }} animate={reduceMotion ? undefined : { opacity: 1, scale: 1 }} transition={{ duration: .9, delay: .12, ease: [0.22, 1, 0.36, 1] }}>
@@ -289,7 +289,7 @@ function LandingPage({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPrivac
           <h2>No tienes que explicar la plataforma. Puedes enseñarla.</h2>
           <p>Abre un showroom de ejemplo y recorre lo que verá cada cliente: inventario, fichas de vehículo, comparación, citas, ofertas y una experiencia 3D preparada para cada modelo.</p>
           <div className="landing-showcase-actions">
-            <button className="primary-action" type="button" onClick={onViewDemo}>Abrir showroom de ejemplo ↗</button>
+            <button className="primary-action vui-shine-action" type="button" onClick={onViewDemo}>Abrir showroom de ejemplo ↗</button>
             <a className="landing-presentation-link" href="/presentacion">Iniciar presentación guiada <span>→</span></a>
             <span className="landing-showcase-note"><b>01</b> Demo guiada · 02 Inventario · 03 Conversión</span>
           </div>
@@ -317,7 +317,7 @@ function LandingPage({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPrivac
       <section className="landing-cta" id="landing-demo">
         <h2>¿Tienes un lote de vehículos y quieres venderlos online?</h2>
         <p>Crea tu cuenta en minutos. Tu showroom queda listo para personalizar de inmediato.</p>
-        <button className="primary-action" type="button" onClick={onCreateShowroom}>Crear mi showroom →</button>
+        <button className="primary-action vui-shine-action" type="button" onClick={onCreateShowroom}>Crear mi showroom →</button>
       </section>
       <footer className="landing-footer">
         <div><span className="brand-mark">AUTHENTIQ<span>°</span></span><p>Showrooms digitales para dealers que quieren vender mejor.</p></div>

@@ -54,6 +54,11 @@ html { scroll-behavior: smooth; }
 .landing-footer nav { display: flex; flex-wrap: wrap; gap: 16px; }
 .landing-footer nav a, .landing-footer nav button { border: 0; padding: 0; background: transparent; color: #bdb6ab; cursor: pointer; font: 14px "IBM Plex Mono", monospace; letter-spacing: .08em; text-decoration: none; text-transform: uppercase; }
 .landing-footer nav a:hover, .landing-footer nav button:hover, .landing-footer nav a:focus-visible, .landing-footer nav button:focus-visible { color: var(--tenant-primary-ink, var(--tenant-primary)); }
+.vui-shine-action { position: relative; isolation: isolate; overflow: hidden; }
+.vui-shine-action::after { position: absolute; z-index: -1; top: -20%; bottom: -20%; left: -44%; width: 28%; content: ""; background: linear-gradient(100deg, transparent, rgba(255,255,255,.48), transparent); transform: skewX(-18deg); transition: left .55s cubic-bezier(.22,1,.36,1); }
+.vui-shine-action:hover::after, .vui-shine-action:focus-visible::after { left: 122%; }
+.vui-shine-action:focus-visible { outline: 2px solid var(--tenant-primary-ink, var(--tenant-primary)); outline-offset: 3px; }
+@media (prefers-reduced-motion: reduce) { .vui-shine-action::after { display: none; } }
 .landing-footer small { color: #716c64; font: 14px "IBM Plex Mono", monospace; letter-spacing: .04em; text-align: right; }
 .landing-showcase-note { color: #817b72; font: 14px "IBM Plex Mono", monospace; letter-spacing: .06em; text-transform: uppercase; }
 .landing-showcase-note b, .landing-showcase-footer b { color: var(--tenant-primary-ink, var(--tenant-primary)); font-weight: 500; }
