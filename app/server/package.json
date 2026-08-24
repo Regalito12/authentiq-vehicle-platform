@@ -14,6 +14,7 @@
     "test:tenants": "node scripts/tenant-isolation-test.js",
     "test:e2e": "node scripts/e2e-test.js",
     "migrate:3d": "node scripts/migrate-local-3d-to-supabase.mjs",
+    "migrate:storefront-content": "node scripts/apply-migration.js 045_storefront_trust_content.sql",
     "check:components": "node scripts/check-components.js",
     "check:readability": "node scripts/check-readability.mjs",
     "test:browser": "node scripts/browser-check.js",
