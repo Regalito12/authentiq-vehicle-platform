@@ -1251,6 +1251,7 @@ export default function Backoffice({ onBack, onVehiclesChanged, initialMode = "l
   const [login, setLogin] = useState({ email: "", password: "" });
   const [loginError, setLoginError] = useState("");
   const [activeModule, setActiveModule] = useState("dashboard");
+  const [leadDraftDirty, setLeadDraftDirty] = useState(false);
   const [dashboard, setDashboard] = useState(null);
   const [dashboardError, setDashboardError] = useState("");
   const [vehicles, setVehicles] = useState([]);
@@ -1289,6 +1290,26 @@ export default function Backoffice({ onBack, onVehiclesChanged, initialMode = "l
   const [loading, setLoading] = useState(false);
   const [moduleLoading, setModuleLoading] = useState(false);
   const [theme, setTheme] = useState(() => localStorage.getItem("authentiq_theme") || "light");
+  useEffect(() => {
+    const syncLeadDraft = (event) => setLeadDraftDirty(Boolean(event.detail));
+    window.addEventListener("authentiq:lead-dirty", syncLeadDraft);
+    return () => window.removeEventListener("authentiq:lead-dirty", syncLeadDraft);
+  }, []);
+  useEffect(() => {
+    const guardAdminNavigation = (event) => {
+      if (activeModule !== "leads" || !leadDraftDirty) return;
+      const button = event.target.closest?.(".admin-nav-item");
+      if (!button || button.classList.contains("active")) return;
+      if (!window.confirm("Tienes cambios de seguimiento sin guardar. ¿Quieres salir y descartarlos?")) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+      setLeadDraftDirty(false);
+    };
+    document.addEventListener("click", guardAdminNavigation, true);
+    return () => document.removeEventListener("click", guardAdminNavigation, true);
+  }, [activeModule, leadDraftDirty]);
   useEffect(() => { if (!message) return undefined; const timer = window.setTimeout(() => setMessage(""), 3200); return () => window.clearTimeout(timer); }, [message]);
 
   const request = async (path, options = {}) => { const response = await fetch(`${apiUrl}${path}`, { ...options, credentials: "include", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, ...(options.headers || {}) } }); const payload = response.status === 204 ? null : await response.json(); if (response.status === 401) { localStorage.removeItem("authentiq_admin_token"); setToken(""); throw new Error("La sesión expiró. Inicia sesión nuevamente."); } if (!response.ok) throw new Error(payload?.error || "La operación no pudo completarse"); return payload; };
