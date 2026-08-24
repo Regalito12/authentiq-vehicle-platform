@@ -839,6 +839,7 @@ html[data-theme="dark"] .appointment-actions select { background: #111315; color
 .admin-form input:focus, .admin-form select:focus, .admin-form textarea:focus, .lead-management select:focus, .lead-management textarea:focus, .table-search:focus, .lead-filters input:focus, .lead-filters select:focus { outline: none; border-color: var(--tenant-primary); box-shadow: 0 0 0 3px rgba(200,162,75,.14); transition: border-color .16s ease, box-shadow .16s ease; }
 .stat-card, .chart-panel, .activity-panel, .table-panel, .records-list, .lead-row, .blog-public-card { transition: border-color .18s var(--ease-out-quart), background-color .18s var(--ease-out-quart), transform .18s var(--ease-out-quart); }
 .lead-row:hover, .user-row:hover { border-color: var(--tenant-primary); }
+.lead-row.is-focused { border-color: var(--tenant-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--tenant-primary) 22%, transparent); background: color-mix(in srgb, var(--tenant-primary) 6%, #fff); }
 .photo-item { transition: border-color .18s ease, transform .18s ease, box-shadow .18s ease; }
 .photo-item:hover { transform: translateY(-2px); border-color: var(--tenant-primary); box-shadow: 0 6px 14px rgba(10,10,10,.1); }
 .form-message { animation: admin-message-in .22s ease-out both; }
@@ -904,6 +905,7 @@ html[data-theme="dark"] .notification-item { border-color: #303538; }
 html[data-theme="dark"] .notification-item span, html[data-theme="dark"] .notification-item small { color: #9da39f; }
 html[data-theme="dark"] .notification-item:hover { background: #202326; }
 html[data-theme="dark"] .lead-row:hover, html[data-theme="dark"] .user-row:hover { border-color: var(--tenant-primary); }
+html[data-theme="dark"] .lead-row.is-focused { background: color-mix(in srgb, var(--tenant-primary) 12%, #181b1d); }
 html[data-theme="dark"] .role-chip { color: #e7c978; }
 html[data-theme="dark"] .copy-action { border-color: #596164; color: #e7c978; }
 html[data-theme="dark"] .lead-events { border-color: #303538; background: #111315; }
