@@ -3630,6 +3630,107 @@ html[data-theme="dark"] .flyer-format-btn {
   }
 }
 
+/* Landing polish: más aire, una navegación de marca y una narrativa visual que
+   deja respirar cada escena. Se mantiene el mismo HTML para no romper los CTAs
+   ni los puntos de entrada del showroom. */
+.landing-page {
+  background: #f3f0e8;
+  color: #171817;
+}
+.landing-nav {
+  position: sticky;
+  top: 14px;
+  width: min(1180px, calc(100% - 40px));
+  min-height: 58px;
+  margin: 14px auto 0;
+  padding: 8px 10px 8px 20px;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 999px;
+  background: rgba(31,33,30,.96);
+  box-shadow: 0 12px 30px rgba(31,33,30,.14);
+  color: #f8f5ed;
+}
+.landing-brand { color: #f8f5ed; font-size: 18px; letter-spacing: .12em; }
+.landing-nav-links { gap: 26px; }
+.landing-nav-links a, .landing-nav-login { color: #bdbdb4; font-size: 14px; letter-spacing: .045em; }
+.landing-nav-links a:hover, .landing-nav-login:hover { color: #f0c861; }
+.landing-nav-cta { min-height: 42px; border-color: #b7e5bc; border-radius: 999px; padding: 9px 16px; background: #b7e5bc; color: #171817; font-size: 14px; letter-spacing: .035em; }
+.landing-nav-cta:hover { background: #d0f1d1; }
+.landing-hero {
+  grid-template-columns: minmax(300px, .82fr) minmax(0, 1.18fr);
+  width: min(1240px, 100%);
+  min-height: min(860px, calc(100vh - 28px));
+  padding: clamp(82px, 12vh, 150px) 30px 112px;
+  gap: clamp(46px, 7vw, 110px);
+}
+.landing-hero h1 {
+  max-width: 9ch;
+  font-size: clamp(52px, 7vw, 96px);
+  letter-spacing: -.04em;
+  line-height: .91;
+}
+.landing-hero h1 em { color: #9b7625; font-style: normal; }
+.landing-hero-copy > p { max-width: 36ch; margin-top: 28px; color: #5e5c55; font-size: 18px; line-height: 1.65; }
+.landing-actions { margin-top: 34px; gap: 22px; }
+.landing-page .primary-action { border-radius: 999px; padding-inline: 21px; }
+.landing-hero-proof { gap: 22px; margin-top: 58px; color: #77736a; font-size: 14px; letter-spacing: .045em; }
+.landing-hero-visual { min-height: clamp(500px, 70vh, 680px); border-radius: 4px; box-shadow: 18px 26px 64px rgba(57,49,35,.18); }
+.landing-visual-card { top: 84px; right: 28px; width: 188px; padding: 18px; border-radius: 2px; }
+.landing-visual-caption { left: 32px; bottom: 42px; }
+.landing-visual-caption strong { letter-spacing: -.04em; }
+.landing-scroll-strip { min-height: 54px; padding-block: 17px; }
+.landing-motion-reel { height: 175vh; }
+.landing-motion-copy h2 { letter-spacing: -.04em; }
+.landing-story { padding-top: clamp(150px, 18vh, 220px); padding-bottom: clamp(150px, 18vh, 220px); }
+.landing-story-heading { margin-bottom: 84px; }
+.landing-story-heading h2, .landing-showcase-copy h2, .landing-flow-heading h2 { letter-spacing: -.04em; }
+.landing-story-step { min-height: 210px; padding-bottom: 42px; }
+.landing-story-step + .landing-story-step { padding-top: 42px; }
+.landing-story-stage { min-height: 590px; box-shadow: 0 18px 8px rgba(57,49,35,.06); }
+.landing-showcase { padding-top: clamp(160px, 18vh, 230px); padding-bottom: clamp(150px, 18vh, 220px); }
+.landing-showcase-frame { transform: rotate(.5deg); }
+.landing-pillars { margin-bottom: clamp(120px, 15vh, 190px); }
+.landing-pillars article { min-height: 220px; padding: 44px 36px; }
+.landing-flow { padding-bottom: clamp(150px, 18vh, 220px); }
+.landing-flow-heading { margin-bottom: 54px; }
+.landing-flow-list article { min-height: 250px; padding-top: 30px; }
+.landing-cta { padding: clamp(130px, 16vh, 190px) 24px; }
+
+/* El simulador debe convertirse en una sola columna antes de que el contenido
+   pierda legibilidad. En móvil, cada fila de resumen respira y no se pisa. */
+.financing-calc-card { grid-template-columns: minmax(0, 1.15fr) minmax(280px, .85fr); gap: clamp(24px, 4vw, 52px); padding: clamp(24px, 4vw, 40px); overflow: hidden; }
+.financing-result-box { min-width: 0; gap: 22px; padding: clamp(20px, 3vw, 30px); }
+.financing-monthly-amount { overflow-wrap: anywhere; }
+.financing-breakdown-row { gap: 14px; }
+@media (max-width: 860px) {
+  .financing-calc-card { grid-template-columns: 1fr; gap: 28px; }
+  .financing-result-box { width: 100%; }
+}
+@media (max-width: 560px) {
+  .landing-nav { top: 8px; width: calc(100% - 24px); margin-top: 8px; padding-left: 15px; }
+  .landing-brand { font-size: 16px; }
+  .landing-nav-cta { min-height: 38px; padding-inline: 12px; font-size: 14px; }
+  .landing-hero { padding: 70px 20px 86px; gap: 42px; }
+  .landing-hero h1 { font-size: clamp(48px, 14vw, 72px); }
+  .landing-hero-copy > p { font-size: 16px; }
+  .landing-hero-proof { display: grid; gap: 10px; margin-top: 38px; }
+  .landing-hero-visual { min-height: 430px; }
+  .landing-visual-caption { left: 20px; bottom: 64px; }
+  .landing-visual-caption strong { font-size: 42px; }
+  .landing-showcase { padding-top: 110px; padding-bottom: 110px; }
+  .landing-pillars { margin-bottom: 110px; }
+  .landing-pillars article { min-height: 0; padding: 34px 24px; }
+  .financing-calc-card { margin: 24px 0; padding: 22px 16px; gap: 26px; }
+  .calc-field-head { align-items: flex-start; flex-direction: column; gap: 5px; }
+  .calc-term-pills { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .calc-term-pill { min-width: 0; }
+  .financing-result-box { padding: 20px 16px; }
+  .financing-breakdown-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 10px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .landing-page *, .landing-page *::before, .landing-page *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; }
+}
+
 
 /* ---- Transición nativa entre catálogo y ficha ----
    La foto de la tarjeta crece hasta la foto grande de la ficha en vez de cortar
