@@ -202,7 +202,7 @@ function TaxonomyModule({ taxonomy: externalTaxonomy, loading: externalLoading =
 function AdminNav({ activeModule, onChange, onBack, onLogout, role, unreadNotifications, notifications, onReadNotifications, onPreview, onOpenOnboarding, theme, onToggleTheme, vehicles = [], businessName = "AUTHENTIQ" }) {
   const [showNotifications, setShowNotifications] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
-  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(true);
   const [commandOpen, setCommandOpen] = useState(false);
   const visibleItems = navItemsWithAppointments(role);
   const primaryKeys = ["dashboard", "inventory", "leads", "appointments", "quotes"];
@@ -226,13 +226,16 @@ function AdminNav({ activeModule, onChange, onBack, onLogout, role, unreadNotifi
         <div className="admin-header-actions"><button className="secondary-action command-launch" type="button" onClick={() => setCommandOpen(true)}><MagnifyingGlassIcon size={16} aria-hidden="true" />Acciones <kbd>Ctrl K</kbd></button><div className="notification-wrap"><button className="notification-button" type="button" onClick={() => setShowNotifications((current) => !current)} aria-expanded={showNotifications} aria-label="Abrir notificaciones"><BellIcon size={16} weight="regular" aria-hidden="true" />Notificaciones {unreadNotifications > 0 && <span>{unreadNotifications}</span>}</button>{showNotifications && <div className="notification-popover"><div className="notification-popover-head"><strong>Actividad reciente</strong>{unreadNotifications > 0 && <button className="text-button" type="button" onClick={onReadNotifications}>Marcar leídas</button>}</div>{notifications?.length ? notifications.slice(0, 8).map((notification) => <article className={notification.readAt ? "notification-item" : "notification-item unread"} key={notification.id}><strong>{notification.title}</strong><span>{notification.body}</span><small>{formatDate(notification.createdAt)}</small></article>) : <p className="empty-state">No hay notificaciones nuevas.</p>}</div>}</div>{["admin", "editor"].includes(role) && <button className="secondary-action onboarding-launch-button" type="button" onClick={role === "editor" ? () => onChange("settings") : onOpenOnboarding}><PaintBrushIcon size={16} weight="regular" aria-hidden="true" />Personalizar showroom</button>}<button className="secondary-action theme-toggle" type="button" onClick={onToggleTheme} aria-label="Cambiar tema">{theme === "dark" ? <SunIcon size={16} weight="regular" aria-hidden="true" /> : <MoonIcon size={16} weight="regular" aria-hidden="true" />}{theme === "dark" ? "Modo claro" : "Modo oscuro"}</button><button className="secondary-action" type="button" onClick={onPreview}><EyeIcon size={16} weight="regular" aria-hidden="true" />Vista previa</button><button className="secondary-action" onClick={onBack}><HouseIcon size={16} weight="regular" aria-hidden="true" />Ver catálogo</button><button className="secondary-action" onClick={onLogout}>Cerrar sesión</button></div>
       </header>
       <div className="admin-presentation-launch"><span>¿Quieres enseñar el showroom sin herramientas de administración?</span><button className="secondary-action" type="button" onClick={() => window.open("/presentacion", "_blank", "noopener,noreferrer")}>Abrir vista de presentación →</button></div>
-      <nav className="admin-nav" aria-label="Módulos administrativos">
-        <div className="admin-nav-core"><span className="admin-nav-label">Trabajo diario</span>{primaryItems.map(([key, label]) => <button key={key} className={activeModule === key ? "admin-nav-item active" : "admin-nav-item"} aria-current={activeModule === key ? "page" : undefined} onClick={() => onChange(key)}><AdminModuleIcon name={key} />{label}</button>)}</div>
-        {advancedItems.length > 0 && <div className="admin-nav-advanced"><button className="admin-nav-more-toggle" type="button" aria-expanded={advancedOpen} onClick={() => setAdvancedOpen((current) => !current)}>{advancedOpen ? "Ocultar administración" : "Más herramientas"} {advancedOpen ? <CaretUpIcon size={15} aria-hidden="true" /> : <CaretDownIcon size={15} aria-hidden="true" />}</button>{advancedOpen && <div className="admin-nav-more-panel"><span className="admin-nav-label">Administración</span>{advancedItems.map(([key, label]) => <button key={key} className={activeModule === key ? "admin-nav-item active" : "admin-nav-item"} aria-current={activeModule === key ? "page" : undefined} onClick={() => { setAdvancedOpen(true); onChange(key); }}><AdminModuleIcon name={key} />{label}</button>)}</div>}</div>}
-      </nav>
-      <div className="admin-context-bar" aria-live="polite"><span><b>{moduleContext[0]}</b><small>{moduleContext[1]}</small></span><span className="admin-context-hint">Navega con las secciones de arriba</span></div>
-      {activeModule === "inventory" && <button className="secondary-action inventory-import-trigger" type="button" onClick={() => setImportOpen(true)}><UploadSimpleIcon size={16} aria-hidden="true" />Importar inventario</button>}
-      {activeModule === "inventory" && <InventoryImportModal open={importOpen} onClose={() => setImportOpen(false)} vehicles={vehicles} />}
+      <aside className="admin-navigation-shell">
+        <div className="admin-navigation-brand"><span className="admin-navigation-kicker">Tu operación</span><strong>{businessName}</strong><small>{role === "admin" ? "Control total del showroom" : "Espacio de trabajo"}</small></div>
+        <nav className="admin-nav" aria-label="Módulos administrativos">
+          <div className="admin-nav-core"><span className="admin-nav-label">Trabajo diario</span>{primaryItems.map(([key, label]) => <button key={key} className={activeModule === key ? "admin-nav-item active" : "admin-nav-item"} aria-current={activeModule === key ? "page" : undefined} onClick={() => onChange(key)}><AdminModuleIcon name={key} />{label}</button>)}</div>
+          {advancedItems.length > 0 && <div className="admin-nav-advanced"><button className="admin-nav-more-toggle" type="button" aria-expanded={advancedOpen} onClick={() => setAdvancedOpen((current) => !current)}><span>Administración</span>{advancedOpen ? <CaretUpIcon size={15} aria-hidden="true" /> : <CaretDownIcon size={15} aria-hidden="true" />}</button>{advancedOpen && <div className="admin-nav-more-panel">{advancedItems.map(([key, label]) => <button key={key} className={activeModule === key ? "admin-nav-item active" : "admin-nav-item"} aria-current={activeModule === key ? "page" : undefined} onClick={() => { setAdvancedOpen(true); onChange(key); }}><AdminModuleIcon name={key} />{label}</button>)}</div>}</div>}
+        </nav>
+        <div className="admin-context-bar" aria-live="polite"><span><b>{moduleContext[0]}</b><small>{moduleContext[1]}</small></span></div>
+        {activeModule === "inventory" && <button className="secondary-action inventory-import-trigger" type="button" onClick={() => setImportOpen(true)}><UploadSimpleIcon size={16} aria-hidden="true" />Importar inventario</button>}
+        {activeModule === "inventory" && <InventoryImportModal open={importOpen} onClose={() => setImportOpen(false)} vehicles={vehicles} />}
+      </aside>
       <BackofficeCommandCenter open={commandOpen} onOpenChange={setCommandOpen} role={role} onNavigate={onChange} onPreview={onPreview} onBack={onBack} onOpenOnboarding={onOpenOnboarding} />
     </>
   );
@@ -1561,11 +1564,14 @@ export default function Backoffice({ onBack, onVehiclesChanged, initialMode = "l
     <main className="admin-page">
       {impersonation && <div className="impersonation-banner"><span>Modo soporte · viendo la cuenta de <strong>{currentUser?.name || currentUser?.email}</strong>. Los cambios se guardan en su cuenta real.</span><button className="text-button" type="button" onClick={exitImpersonation}>Salir del modo soporte</button></div>}
       <AdminNav activeModule={activeModule} onChange={navigateAdmin} onBack={handleBack} onLogout={logout} role={currentUser?.role} unreadNotifications={unreadNotifications} notifications={notifications} onReadNotifications={markNotificationsRead} onPreview={previewVehicle} onOpenOnboarding={openOnboarding} theme={theme} onToggleTheme={toggleTheme} vehicles={vehicles} businessName={organization?.name || settings?.businessName || "AUTHENTIQ"} />
-      <AnimatePresence mode="wait" initial={false}>
-        <motion.div key={activeModule} className="admin-module-transition" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }} transition={{ duration: 0.2, ease: "easeOut" }}>
-          {activeModule === "taxonomy" ? <TaxonomyModule taxonomy={taxonomy} loading={moduleLoading} onRefresh={loadTaxonomy} onCreate={createTaxonomy} onUpdate={updateTaxonomy} /> : activeView}
-        </motion.div>
-      </AnimatePresence>
+      <section className="admin-content-column">
+        <div className="admin-content-heading"><span>Espacio de trabajo</span><strong>{organization?.name || settings?.businessName || "Tu showroom"}</strong></div>
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div key={activeModule} className="admin-module-transition" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }} transition={{ duration: 0.2, ease: "easeOut" }}>
+            {activeModule === "taxonomy" ? <TaxonomyModule taxonomy={taxonomy} loading={moduleLoading} onRefresh={loadTaxonomy} onCreate={createTaxonomy} onUpdate={updateTaxonomy} /> : activeView}
+          </motion.div>
+        </AnimatePresence>
+      </section>
       <AnimatePresence>{appointmentLead && <LeadAppointmentModal lead={appointmentLead} onClose={() => setAppointmentLead(null)} onCreate={createAppointmentFromLead} />}</AnimatePresence>
       <AnimatePresence>{welcomeOnboardingOpen && onboarding && <WelcomeOnboarding onboarding={onboarding} organization={organization} onNavigate={navigateAdmin} onDismiss={dismissOnboarding} onOpenPublic={openPublic} />}</AnimatePresence>
       <AnimatePresence>{stickerVehicle && <WindowStickerModal vehicle={stickerVehicle} organization={organization} settings={settings} onClose={() => setStickerVehicle(null)} />}</AnimatePresence>
