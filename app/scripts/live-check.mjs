@@ -19,6 +19,7 @@ try {
 const checks = [
   ["API health", "/api/health", 200],
   ["Frontend", "/", 200],
+  ["Configuración pública", "/api/settings", 200],
   ["Robots", "/robots.txt", 200],
   ["Sitemap", "/sitemap.xml", 200],
   ["Presentación", "/presentacion", 200],
@@ -48,6 +49,17 @@ for (const [label, path, expectedStatus] of checks) {
         if (!dependenciesReady) failed += 1;
       } catch {
         console.log("FAIL Dependencias live · /api/health no devolvió JSON válido");
+        failed += 1;
+      }
+    }
+    if (path === "/api/settings" && response.ok) {
+      try {
+        const settings = JSON.parse(body).data || {};
+        const trustReady = settings.trustContentAvailable !== false;
+        console.log(`${trustReady ? "PASS" : "FAIL"} Contenido editable live · ${trustReady ? "migración disponible" : "falta la migración 045_storefront_trust_content.sql"}`);
+        if (!trustReady) failed += 1;
+      } catch {
+        console.log("FAIL Contenido editable live · /api/settings no devolvió JSON válido");
         failed += 1;
       }
     }
