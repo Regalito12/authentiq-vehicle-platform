@@ -16,6 +16,11 @@ import { catalogPrerender, vehiclePrerender, catalogJsonLd, vehicleJsonLd } from
 import sharp from "sharp";
 import { fileURLToPath } from "node:url";
 
+// Se usa solo cuando el correo no existe para que todos los intentos hagan una
+// comparación bcrypt comparable y no revelen la existencia de una cuenta por
+// diferencias de tiempo. Nunca es una contraseña válida de ningún usuario.
+const DUMMY_PASSWORD_HASH = "$2b$12$3yFc1m.yll8R8pI6T9aqgu4sXMid7I.1bZhBHlNZOXFzNRtDljotW";
+
 const { Pool } = pg;
 const app = express();
 const serverDir = path.dirname(fileURLToPath(import.meta.url));
@@ -1307,7 +1312,8 @@ app.post("/api/auth/login", async (req, res) => {
       const fallback = await pool.query("SELECT id, full_name, email, role, password_hash, must_change_password AS \"mustChangePassword\", organization_id AS \"organizationId\" FROM admin_users WHERE LOWER(email) = $1 AND is_active = TRUE AND organization_id IS NOT NULL", [email]);
       admin = fallback.rows[0];
     }
-    if (!admin || !(await bcrypt.compare(password, admin.password_hash))) return res.status(401).json({ error: "Correo o contraseña incorrectos" });
+    const passwordMatches = await bcrypt.compare(password, admin?.password_hash || DUMMY_PASSWORD_HASH);
+    if (!admin || !passwordMatches) return res.status(401).json({ error: "Correo o contraseña incorrectos" });
     // Una contraseña restablecida por un administrador solo sirve para volver a entrar:
     // el token es de vida corta y obliga a definir una contraseña propia antes de operar.
     const token = jwt.sign({ id: admin.id, email: admin.email, role: admin.role, name: admin.full_name, organizationId: admin.organizationId, mustChangePassword: admin.mustChangePassword }, jwtSecret, { expiresIn: admin.mustChangePassword ? "15m" : "8h" });
