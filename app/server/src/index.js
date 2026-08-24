@@ -1152,7 +1152,7 @@ async function syncAppointmentToGoogle(organizationId, appointmentId) {
   if (!googleCalendarConfigured || !googleCalendarTokenKey) return { synced: false, reason: "not_configured" };
   try {
     const result = await pool.query(`
-      SELECT t.id, t.google_event_id AS "googleEventId", t.status, t.customer_name AS "customerName", t.customer_email AS "customerEmail", t.customer_phone AS "customerPhone", t.requested_date AS date, t.requested_time AS time, t.notes, t.vehicle_id AS "vehicleId", b.name AS brand, v.model, v.variant, os.appointment_timezone AS timezone
+      SELECT t.id, t.google_event_id AS "googleEventId", t.status, t.customer_name AS "customerName", t.customer_email AS "customerEmail", t.customer_phone AS "customerPhone", t.requested_date AS date, t.requested_time AS time, t.notes, t.vehicle_id AS "vehicleId", b.name AS brand, v.model, v.variant, os.appointment_timezone AS timezone, os.appointment_duration_minutes AS "durationMinutes"
       FROM test_drive_requests t LEFT JOIN vehicles v ON v.id=t.vehicle_id LEFT JOIN vehicle_brands b ON b.id=v.brand_id LEFT JOIN organization_settings os ON os.organization_id=t.organization_id
       WHERE t.id=$1 AND t.organization_id=$2`, [appointmentId, organizationId]);
     const appointment = result.rows[0];
@@ -1162,7 +1162,7 @@ async function syncAppointmentToGoogle(organizationId, appointmentId) {
     const date = String(appointment.date).slice(0, 10);
     const time = String(appointment.time).slice(0, 5);
     const start = `${date}T${time}:00`;
-    const duration = 60;
+    const duration = Number(appointment.durationMinutes) || 60;
     const [hour, minute] = time.split(":").map(Number);
     const endMinutes = hour * 60 + minute + duration;
     const end = `${date}T${String(Math.floor(endMinutes / 60)).padStart(2, "0")}:${String(endMinutes % 60).padStart(2, "0")}:00`;
@@ -2143,10 +2143,11 @@ app.get("/api/admin/appointments", authenticate, requireRoles("admin", "editor",
   const to = isIsoDate(String(req.query.to || "")) ? String(req.query.to) : null;
   try {
     const result = await pool.query(`
-      SELECT t.id, t.vehicle_id AS "vehicleId", t.lead_id AS "leadId", t.customer_name AS "customerName", t.customer_email AS "customerEmail", t.customer_phone AS "customerPhone", t.requested_date AS "date", t.requested_time AS "time", t.status, t.notes, t.created_at AS "createdAt", v.model, v.year, b.name AS brand
+      SELECT t.id, t.vehicle_id AS "vehicleId", t.lead_id AS "leadId", t.customer_name AS "customerName", t.customer_email AS "customerEmail", t.customer_phone AS "customerPhone", t.requested_date AS "date", t.requested_time AS "time", t.status, t.notes, t.created_at AS "createdAt", v.model, v.year, b.name AS brand, os.appointment_duration_minutes AS "durationMinutes"
       FROM test_drive_requests t
       LEFT JOIN vehicles v ON v.id=t.vehicle_id
       LEFT JOIN vehicle_brands b ON b.id=v.brand_id
+      LEFT JOIN organization_settings os ON os.organization_id=t.organization_id
       WHERE ($1::date IS NULL OR t.requested_date >= $1::date) AND ($2::date IS NULL OR t.requested_date <= $2::date)
       AND t.organization_id=$3
       ORDER BY t.requested_date ASC, t.requested_time ASC, t.created_at DESC`, [from, to, adminOrganizationId(req)]);
