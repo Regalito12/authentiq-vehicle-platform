@@ -259,15 +259,15 @@ function LandingPage({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPrivac
     <main className="landing-page">
       <nav className="landing-nav" aria-label="Navegación de AUTHENTIQ">
         <a href="#landing-top" className="landing-brand">AUTHENTIQ<span>°</span></a>
-        <div className="landing-nav-links"><a href="#landing-product">Producto</a><a href="#landing-flow">Cómo funciona</a><a href="#landing-demo">Demo</a></div>
-        <div className="landing-nav-actions"><button type="button" className="landing-nav-login" onClick={onDealerLogin}>Iniciar sesión</button><button type="button" className="landing-nav-cta" onClick={onCreateShowroom}>Crear showroom <span>↗</span></button></div>
+        <div className="landing-nav-links"><a href="#landing-story">Cómo vende</a><a href="#landing-product">Experiencia cliente</a><a href="#landing-demo">Ver demo</a></div>
+        <div className="landing-nav-actions"><button type="button" className="landing-nav-login" onClick={onDealerLogin}>Iniciar sesión</button><button type="button" className="landing-nav-cta" onClick={onCreateShowroom}>Crear mi showroom <span>↗</span></button></div>
       </nav>
       <section className="landing-hero" id="landing-top">
         <motion.div className="landing-hero-copy" initial={reduceMotion ? false : { opacity: 0, y: 24 }} animate={reduceMotion ? undefined : { opacity: 1, y: 0 }} transition={{ duration: .7, ease: [0.22, 1, 0.36, 1] }}>
           <span className="eyebrow">AUTHENTIQ · PLATAFORMA PARA DEALERS</span>
           <h1>Cada dealer. <em>Su marca.</em><br />Un showroom que se mueve.</h1>
           <p>Convierte tu inventario en una experiencia digital que los clientes entienden, exploran y recuerdan.</p>
-          <div className="landing-actions"><button className="primary-action vui-shine-action" type="button" onClick={onCreateShowroom}>Quiero mi showroom <span>↗</span></button><button className="landing-quiet-action" type="button" onClick={onViewDemo}>Ver la demo del producto <span>↓</span></button></div>
+          <div className="landing-actions"><button className="primary-action vui-shine-action" type="button" onClick={onCreateShowroom}>Crear mi showroom <span>↗</span></button><button className="landing-quiet-action" type="button" onClick={onViewDemo}>Explorar una demo real <span>↓</span></button></div>
           <div className="landing-hero-proof"><span><b>01</b> Marca blanca</span><span><b>02</b> Inventario vivo</span><span><b>03</b> Leads y citas</span></div>
         </motion.div>
         <motion.div className="landing-hero-visual" initial={reduceMotion ? false : { opacity: 0, scale: .96 }} animate={reduceMotion ? undefined : { opacity: 1, scale: 1 }} transition={{ duration: .9, delay: .12, ease: [0.22, 1, 0.36, 1] }}>
@@ -552,12 +552,25 @@ function BuyerRequestModal({ kind, vehicle = null, onClose }) {
   const [form, setForm] = useState({ name: "", email: "", phone: "", currentVehicle: "", year: "", mileage: "", note: "", privacyConsent: false });
   const [turnstileToken, setTurnstileToken] = useState("");
   const [status, setStatus] = useState({ loading: false, error: "", success: false });
+  const [step, setStep] = useState(1);
   useAccessibleDialog(onClose);
   const change = (field, value) => setForm((current) => ({ ...current, [field]: value }));
   const title = isTradeIn ? "Valora tu vehículo actual." : "Avísame cuando llegue algo para mí.";
   const subtitle = isTradeIn
     ? "Cuéntanos lo esencial. Un asesor revisará los datos y te explicará el siguiente paso; esta solicitud no es una tasación definitiva."
     : "Dinos qué buscas. Te avisaremos cuando aparezca una unidad que encaje con tu búsqueda.";
+  const advance = () => {
+    if (!form.name.trim() || !form.email.trim() || !form.phone.trim()) {
+      setStatus({ loading: false, error: "Completa tu nombre, correo y teléfono para continuar.", success: false });
+      return;
+    }
+    if (!/^\S+@\S+\.\S+$/.test(form.email.trim())) {
+      setStatus({ loading: false, error: "Revisa el correo antes de continuar.", success: false });
+      return;
+    }
+    setStatus({ loading: false, error: "", success: false });
+    setStep(2);
+  };
   const submit = async (event) => {
     event.preventDefault();
     setStatus({ loading: true, error: "", success: false });
@@ -572,7 +585,35 @@ function BuyerRequestModal({ kind, vehicle = null, onClose }) {
       setStatus({ loading: false, error: "", success: true });
     } catch (error) { setStatus({ loading: false, error: error.message, success: false }); }
   };
-  return <motion.div className="lead-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}><motion.section className="lead-modal buyer-request-modal" role="dialog" aria-modal="true" aria-labelledby="buyer-request-title" initial={{ y: 14, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ duration: .2, ease: "easeOut" }}><button className="modal-close" type="button" onClick={onClose} aria-label="Cerrar">×</button>{status.success ? <div className="lead-success"><span className="eyebrow">SOLICITUD RECIBIDA</span><h2>{isTradeIn ? "Revisaremos tu vehículo." : "Te avisaremos cuando aparezca."}</h2><p>{isTradeIn ? "Un asesor revisará la información y te contactará para conocer el estado y la mejor forma de avanzar." : "Guardamos tu búsqueda. El equipo te escribirá cuando haya una opción relevante."}</p><button className="primary-action" type="button" onClick={onClose}>Listo</button></div> : <><span className="eyebrow">{isTradeIn ? "RENUEVA TU VEHÍCULO" : "BÚSQUEDA PERSONALIZADA"}</span><h2 id="buyer-request-title">{title}</h2><p className="buyer-request-intro">{subtitle}</p><form className="lead-form" onSubmit={submit}><label>Nombre<input value={form.name} onChange={(event) => change("name", event.target.value)} autoComplete="name" required /></label><div className="lead-form-grid"><label>Correo<input type="email" value={form.email} onChange={(event) => change("email", event.target.value)} autoComplete="email" required /></label><label>WhatsApp / Teléfono<input value={form.phone} onChange={(event) => change("phone", event.target.value)} autoComplete="tel" required /></label></div><label>{isTradeIn ? "Marca y modelo de tu vehículo" : "Qué vehículo estás buscando"}<input value={form.currentVehicle} onChange={(event) => change("currentVehicle", event.target.value)} placeholder={isTradeIn ? "Ej. Toyota RAV4 Limited" : "Ej. SUV familiar, 3 filas, automático"} required /></label><div className="lead-form-grid"><label>{isTradeIn ? "Año" : "Año desde (opcional)"}<input type="number" min="1900" max="2100" value={form.year} onChange={(event) => change("year", event.target.value)} /></label>{isTradeIn && <label>Kilometraje aproximado<input type="number" min="0" value={form.mileage} onChange={(event) => change("mileage", event.target.value)} /></label>}</div><label>{isTradeIn ? "Estado o detalles relevantes (opcional)" : "Presupuesto, uso o preferencias (opcional)"}<textarea value={form.note} onChange={(event) => change("note", event.target.value)} placeholder={isTradeIn ? "Mantenimiento, daños, versión o extras…" : "Rango de precio, combustible, uso familiar, etc."} /></label><TurnstileField onTokenChange={setTurnstileToken} /><label className="consent-check"><input type="checkbox" checked={form.privacyConsent} onChange={(event) => change("privacyConsent", event.target.checked)} required /><span>Acepto la política de privacidad y autorizo el uso de mis datos para responder esta solicitud.</span></label>{status.error && <p className="state-message error">{status.error}</p>}<button className="primary-action" type="submit" disabled={status.loading}>{status.loading ? "Enviando…" : isTradeIn ? "Solicitar orientación" : "Guardar mi búsqueda"}</button></form></>}</motion.section></motion.div>;
+  return <motion.div className="lead-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+    <motion.section className="lead-modal buyer-request-modal" role="dialog" aria-modal="true" aria-labelledby="buyer-request-title" initial={{ y: 14, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ duration: .2, ease: "easeOut" }}>
+      <button className="modal-close" type="button" onClick={onClose} aria-label="Cerrar">×</button>
+      {status.success ? <div className="lead-success"><span className="eyebrow">SOLICITUD RECIBIDA</span><h2>{isTradeIn ? "Revisaremos tu vehículo." : "Te avisaremos cuando aparezca."}</h2><p>{isTradeIn ? "Un asesor revisará la información y te contactará para conocer el estado y la mejor forma de avanzar." : "Guardamos tu búsqueda. El equipo te escribirá cuando haya una opción relevante."}</p><button className="primary-action" type="button" onClick={onClose}>Listo</button></div> : <>
+        <span className="eyebrow">{isTradeIn ? "RENUEVA TU VEHÍCULO" : "BÚSQUEDA PERSONALIZADA"}</span>
+        <h2 id="buyer-request-title">{title}</h2>
+        <p className="buyer-request-intro">{subtitle}</p>
+        <div className="buyer-request-progress" aria-label={`Paso ${step} de 2`}><span className={step === 1 ? "is-active" : "is-done"}>1. Tus datos</span><i aria-hidden="true" /><span className={step === 2 ? "is-active" : ""}>2. Lo que necesitas</span></div>
+        <form className="lead-form" onSubmit={(event) => { if (step === 1) { event.preventDefault(); advance(); } else submit(event); }}>
+          {step === 1 ? <>
+            <p className="buyer-request-step-note">Primero deja una forma de contactarte. Toma menos de un minuto.</p>
+            <label>Nombre<input value={form.name} onChange={(event) => change("name", event.target.value)} autoComplete="name" required /></label>
+            <div className="lead-form-grid"><label>Correo<input type="email" value={form.email} onChange={(event) => change("email", event.target.value)} autoComplete="email" required /></label><label>WhatsApp / Teléfono<input value={form.phone} onChange={(event) => change("phone", event.target.value)} autoComplete="tel" required /></label></div>
+            {status.error && <p className="state-message error" role="alert">{status.error}</p>}
+            <button className="primary-action" type="button" onClick={advance}>Continuar →</button>
+          </> : <>
+            <p className="buyer-request-step-note">Cuéntanos lo esencial para que el asesor llegue preparado.</p>
+            <label>{isTradeIn ? "Marca y modelo de tu vehículo" : "Qué vehículo estás buscando"}<input value={form.currentVehicle} onChange={(event) => change("currentVehicle", event.target.value)} placeholder={isTradeIn ? "Ej. Toyota RAV4 Limited" : "Ej. SUV familiar, 3 filas, automático"} required /></label>
+            <div className="lead-form-grid"><label>{isTradeIn ? "Año" : "Año desde (opcional)"}<input type="number" min="1900" max="2100" value={form.year} onChange={(event) => change("year", event.target.value)} /></label>{isTradeIn && <label>Kilometraje aproximado<input type="number" min="0" value={form.mileage} onChange={(event) => change("mileage", event.target.value)} /></label>}</div>
+            <label>{isTradeIn ? "Estado o detalles relevantes (opcional)" : "Presupuesto, uso o preferencias (opcional)"}<textarea value={form.note} onChange={(event) => change("note", event.target.value)} placeholder={isTradeIn ? "Mantenimiento, daños, versión o extras…" : "Rango de precio, combustible, uso familiar, etc."} /></label>
+            <TurnstileField onTokenChange={setTurnstileToken} />
+            <label className="consent-check"><input type="checkbox" checked={form.privacyConsent} onChange={(event) => change("privacyConsent", event.target.checked)} required /><span>Acepto la política de privacidad y autorizo el uso de mis datos para responder esta solicitud.</span></label>
+            {status.error && <p className="state-message error" role="alert">{status.error}</p>}
+            <div className="buyer-request-actions"><button className="text-button" type="button" onClick={() => setStep(1)}>← Volver</button><button className="primary-action" type="submit" disabled={status.loading}>{status.loading ? "Enviando…" : isTradeIn ? "Solicitar orientación" : "Guardar mi búsqueda"}</button></div>
+          </>}
+        </form>
+      </>}
+    </motion.section>
+  </motion.div>;
 }
 
 function QuoteModal({ vehicle, financingTerms, onClose }) {

@@ -245,8 +245,7 @@ async function main() {
     // esa preferencia saltándose la transición. Para probar el camino normal hay
     // que emular a un comprador que no la ha pedido.
     await cdp.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "no-preference" }] });
-    await navigate(appUrl("/"));
-    await wait(1200);
+    await navigate(appUrl("/"), "document.querySelectorAll('.vehicle-card').length > 0");
     await cdp.evaluate(`(() => {
       window.__vt = 0;
       const original = document.startViewTransition?.bind(document);
