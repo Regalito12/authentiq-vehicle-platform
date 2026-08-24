@@ -1187,7 +1187,8 @@ function FaqSection({ settings = {} }) {
     ["¿La cotización es el precio final?", "La cotización es informativa y queda sujeta a disponibilidad, inspección, aprobación comercial y condiciones de financiamiento."],
     ["¿Cómo me responderán?", "Usaremos el correo, teléfono o WhatsApp que dejaste en la solicitud. Durante el horario del showroom te indicaremos el siguiente paso."],
   ];
-  return <section className="faq-section" id="preguntas" aria-label="Preguntas frecuentes"><div className="section-head"><div><span className="eyebrow">ANTES DE VISITARNOS</span><h2>Preguntas frecuentes.</h2></div><p>Lo esencial para avanzar con claridad.</p></div><div className="faq-list">{defaults.map(([question, answer]) => <details key={question}><summary>{question}<span aria-hidden="true">+</span></summary><p>{answer}</p></details>)}</div></section>;
+  const [activeIndex, setActiveIndex] = useState(null);
+  return <section className="faq-section" id="preguntas" aria-label="Preguntas frecuentes"><div className="section-head"><div><span className="eyebrow">ANTES DE VISITARNOS</span><h2>Preguntas frecuentes.</h2></div><p>Lo esencial para avanzar con claridad.</p></div><div className="faq-list">{defaults.map(([question, answer], index) => { const active = activeIndex === index; return <div className={`faq-item${active ? " is-active" : ""}`} key={question}><button type="button" className="faq-trigger" aria-expanded={active} aria-controls={`faq-answer-${index}`} onClick={() => setActiveIndex(active ? null : index)}><span className="faq-symbol" aria-hidden="true">{active ? "−" : "+"}</span><span>{question}</span><span className="faq-chevron" aria-hidden="true">⌃</span></button><motion.div id={`faq-answer-${index}`} className="faq-answer" initial={false} animate={{ gridTemplateRows: active ? "1fr" : "0fr", opacity: active ? 1 : 0 }} transition={{ duration: .24, ease: "easeOut" }}><div><p>{answer}</p></div></motion.div></div>; })}</div></section>;
 }
 
 function LocationSection({ settings = {} }) {
@@ -1406,9 +1407,9 @@ function VehicleDetail({ vehicle, vehicles = [], onBack, isFavorite = false, onT
           <div className="specs">
             {[
               ["Motor", vehicle.engine],
-              ["Potencia", vehicle.power],
+              ["Potencia", vehicle.power, "Fuerza disponible del motor."],
               ["Transmisión", vehicle.transmission],
-              ["Tracción", vehicle.drive],
+              ["Tracción", vehicle.drive, "Indica qué ruedas reciben la fuerza del motor."],
               ["Combustible", vehicle.fuelType],
               ["Exterior", vehicle.exteriorColor],
               ["Interior", vehicle.interiorColor],
@@ -1417,7 +1418,7 @@ function VehicleDetail({ vehicle, vehicles = [], onBack, isFavorite = false, onT
               ["Ubicación", vehicle.location],
               ["Inventario", vehicle.stockNumber],
               ["Garantía", vehicle.warranty],
-            ].map(([label, value]) => <div className="spec-row" key={label}><span>{label}</span><strong>{value || "—"}</strong></div>)}
+            ].map(([label, value, hint]) => <div className="spec-row" key={label}><span>{label}{hint && <span className="spec-tooltip" tabIndex="0" title={hint} aria-label={`${label}: ${hint}`}>?</span>}</span><strong>{value || "—"}</strong></div>)}
           </div>
           <details className="specs-glossary">
             <summary>¿Qué significan estos datos?</summary>

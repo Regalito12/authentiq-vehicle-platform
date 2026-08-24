@@ -979,12 +979,15 @@ html[data-theme="dark"] .report-insight > p, html[data-theme="dark"] .insight-li
 .response-time-note strong { color: var(--auth-ink, #24221f); }
 .faq-section, .location-section { max-width: 1180px; margin: 0 auto; padding: 86px 42px; }
 .faq-list { max-width: 860px; border-top: 1px solid var(--auth-line); }
-.faq-list details { border-bottom: 1px solid var(--auth-line); }
-.faq-list summary { display: flex; justify-content: space-between; gap: 24px; align-items: center; padding: 21px 0; color: var(--auth-ink); cursor: pointer; font-size: 18px; font-weight: 500; list-style: none; }
-.faq-list summary::-webkit-details-marker { display: none; }
-.faq-list summary span { color: var(--tenant-primary-ink, var(--tenant-primary)); font: 20px "IBM Plex Mono", monospace; }
-.faq-list details[open] summary span { transform: rotate(45deg); }
-.faq-list details p { max-width: 68ch; margin: -4px 40px 22px 0; color: var(--auth-muted); font-size: 16px; line-height: 1.6; }
+.faq-item { border-bottom: 1px solid var(--auth-line); }
+.faq-trigger { display: grid; grid-template-columns: 28px minmax(0, 1fr) 20px; gap: 12px; align-items: center; width: 100%; min-height: 64px; border: 0; padding: 12px 0; background: transparent; color: var(--auth-ink); cursor: pointer; font: 500 18px "Inter Tight", sans-serif; text-align: left; }
+.faq-trigger:hover, .faq-trigger:focus-visible { color: var(--tenant-primary-ink, var(--tenant-primary)); }
+.faq-symbol { color: var(--tenant-primary-ink, var(--tenant-primary)); font: 22px "IBM Plex Mono", monospace; }
+.faq-chevron { color: var(--auth-muted); font: 20px "IBM Plex Mono", monospace; transform: rotate(180deg); transition: transform .24s ease; }
+.faq-item.is-active .faq-chevron { transform: rotate(0deg); }
+.faq-answer { display: grid; overflow: hidden; }
+.faq-answer > div { min-height: 0; }
+.faq-answer p { max-width: 68ch; margin: 0 40px 22px 40px; color: var(--auth-muted); font-size: 16px; line-height: 1.6; }
 .location-section { display: grid; grid-template-columns: minmax(0, .9fr) minmax(300px, 1.1fr); gap: 60px; align-items: start; border-top: 1px solid var(--auth-line); }
 .location-section h2 { max-width: 12ch; margin: 14px 0; font-size: clamp(32px, 5vw, 58px); font-weight: 300; letter-spacing: -.04em; line-height: .96; }
 .location-section > div > p { max-width: 38ch; color: var(--auth-muted); font-size: 16px; line-height: 1.55; }
@@ -3599,6 +3602,8 @@ html[data-theme="dark"] .flyer-format-btn {
 .specs-glossary { max-width: 58ch; margin: 14px 0 0; color: #5f5b54; font-size: 14px; line-height: 1.5; }
 .specs-glossary summary { width: fit-content; color: var(--auth-ink, #24221f); cursor: pointer; font-weight: 600; }
 .specs-glossary p { margin: 9px 0 0; }
+.spec-tooltip { display: inline-grid; place-items: center; width: 18px; height: 18px; margin-left: 6px; border: 1px solid currentColor; border-radius: 50%; color: var(--tenant-primary-ink, var(--tenant-primary)); cursor: help; font: 500 14px "IBM Plex Mono", monospace; line-height: 1; vertical-align: middle; }
+.spec-tooltip:focus-visible { outline: 2px solid var(--tenant-primary); outline-offset: 2px; }
 
 /* Legibilidad primero: los textos de operación y formularios no bajan de 12px.
    Conservamos el estilo mono de etiquetas, pero no obligamos a nadie a leer
