@@ -1136,6 +1136,18 @@ function TrustContentFields({ form, onChange }) {
 
 function SettingsModule({ form, organization, onboarding, onChange, onOrganizationChange, onSave, onOrganizationSave, onUpload, onNavigate, onOpenPublic, loading, message, organizationMessage }) {
   const [activeSection, setActiveSection] = useState("brand");
+  const savedSnapshot = useRef(JSON.stringify({ form, organization }));
+  const justSaved = message === "Configuración guardada correctamente" || organizationMessage === "Perfil guardado correctamente";
+  const settingsDirty = !justSaved && JSON.stringify({ form, organization }) !== savedSnapshot.current;
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent("authentiq:settings-dirty", { detail: settingsDirty }));
+    const guard = (event) => { if (settingsDirty) event.preventDefault(); };
+    window.addEventListener("beforeunload", guard);
+    return () => window.removeEventListener("beforeunload", guard);
+  }, [settingsDirty]);
+  useEffect(() => {
+    if (message === "Configuración guardada correctamente" || organizationMessage === "Perfil guardado correctamente") savedSnapshot.current = JSON.stringify({ form, organization });
+  }, [message, organizationMessage, form, organization]);
   // Cada pestaña avisa si le falta algo: evita que el operador tenga que abrir
   // las cinco secciones para saber qué queda pendiente.
   const sectionReady = {
@@ -1254,6 +1266,7 @@ export default function Backoffice({ onBack, onVehiclesChanged, initialMode = "l
   const [loginError, setLoginError] = useState("");
   const [activeModule, setActiveModule] = useState("dashboard");
   const [leadDraftDirty, setLeadDraftDirty] = useState(false);
+  const [settingsDraftDirty, setSettingsDraftDirty] = useState(false);
   const [dashboard, setDashboard] = useState(null);
   const [dashboardError, setDashboardError] = useState("");
   const [vehicles, setVehicles] = useState([]);
@@ -1298,20 +1311,28 @@ export default function Backoffice({ onBack, onVehiclesChanged, initialMode = "l
     return () => window.removeEventListener("authentiq:lead-dirty", syncLeadDraft);
   }, []);
   useEffect(() => {
+    const syncSettingsDraft = (event) => setSettingsDraftDirty(Boolean(event.detail));
+    window.addEventListener("authentiq:settings-dirty", syncSettingsDraft);
+    return () => window.removeEventListener("authentiq:settings-dirty", syncSettingsDraft);
+  }, []);
+  useEffect(() => {
     const guardAdminNavigation = (event) => {
-      if (activeModule !== "leads" || !leadDraftDirty) return;
+      const dirty = activeModule === "leads" ? leadDraftDirty : activeModule === "settings" ? settingsDraftDirty : false;
+      if (!dirty) return;
       const button = event.target.closest?.(".admin-nav-item");
       if (!button || button.classList.contains("active")) return;
-      if (!window.confirm("Tienes cambios de seguimiento sin guardar. ¿Quieres salir y descartarlos?")) {
+      const warning = activeModule === "settings" ? "Tienes cambios de personalización sin guardar. ¿Quieres salir y descartarlos?" : "Tienes cambios de seguimiento sin guardar. ¿Quieres salir y descartarlos?";
+      if (!window.confirm(warning)) {
         event.preventDefault();
         event.stopPropagation();
         return;
       }
-      setLeadDraftDirty(false);
+      if (activeModule === "settings") setSettingsDraftDirty(false);
+      else setLeadDraftDirty(false);
     };
     document.addEventListener("click", guardAdminNavigation, true);
     return () => document.removeEventListener("click", guardAdminNavigation, true);
-  }, [activeModule, leadDraftDirty]);
+  }, [activeModule, leadDraftDirty, settingsDraftDirty]);
   useEffect(() => { if (!message) return undefined; const timer = window.setTimeout(() => setMessage(""), 3200); return () => window.clearTimeout(timer); }, [message]);
 
   const request = async (path, options = {}) => { const response = await fetch(`${apiUrl}${path}`, { ...options, credentials: "include", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, ...(options.headers || {}) } }); const payload = response.status === 204 ? null : await response.json(); if (response.status === 401) { localStorage.removeItem("authentiq_admin_token"); setToken(""); throw new Error("La sesión expiró. Inicia sesión nuevamente."); } if (!response.ok) throw new Error(payload?.error || "La operación no pudo completarse"); return payload; };
