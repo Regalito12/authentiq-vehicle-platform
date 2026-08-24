@@ -269,23 +269,25 @@ function DashboardPulse({ data, leads, offers, appointments, onNavigate, current
   const [scope, setScope] = useState(currentUser?.role === "seller" ? "mine" : "all");
   const showingMine = canFilterMine && scope === "mine";
   const scopedLeads = showingMine ? myLeads : openLeads;
-  const byUrgency = (a, b) => Number(isOverdue(b)) - Number(isOverdue(a)) || Number(a.priority || 2) - Number(b.priority || 2) || new Date(b.createdAt) - new Date(a.createdAt);
+  const hasNoNextAction = (lead) => !lead.nextActionAt;
+  const byUrgency = (a, b) => Number(isOverdue(b)) - Number(isOverdue(a)) || Number(hasNoNextAction(b)) - Number(hasNoNextAction(a)) || Number(a.priority || 2) - Number(b.priority || 2) || new Date(b.createdAt) - new Date(a.createdAt);
   const priorityLeads = [...scopedLeads].sort(byUrgency).slice(0, 4);
   const overdueCount = scopedLeads.filter(isOverdue).length;
+  const unplannedCount = scopedLeads.filter(hasNoNextAction).length;
   const todayIso = localIsoDate();
   // El módulo de Citas carga el historial completo (pasado y futuro) para gestión;
   // este contador debe mostrar solo lo que realmente queda por atender.
   const upcomingAppointments = (appointments || []).filter((item) => ["pending", "confirmed"].includes(item.status) && String(item.date || "").slice(0, 10) >= todayIso);
   const actions = [
-    ["leads", "Clientes prioritarios", priorityLeads.length, "Responder y asignar"],
+    ["leads", "Clientes abiertos", scopedLeads.length, overdueCount ? `${overdueCount} vencidos · abrir seguimiento` : "Responder y asignar"],
     ["appointments", "Citas próximas", upcomingAppointments.length, "Preparar visita"],
     ["offers", "Ofertas pendientes", (offers || []).filter((item) => item.status === "pending").length, "Revisar propuesta"],
     ["inventory", "En revisión", data?.summary?.pendingReview || 0, "Aprobar inventario"],
   ];
   return <section className="dashboard-pulse">
     <article className="priority-panel">
-      <div className="panel-heading"><div><span className="eyebrow">{showingMine ? "MI DÍA" : "PRIORIDAD HOY"}</span><h3>{overdueCount > 0 ? `${overdueCount} seguimiento${overdueCount === 1 ? "" : "s"} vencido${overdueCount === 1 ? "" : "s"}.` : showingMine ? "Tus clientes al día." : "Lo que merece atención."}</h3></div><div className="priority-panel-actions">{canFilterMine && <div className="priority-scope" role="group" aria-label="Filtrar clientes"><button type="button" className={showingMine ? "is-active" : ""} aria-pressed={showingMine} onClick={() => setScope("mine")}>Míos {myLeads.length}</button><button type="button" className={showingMine ? "" : "is-active"} aria-pressed={!showingMine} onClick={() => setScope("all")}>Todos {openLeads.length}</button></div>}<button className="text-button" type="button" onClick={() => onNavigate("leads")}>Abrir clientes</button></div></div>
-      {priorityLeads.length ? <div className="priority-list">{priorityLeads.map((lead, index) => <button className={`priority-item${isOverdue(lead) ? " is-overdue" : ""}`} type="button" key={lead.id} onClick={() => onNavigate("leads")}><span className="priority-index">{String(index + 1).padStart(2, "0")}</span><span className="priority-copy"><strong>{lead.name}</strong><small>{lead.brand ? `${lead.brand} ${lead.model}` : "Contacto general"} · {isOverdue(lead) ? "Seguimiento vencido" : formatDate(lead.createdAt)}</small></span><span className={`status-pill ${lead.status}`}>{formatStatus(lead.status)}</span><span className="priority-arrow">→</span></button>)}</div> : <p className="empty-state">No hay clientes pendientes de seguimiento.</p>}
+      <div className="panel-heading"><div><span className="eyebrow">{showingMine ? "MI DÍA" : "PRIORIDAD HOY"}</span><h3>{overdueCount > 0 ? `${overdueCount} seguimiento${overdueCount === 1 ? "" : "s"} vencido${overdueCount === 1 ? "" : "s"}.` : unplannedCount > 0 ? `${unplannedCount} cliente${unplannedCount === 1 ? "" : "s"} sin próxima acción.` : showingMine ? "Tus clientes al día." : "Lo que merece atención."}</h3></div><div className="priority-panel-actions">{canFilterMine && <div className="priority-scope" role="group" aria-label="Filtrar clientes"><button type="button" className={showingMine ? "is-active" : ""} aria-pressed={showingMine} onClick={() => setScope("mine")}>Míos {myLeads.length}</button><button type="button" className={showingMine ? "" : "is-active"} aria-pressed={!showingMine} onClick={() => setScope("all")}>Todos {openLeads.length}</button></div>}<button className="text-button" type="button" onClick={() => onNavigate("leads")}>Abrir clientes</button></div></div>
+      {priorityLeads.length ? <div className="priority-list">{priorityLeads.map((lead, index) => <button className={`priority-item${isOverdue(lead) ? " is-overdue" : ""}`} type="button" key={lead.id} onClick={() => onNavigate("leads")}><span className="priority-index">{String(index + 1).padStart(2, "0")}</span><span className="priority-copy"><strong>{lead.name}</strong><small>{lead.brand ? `${lead.brand} ${lead.model}` : "Contacto general"} · {isOverdue(lead) ? "Seguimiento vencido" : hasNoNextAction(lead) ? "Sin próxima acción" : formatDate(lead.nextActionAt || lead.createdAt)}</small></span><span className={`status-pill ${lead.status}`}>{formatStatus(lead.status)}</span><span className="priority-arrow">→</span></button>)}</div> : <p className="empty-state">No hay clientes pendientes de seguimiento.</p>}
     </article>
     <div className="quick-action-grid">{actions.map(([key, label, count, hint], index) => <button className="quick-action" type="button" key={key} onClick={() => onNavigate(key)}><span className="quick-action-top"><span className="eyebrow">{String(index + 1).padStart(2, "0")}</span><strong><SlidingNumber number={count} thousandSeparator="," /></strong></span><span className="quick-action-label">{label}</span><small>{hint} <span>→</span></small></button>)}</div>
   </section>;
