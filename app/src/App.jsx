@@ -323,12 +323,12 @@ function LandingPage({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPrivac
       </section>
       <section className="landing-cta" id="landing-demo">
         <h2>¿Tienes un lote de vehículos y quieres venderlos online?</h2>
-        <p>Crea tu cuenta en minutos. Tu showroom queda listo para personalizar de inmediato.</p>
+        <p>Empieza en una vista privada: personaliza tu marca, carga el inventario y comparte tu showroom cuando estés listo.</p>
         <button className="primary-action vui-shine-action" type="button" onClick={onCreateShowroom}>Crear mi showroom →</button>
       </section>
       <footer className="landing-footer">
         <div><span className="brand-mark">AUTHENTIQ<span>°</span></span><p>Showrooms digitales para dealers que quieren vender mejor.</p></div>
-        <nav aria-label="Enlaces legales"><button type="button" onClick={onOpenPrivacy}>Privacidad</button><button type="button" onClick={onOpenTerms}>Términos</button><a href="mailto:hola@authentiq.app">Contacto</a></nav>
+        <nav aria-label="Enlaces legales"><button type="button" onClick={onOpenPrivacy}>Privacidad</button><button type="button" onClick={onOpenTerms}>Términos</button><button type="button" onClick={onCreateShowroom}>Solicitar demo</button></nav>
         <small>© {new Date().getFullYear()} AUTHENTIQ · Plataforma para dealers</small>
       </footer>
     </main>
