@@ -3708,7 +3708,13 @@ app.use(express.static(frontendDist, {
   setHeaders: (response, filePath) => {
     // El HTML debe descubrir siempre los chunks hash del último deploy;
     // los assets versionados mantienen la caché larga sin mezclar releases.
-    if (path.basename(filePath) === "index.html") response.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    // El worker y su registrador también deben revalidarse en cada visita. Si se
+    // quedan una hora en caché, un navegador que ya conocía el sitio puede seguir
+    // ejecutando la landing y los assets de un release anterior aunque el HTML ya
+    // apunte al deploy nuevo.
+    if (["index.html", "sw.js", "registerSW.js", "manifest.webmanifest"].includes(path.basename(filePath))) {
+      response.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    }
   },
 }));
 app.use("/api", (_req, res) => res.status(404).json({ error: "Recurso no encontrado" }));
