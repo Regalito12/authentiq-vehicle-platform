@@ -1181,14 +1181,22 @@ function ContactForm() {
 }
 
 function FaqSection({ settings = {} }) {
-  const defaults = [
+  const fallback = [
     ["¿Puedo agendar una visita?", "Sí. Elige una fecha y un horario disponible desde la ficha del vehículo; el equipo confirmará la visita."],
     ["¿Puedo entregar mi vehículo actual?", "Puedes solicitar una orientación de tasación y un asesor revisará la información contigo."],
     ["¿La cotización es el precio final?", "La cotización es informativa y queda sujeta a disponibilidad, inspección, aprobación comercial y condiciones de financiamiento."],
     ["¿Cómo me responderán?", "Usaremos el correo, teléfono o WhatsApp que dejaste en la solicitud. Durante el horario del showroom te indicaremos el siguiente paso."],
   ];
+  const defaults = Array.isArray(settings.faqItems) && settings.faqItems.length ? settings.faqItems.map((item) => [item.question, item.answer]) : fallback;
   const [activeIndex, setActiveIndex] = useState(null);
-  return <section className="faq-section" id="preguntas" aria-label="Preguntas frecuentes"><div className="section-head"><div><span className="eyebrow">ANTES DE VISITARNOS</span><h2>Preguntas frecuentes.</h2></div><p>Lo esencial para avanzar con claridad.</p></div><div className="faq-list">{defaults.map(([question, answer], index) => { const active = activeIndex === index; return <div className={`faq-item${active ? " is-active" : ""}`} key={question}><button type="button" className="faq-trigger" aria-expanded={active} aria-controls={`faq-answer-${index}`} onClick={() => setActiveIndex(active ? null : index)}><span className="faq-symbol" aria-hidden="true">{active ? "−" : "+"}</span><span>{question}</span><span className="faq-chevron" aria-hidden="true">⌃</span></button><motion.div id={`faq-answer-${index}`} className="faq-answer" initial={false} animate={{ gridTemplateRows: active ? "1fr" : "0fr", opacity: active ? 1 : 0 }} transition={{ duration: .24, ease: "easeOut" }}><div><p>{answer}</p></div></motion.div></div>; })}</div></section>;
+  const reduceMotion = useReducedMotion();
+  return <section className="faq-section" id="preguntas" aria-label="Preguntas frecuentes"><div className="section-head"><div><span className="eyebrow">ANTES DE VISITARNOS</span><h2>Preguntas frecuentes.</h2></div><p>Lo esencial para avanzar con claridad.</p></div><div className="faq-list">{defaults.map(([question, answer], index) => { const active = activeIndex === index; return <div className={`faq-item${active ? " is-active" : ""}`} key={question}><button type="button" className="faq-trigger" aria-expanded={active} aria-controls={`faq-answer-${index}`} onClick={() => setActiveIndex(active ? null : index)}><span className="faq-symbol" aria-hidden="true">{active ? "−" : "+"}</span><span>{question}</span><span className="faq-chevron" aria-hidden="true">⌃</span></button><motion.div id={`faq-answer-${index}`} className="faq-answer" initial={false} animate={{ gridTemplateRows: active ? "1fr" : "0fr", opacity: active ? 1 : 0 }} transition={{ duration: reduceMotion ? 0 : .24, ease: "easeOut" }}><div><p>{answer}</p></div></motion.div></div>; })}</div></section>;
+}
+
+function TestimonialsSection({ settings = {} }) {
+  const testimonials = Array.isArray(settings.testimonials) ? settings.testimonials.filter((item) => item?.quote && item?.name) : [];
+  if (!testimonials.length) return null;
+  return <section className="testimonials-section" id="opiniones" aria-label="Opiniones de clientes"><div className="section-head"><div><span className="eyebrow">EXPERIENCIAS REALES</span><h2>Historias que ya avanzaron.</h2></div><p>La confianza también se construye con experiencias compartidas.</p></div><div className="testimonials-grid">{testimonials.map((item, index) => <article className="testimonial-card" key={`${item.name}-${index}`}><span className="testimonial-mark" aria-hidden="true">“</span><blockquote>{item.quote}</blockquote><footer><strong>{item.name}</strong><span>{item.detail}</span></footer></article>)}</div></section>;
 }
 
 function LocationSection({ settings = {} }) {
@@ -2029,6 +2037,7 @@ function App() {
         <CompareTable vehicles={compareVehicles} />
         <ContactForm />
         <FaqSection settings={businessSettings} />
+        <TestimonialsSection settings={businessSettings} />
         <LocationSection settings={businessSettings} />
         {businessSettings.showBlog !== false && <BlogSection posts={posts} />}
         <footer className="site-footer">

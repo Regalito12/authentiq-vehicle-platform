@@ -299,6 +299,10 @@ async function checkDealerSignup() {
   check("El backoffice del concesionario nuevo responde", dashboard.ok, `respondió ${dashboard.status}`);
   const settings = await api("/api/admin/settings", { token: relogin.body?.token });
   check("Su configuración inicial existe", settings.ok && Boolean(settings.body?.data));
+  const trustSettings = await api("/api/admin/settings", { token: relogin.body?.token, method: "PATCH", body: JSON.stringify({ ...settings.body?.data, faqItems: [{ question: "¿Tienen historial?", answer: "Sí, cada unidad se entrega con información revisada." }], testimonials: [{ quote: "Todo fue claro y rápido.", name: "Cliente E2E", detail: "Compra verificada" }] }) });
+  check("El dealer puede guardar FAQ y opiniones", trustSettings.ok && trustSettings.body?.data?.faqItems?.length === 1 && trustSettings.body?.data?.testimonials?.length === 1, `status ${trustSettings.status}`);
+  const publicTrust = await api("/api/settings", { headers: { "X-Authentiq-Tenant": created.organizationSlug || "" } });
+  check("El showroom público recibe su contenido de confianza", publicTrust.ok && publicTrust.body?.data?.faqItems?.[0]?.question === "¿Tienen historial?" && publicTrust.body?.data?.testimonials?.[0]?.name === "Cliente E2E", `status ${publicTrust.status}`);
   const onboarding = await api("/api/admin/onboarding", { token: relogin.body?.token });
   check("Ve su guía de personalización", onboarding.ok && Array.isArray(onboarding.body?.data?.steps));
 

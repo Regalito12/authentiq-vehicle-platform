@@ -1601,7 +1601,7 @@ app.get("/api/vehicles", async (req, res) => {
 app.get("/api/settings", async (req, res) => {
   try {
     const organization = await getOrganizationContext(req);
-    const result = await pool.query('SELECT business_name AS "businessName", logo_url AS "logoUrl", primary_color AS "primaryColor", accent_color AS "accentColor", favicon_url AS "faviconUrl", phone, whatsapp, email, address, hours, instagram_url AS "instagramUrl", facebook_url AS "facebookUrl", currency, privacy_text AS "privacyText", terms_text AS "termsText", custom_css AS "customCss", hero_headline AS "heroHeadline", hero_subheadline AS "heroSubheadline", hero_image_url AS "heroImageUrl", show_financing AS "showFinancing", show_brand_rail AS "showBrandRail", show_model_line_rail AS "showModelLineRail", show_blog AS "showBlog" FROM organization_settings WHERE organization_id=$1', [organization.id]);
+    const result = await pool.query('SELECT business_name AS "businessName", logo_url AS "logoUrl", primary_color AS "primaryColor", accent_color AS "accentColor", favicon_url AS "faviconUrl", phone, whatsapp, email, address, hours, instagram_url AS "instagramUrl", facebook_url AS "facebookUrl", currency, privacy_text AS "privacyText", terms_text AS "termsText", custom_css AS "customCss", hero_headline AS "heroHeadline", hero_subheadline AS "heroSubheadline", hero_image_url AS "heroImageUrl", show_financing AS "showFinancing", show_brand_rail AS "showBrandRail", show_model_line_rail AS "showModelLineRail", show_blog AS "showBlog", faq_items AS "faqItems", testimonials FROM organization_settings WHERE organization_id=$1', [organization.id]);
     const isPlatformHome = organization.slug === DEFAULT_ORGANIZATION_SLUG;
     res.json({ data: result.rows[0] ? { ...result.rows[0], isPlatformHome } : { isPlatformHome }, privacyPolicyVersion });
   } catch (error) { if (isOrganizationNotFound(error)) return sendOrganizationNotFound(res); console.error("Public settings query failed", error); res.status(500).json({ error: "No se pudo cargar la informacion del negocio" }); }
@@ -2399,7 +2399,7 @@ app.delete("/api/admin/users/:id", authenticate, requireRoles("admin"), async (r
 
 app.get("/api/admin/settings", authenticate, requireRoles("admin", "editor", "content_editor"), async (req, res) => {
   try {
-    const result = await pool.query('SELECT organization_id AS "organizationId", business_name AS "businessName", logo_url AS "logoUrl", primary_color AS "primaryColor", accent_color AS "accentColor", favicon_url AS "faviconUrl", phone, whatsapp, email, address, hours, instagram_url AS "instagramUrl", facebook_url AS "facebookUrl", currency, privacy_text AS "privacyText", terms_text AS "termsText", appointment_timezone AS "appointmentTimezone", appointment_start AS "appointmentStart", appointment_end AS "appointmentEnd", appointment_duration_minutes AS "appointmentDurationMinutes", appointment_min_notice_hours AS "appointmentMinNoticeHours", appointment_max_days_ahead AS "appointmentMaxDaysAhead", appointment_days AS "appointmentDays", appointment_capacity AS "appointmentCapacity", hero_headline AS "heroHeadline", hero_subheadline AS "heroSubheadline", hero_image_url AS "heroImageUrl", show_financing AS "showFinancing", show_brand_rail AS "showBrandRail", show_model_line_rail AS "showModelLineRail", show_blog AS "showBlog", updated_at AS "updatedAt" FROM organization_settings WHERE organization_id=$1', [adminOrganizationId(req)]);
+    const result = await pool.query('SELECT organization_id AS "organizationId", business_name AS "businessName", logo_url AS "logoUrl", primary_color AS "primaryColor", accent_color AS "accentColor", favicon_url AS "faviconUrl", phone, whatsapp, email, address, hours, instagram_url AS "instagramUrl", facebook_url AS "facebookUrl", currency, privacy_text AS "privacyText", terms_text AS "termsText", appointment_timezone AS "appointmentTimezone", appointment_start AS "appointmentStart", appointment_end AS "appointmentEnd", appointment_duration_minutes AS "appointmentDurationMinutes", appointment_min_notice_hours AS "appointmentMinNoticeHours", appointment_max_days_ahead AS "appointmentMaxDaysAhead", appointment_days AS "appointmentDays", appointment_capacity AS "appointmentCapacity", hero_headline AS "heroHeadline", hero_subheadline AS "heroSubheadline", hero_image_url AS "heroImageUrl", show_financing AS "showFinancing", show_brand_rail AS "showBrandRail", show_model_line_rail AS "showModelLineRail", show_blog AS "showBlog", faq_items AS "faqItems", testimonials, updated_at AS "updatedAt" FROM organization_settings WHERE organization_id=$1', [adminOrganizationId(req)]);
     res.json({ data: result.rows[0] || null });
   } catch (error) { console.error("Business settings query failed", error); res.status(500).json({ error: "No se pudo cargar la configuración" }); }
 });
@@ -2410,6 +2410,14 @@ app.patch("/api/admin/settings", authenticate, requireRoles("admin", "editor"), 
     const match = String(value || "").trim().match(/^(\d{1,2}):(\d{2})/);
     if (!match) return fallback;
     return `${String(Number(match[1])).padStart(2, "0")}:${match[2]}`;
+  };
+  const normalizeContentList = (value, fields, maxItems, maxLengths, requiredFields = fields) => {
+    if (!Array.isArray(value)) return [];
+    return value.slice(0, maxItems).map((item) => {
+      const next = {};
+      fields.forEach((field) => { next[field] = String(item?.[field] || "").trim().slice(0, maxLengths[field]); });
+      return next;
+    }).filter((item) => requiredFields.every((field) => item[field]));
   };
   const settings = {
     businessName: String(req.body.businessName || "AUTHENTIQ").trim(), logoUrl: String(req.body.logoUrl || "").trim() || null,
@@ -2422,6 +2430,8 @@ app.patch("/api/admin/settings", authenticate, requireRoles("admin", "editor"), 
     appointmentTimezone: String(req.body.appointmentTimezone || "America/Santo_Domingo").trim(), appointmentStart: normalizeTime(req.body.appointmentStart, "09:00"), appointmentEnd: normalizeTime(req.body.appointmentEnd, "18:00"), appointmentDurationMinutes: Number(req.body.appointmentDurationMinutes || 60), appointmentMinNoticeHours: Number(req.body.appointmentMinNoticeHours || 2), appointmentMaxDaysAhead: Number(req.body.appointmentMaxDaysAhead || 30), appointmentDays: Array.isArray(req.body.appointmentDays) ? req.body.appointmentDays.map(Number).filter((day) => day >= 1 && day <= 7) : [1, 2, 3, 4, 5, 6], appointmentCapacity: Number(req.body.appointmentCapacity || 1),
     heroHeadline: String(req.body.heroHeadline || "").trim().slice(0, 160) || null, heroSubheadline: String(req.body.heroSubheadline || "").trim().slice(0, 280) || null, heroImageUrl: String(req.body.heroImageUrl || "").trim() || null,
     showFinancing: req.body.showFinancing !== false, showBrandRail: req.body.showBrandRail !== false, showModelLineRail: req.body.showModelLineRail !== false, showBlog: req.body.showBlog !== false,
+    faqItems: normalizeContentList(req.body.faqItems, ["question", "answer"], 12, { question: 180, answer: 1200 }),
+    testimonials: normalizeContentList(req.body.testimonials, ["quote", "name", "detail"], 8, { quote: 500, name: 120, detail: 180 }, ["quote", "name"]),
   };
   if (!settings.businessName) return res.status(400).json({ error: "El nombre del negocio es obligatorio" });
   try {
@@ -2433,7 +2443,8 @@ app.patch("/api/admin/settings", authenticate, requireRoles("admin", "editor"), 
       "UPDATE organization_settings SET hero_headline=$1, hero_subheadline=$2, hero_image_url=$3, show_financing=$4, show_brand_rail=$5, show_model_line_rail=$6, show_blog=$7, updated_at=NOW() WHERE organization_id=$8",
       [settings.heroHeadline, settings.heroSubheadline, settings.heroImageUrl, settings.showFinancing, settings.showBrandRail, settings.showModelLineRail, settings.showBlog, adminOrganizationId(req)],
     );
-    const branding = await pool.query('SELECT primary_color AS "primaryColor", accent_color AS "accentColor", favicon_url AS "faviconUrl", hero_headline AS "heroHeadline", hero_subheadline AS "heroSubheadline", hero_image_url AS "heroImageUrl", show_financing AS "showFinancing", show_brand_rail AS "showBrandRail", show_model_line_rail AS "showModelLineRail", show_blog AS "showBlog" FROM organization_settings WHERE organization_id=$1', [adminOrganizationId(req)]);
+    await pool.query("UPDATE organization_settings SET faq_items=$1::jsonb, testimonials=$2::jsonb, updated_at=NOW() WHERE organization_id=$3", [JSON.stringify(settings.faqItems), JSON.stringify(settings.testimonials), adminOrganizationId(req)]);
+    const branding = await pool.query('SELECT primary_color AS "primaryColor", accent_color AS "accentColor", favicon_url AS "faviconUrl", hero_headline AS "heroHeadline", hero_subheadline AS "heroSubheadline", hero_image_url AS "heroImageUrl", show_financing AS "showFinancing", show_brand_rail AS "showBrandRail", show_model_line_rail AS "showModelLineRail", show_blog AS "showBlog", faq_items AS "faqItems", testimonials FROM organization_settings WHERE organization_id=$1', [adminOrganizationId(req)]);
     await writeAudit(req, "settings.update", "business_settings", null, { businessName: settings.businessName, primaryColor: settings.primaryColor, accentColor: settings.accentColor });
     res.json({ data: { ...(result.rows[0] || {}), ...(branding.rows[0] || {}) } });
   } catch (error) { console.error("Business settings update failed", error); res.status(500).json({ error: "No se pudo guardar la configuración" }); }
