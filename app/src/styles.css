@@ -3731,6 +3731,53 @@ html[data-theme="dark"] .flyer-format-btn {
   .landing-page *, .landing-page *::before, .landing-page *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; }
 }
 
+/* Art-directed hero: la escena es el producto. El contenido vive sobre el
+   movimiento, como una portada cinematográfica, en vez de competir con él en
+   dos columnas independientes. */
+.landing-hero {
+  display: grid;
+  grid-template-columns: 1fr;
+  width: 100%;
+  max-width: none;
+  min-height: min(920px, calc(100svh - 28px));
+  margin: 0;
+  padding: clamp(120px, 22vh, 210px) max(30px, calc((100% - 1180px) / 2)) 92px;
+  align-items: center;
+  overflow: hidden;
+}
+.landing-hero::before { z-index: 1; top: 12%; right: 13%; width: min(58vw, 760px); height: min(58vw, 760px); border-color: rgba(241,204,111,.32); pointer-events: none; }
+.landing-hero::after { z-index: 1; top: 30%; right: 35%; }
+.landing-hero-visual { position: absolute; z-index: 0; inset: 0; min-height: 0; border-radius: 0; box-shadow: none; }
+.landing-visual-media > img, .landing-visual-media > video { filter: saturate(.72) contrast(1.08) brightness(.76); animation-duration: 18s; }
+.landing-visual-wash { background: linear-gradient(90deg, rgba(10,12,11,.9) 0%, rgba(10,12,11,.62) 40%, rgba(10,12,11,.12) 78%), linear-gradient(0deg, rgba(10,12,11,.8), transparent 45%); }
+.landing-hero-copy { max-width: 680px; }
+.landing-hero-copy .eyebrow { color: #e9c86c; }
+.landing-hero h1 { max-width: 10ch; margin: 22px 0 28px; color: #f8f5ed; font-size: clamp(54px, 6.8vw, 106px); font-weight: 300; letter-spacing: -.045em; line-height: .88; text-wrap: balance; }
+.landing-hero h1 em { color: #e9c86c; }
+.landing-hero-copy > p { max-width: 39ch; color: rgba(248,245,237,.78); font-size: clamp(17px, 1.6vw, 20px); line-height: 1.55; }
+.landing-page .primary-action { border-color: #b7e5bc; background: #b7e5bc; color: #171817; }
+.landing-page .primary-action:hover { border-color: #d0f1d1; background: #d0f1d1; }
+.landing-quiet-action { color: #f8f5ed; }
+.landing-quiet-action span { color: #e9c86c; }
+.landing-hero-proof { position: absolute; z-index: 3; right: max(30px, calc((100% - 1180px) / 2)); bottom: 38px; left: max(30px, calc((100% - 1180px) / 2)); justify-content: space-between; margin: 0; color: rgba(248,245,237,.74); }
+.landing-hero-proof b { color: #e9c86c; }
+.landing-visual-status { padding: 24px max(30px, calc((100% - 1180px) / 2)); }
+.landing-visual-caption { left: auto; right: max(30px, calc((100% - 1180px) / 2)); bottom: 105px; text-align: right; }
+.landing-visual-caption strong { font-size: clamp(36px, 4vw, 64px); }
+.landing-visual-card { top: 27%; right: max(30px, calc((100% - 1180px) / 2)); }
+.landing-reel-controls { right: max(30px, calc((100% - 1180px) / 2)); bottom: 20px; left: max(30px, calc((100% - 1180px) / 2)); }
+@media (max-width: 700px) {
+  .landing-hero { min-height: 820px; padding: 150px 22px 150px; align-items: start; }
+  .landing-hero h1 { max-width: 9ch; font-size: clamp(54px, 15vw, 78px); }
+  .landing-hero-copy > p { max-width: 31ch; font-size: 17px; }
+  .landing-hero-proof { right: 22px; bottom: 72px; left: 22px; display: grid; gap: 8px; }
+  .landing-visual-status { padding: 22px; }
+  .landing-visual-card { top: auto; right: 22px; bottom: 168px; transform: scale(.9); transform-origin: bottom right; }
+  .landing-visual-caption { right: 22px; bottom: 115px; }
+  .landing-visual-caption strong { font-size: 38px; }
+  .landing-reel-controls { right: 22px; bottom: 22px; left: 22px; }
+}
+
 
 /* ---- Transición nativa entre catálogo y ficha ----
    La foto de la tarjeta crece hasta la foto grande de la ficha en vez de cortar
