@@ -1601,7 +1601,18 @@ app.get("/api/vehicles", async (req, res) => {
 app.get("/api/settings", async (req, res) => {
   try {
     const organization = await getOrganizationContext(req);
-    const result = await pool.query('SELECT business_name AS "businessName", logo_url AS "logoUrl", primary_color AS "primaryColor", accent_color AS "accentColor", favicon_url AS "faviconUrl", phone, whatsapp, email, address, hours, instagram_url AS "instagramUrl", facebook_url AS "facebookUrl", currency, privacy_text AS "privacyText", terms_text AS "termsText", custom_css AS "customCss", hero_headline AS "heroHeadline", hero_subheadline AS "heroSubheadline", hero_image_url AS "heroImageUrl", show_financing AS "showFinancing", show_brand_rail AS "showBrandRail", show_model_line_rail AS "showModelLineRail", show_blog AS "showBlog", faq_items AS "faqItems", testimonials FROM organization_settings WHERE organization_id=$1', [organization.id]);
+    let result;
+    try {
+      result = await pool.query('SELECT business_name AS "businessName", logo_url AS "logoUrl", primary_color AS "primaryColor", accent_color AS "accentColor", favicon_url AS "faviconUrl", phone, whatsapp, email, address, hours, instagram_url AS "instagramUrl", facebook_url AS "facebookUrl", currency, privacy_text AS "privacyText", terms_text AS "termsText", custom_css AS "customCss", hero_headline AS "heroHeadline", hero_subheadline AS "heroSubheadline", hero_image_url AS "heroImageUrl", show_financing AS "showFinancing", show_brand_rail AS "showBrandRail", show_model_line_rail AS "showModelLineRail", show_blog AS "showBlog", faq_items AS "faqItems", testimonials FROM organization_settings WHERE organization_id=$1', [organization.id]);
+    } catch (error) {
+      if (error.code !== "42703") throw error;
+      // Render puede arrancar el código nuevo antes de que el dueño aplique la
+      // migración. Mantener la vitrina funcional evita convertir una migración
+      // pendiente en una pantalla 500; el contenido editable se activa al estar
+      // presentes las columnas nuevas.
+      result = await pool.query('SELECT business_name AS "businessName", logo_url AS "logoUrl", primary_color AS "primaryColor", accent_color AS "accentColor", favicon_url AS "faviconUrl", phone, whatsapp, email, address, hours, instagram_url AS "instagramUrl", facebook_url AS "facebookUrl", currency, privacy_text AS "privacyText", terms_text AS "termsText", custom_css AS "customCss", hero_headline AS "heroHeadline", hero_subheadline AS "heroSubheadline", hero_image_url AS "heroImageUrl", show_financing AS "showFinancing", show_brand_rail AS "showBrandRail", show_model_line_rail AS "showModelLineRail", show_blog AS "showBlog" FROM organization_settings WHERE organization_id=$1', [organization.id]);
+      if (result.rows[0]) result.rows[0] = { ...result.rows[0], faqItems: [], testimonials: [], trustContentAvailable: false };
+    }
     const isPlatformHome = organization.slug === DEFAULT_ORGANIZATION_SLUG;
     res.json({ data: result.rows[0] ? { ...result.rows[0], isPlatformHome } : { isPlatformHome }, privacyPolicyVersion });
   } catch (error) { if (isOrganizationNotFound(error)) return sendOrganizationNotFound(res); console.error("Public settings query failed", error); res.status(500).json({ error: "No se pudo cargar la informacion del negocio" }); }
@@ -2399,7 +2410,14 @@ app.delete("/api/admin/users/:id", authenticate, requireRoles("admin"), async (r
 
 app.get("/api/admin/settings", authenticate, requireRoles("admin", "editor", "content_editor"), async (req, res) => {
   try {
-    const result = await pool.query('SELECT organization_id AS "organizationId", business_name AS "businessName", logo_url AS "logoUrl", primary_color AS "primaryColor", accent_color AS "accentColor", favicon_url AS "faviconUrl", phone, whatsapp, email, address, hours, instagram_url AS "instagramUrl", facebook_url AS "facebookUrl", currency, privacy_text AS "privacyText", terms_text AS "termsText", appointment_timezone AS "appointmentTimezone", appointment_start AS "appointmentStart", appointment_end AS "appointmentEnd", appointment_duration_minutes AS "appointmentDurationMinutes", appointment_min_notice_hours AS "appointmentMinNoticeHours", appointment_max_days_ahead AS "appointmentMaxDaysAhead", appointment_days AS "appointmentDays", appointment_capacity AS "appointmentCapacity", hero_headline AS "heroHeadline", hero_subheadline AS "heroSubheadline", hero_image_url AS "heroImageUrl", show_financing AS "showFinancing", show_brand_rail AS "showBrandRail", show_model_line_rail AS "showModelLineRail", show_blog AS "showBlog", faq_items AS "faqItems", testimonials, updated_at AS "updatedAt" FROM organization_settings WHERE organization_id=$1', [adminOrganizationId(req)]);
+    let result;
+    try {
+      result = await pool.query('SELECT organization_id AS "organizationId", business_name AS "businessName", logo_url AS "logoUrl", primary_color AS "primaryColor", accent_color AS "accentColor", favicon_url AS "faviconUrl", phone, whatsapp, email, address, hours, instagram_url AS "instagramUrl", facebook_url AS "facebookUrl", currency, privacy_text AS "privacyText", terms_text AS "termsText", appointment_timezone AS "appointmentTimezone", appointment_start AS "appointmentStart", appointment_end AS "appointmentEnd", appointment_duration_minutes AS "appointmentDurationMinutes", appointment_min_notice_hours AS "appointmentMinNoticeHours", appointment_max_days_ahead AS "appointmentMaxDaysAhead", appointment_days AS "appointmentDays", appointment_capacity AS "appointmentCapacity", hero_headline AS "heroHeadline", hero_subheadline AS "heroSubheadline", hero_image_url AS "heroImageUrl", show_financing AS "showFinancing", show_brand_rail AS "showBrandRail", show_model_line_rail AS "showModelLineRail", show_blog AS "showBlog", faq_items AS "faqItems", testimonials, updated_at AS "updatedAt" FROM organization_settings WHERE organization_id=$1', [adminOrganizationId(req)]);
+    } catch (error) {
+      if (error.code !== "42703") throw error;
+      result = await pool.query('SELECT organization_id AS "organizationId", business_name AS "businessName", logo_url AS "logoUrl", primary_color AS "primaryColor", accent_color AS "accentColor", favicon_url AS "faviconUrl", phone, whatsapp, email, address, hours, instagram_url AS "instagramUrl", facebook_url AS "facebookUrl", currency, privacy_text AS "privacyText", terms_text AS "termsText", appointment_timezone AS "appointmentTimezone", appointment_start AS "appointmentStart", appointment_end AS "appointmentEnd", appointment_duration_minutes AS "appointmentDurationMinutes", appointment_min_notice_hours AS "appointmentMinNoticeHours", appointment_max_days_ahead AS "appointmentMaxDaysAhead", appointment_days AS "appointmentDays", appointment_capacity AS "appointmentCapacity", hero_headline AS "heroHeadline", hero_subheadline AS "heroSubheadline", hero_image_url AS "heroImageUrl", show_financing AS "showFinancing", show_brand_rail AS "showBrandRail", show_model_line_rail AS "showModelLineRail", show_blog AS "showBlog", updated_at AS "updatedAt" FROM organization_settings WHERE organization_id=$1', [adminOrganizationId(req)]);
+      if (result.rows[0]) result.rows[0] = { ...result.rows[0], faqItems: [], testimonials: [], trustContentAvailable: false };
+    }
     res.json({ data: result.rows[0] || null });
   } catch (error) { console.error("Business settings query failed", error); res.status(500).json({ error: "No se pudo cargar la configuración" }); }
 });
@@ -2443,8 +2461,22 @@ app.patch("/api/admin/settings", authenticate, requireRoles("admin", "editor"), 
       "UPDATE organization_settings SET hero_headline=$1, hero_subheadline=$2, hero_image_url=$3, show_financing=$4, show_brand_rail=$5, show_model_line_rail=$6, show_blog=$7, updated_at=NOW() WHERE organization_id=$8",
       [settings.heroHeadline, settings.heroSubheadline, settings.heroImageUrl, settings.showFinancing, settings.showBrandRail, settings.showModelLineRail, settings.showBlog, adminOrganizationId(req)],
     );
-    await pool.query("UPDATE organization_settings SET faq_items=$1::jsonb, testimonials=$2::jsonb, updated_at=NOW() WHERE organization_id=$3", [JSON.stringify(settings.faqItems), JSON.stringify(settings.testimonials), adminOrganizationId(req)]);
-    const branding = await pool.query('SELECT primary_color AS "primaryColor", accent_color AS "accentColor", favicon_url AS "faviconUrl", hero_headline AS "heroHeadline", hero_subheadline AS "heroSubheadline", hero_image_url AS "heroImageUrl", show_financing AS "showFinancing", show_brand_rail AS "showBrandRail", show_model_line_rail AS "showModelLineRail", show_blog AS "showBlog", faq_items AS "faqItems", testimonials FROM organization_settings WHERE organization_id=$1', [adminOrganizationId(req)]);
+    let trustContentAvailable = true;
+    try {
+      await pool.query("UPDATE organization_settings SET faq_items=$1::jsonb, testimonials=$2::jsonb, updated_at=NOW() WHERE organization_id=$3", [JSON.stringify(settings.faqItems), JSON.stringify(settings.testimonials), adminOrganizationId(req)]);
+    } catch (error) {
+      if (error.code !== "42703") throw error;
+      trustContentAvailable = false;
+    }
+    let branding;
+    try {
+      branding = await pool.query('SELECT primary_color AS "primaryColor", accent_color AS "accentColor", favicon_url AS "faviconUrl", hero_headline AS "heroHeadline", hero_subheadline AS "heroSubheadline", hero_image_url AS "heroImageUrl", show_financing AS "showFinancing", show_brand_rail AS "showBrandRail", show_model_line_rail AS "showModelLineRail", show_blog AS "showBlog", faq_items AS "faqItems", testimonials FROM organization_settings WHERE organization_id=$1', [adminOrganizationId(req)]);
+    } catch (error) {
+      if (error.code !== "42703") throw error;
+      trustContentAvailable = false;
+      branding = await pool.query('SELECT primary_color AS "primaryColor", accent_color AS "accentColor", favicon_url AS "faviconUrl", hero_headline AS "heroHeadline", hero_subheadline AS "heroSubheadline", hero_image_url AS "heroImageUrl", show_financing AS "showFinancing", show_brand_rail AS "showBrandRail", show_model_line_rail AS "showModelLineRail", show_blog AS "showBlog" FROM organization_settings WHERE organization_id=$1', [adminOrganizationId(req)]);
+    }
+    if (branding.rows[0]) branding.rows[0] = { ...branding.rows[0], ...(trustContentAvailable ? {} : { faqItems: [], testimonials: [], trustContentAvailable: false }) };
     await writeAudit(req, "settings.update", "business_settings", null, { businessName: settings.businessName, primaryColor: settings.primaryColor, accentColor: settings.accentColor });
     res.json({ data: { ...(result.rows[0] || {}), ...(branding.rows[0] || {}) } });
   } catch (error) { console.error("Business settings update failed", error); res.status(500).json({ error: "No se pudo guardar la configuración" }); }
