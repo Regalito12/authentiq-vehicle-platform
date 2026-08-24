@@ -45,6 +45,8 @@ Antes de iniciar en produccion, el servidor rechazara automaticamente un entorno
 6. En Cloudflare Turnstile, crear un widget para el dominio de cada entorno. Agregar su clave pública como `VITE_TURNSTILE_SITE_KEY` y la secreta como `TURNSTILE_SECRET_KEY`. Render debe reconstruir el frontend después de guardar la clave pública.
 7. Para Google Calendar, crear un cliente OAuth de tipo aplicación web y registrar exactamente `https://TU-SERVICIO.onrender.com/api/integrations/google-calendar/callback`. En Render completar `GOOGLE_CALENDAR_CLIENT_ID`, `GOOGLE_CALENDAR_CLIENT_SECRET`, `GOOGLE_CALENDAR_REDIRECT_URI` y `GOOGLE_CALENDAR_TOKEN_ENCRYPTION_KEY`. El Blueprint deja `GOOGLE_CALENDAR_REQUIRED=true`, por lo que el servicio no arrancará con una configuración incompleta.
 
+El `startCommand` del Blueprint ejecuta `npm --prefix server run migrate:storefront-content` antes de iniciar la API. Esa migración es idempotente y habilita el contenido editable de confianza (FAQ y testimonios) sin requerir una acción manual adicional en el plan Free.
+
 ## Monitor gratuito
 
 Crear en UptimeRobot un monitor HTTP para:

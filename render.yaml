@@ -4,7 +4,9 @@ services:
     runtime: node
     rootDir: app
     buildCommand: npm ci && npm run check:production && npm run build && npm --prefix server ci
-    startCommand: npm --prefix server start
+    # Render Free no ejecuta preDeployCommand; esta migración es idempotente y
+    # debe correr antes de levantar la API para habilitar el contenido editable.
+    startCommand: npm --prefix server run migrate:storefront-content && npm --prefix server start
     healthCheckPath: /api/health
     autoDeployTrigger: commit
     plan: free
