@@ -809,6 +809,9 @@ const analyticsEventLabels = {
   whatsapp_click: "Clics a WhatsApp",
   offer_submitted: "Ofertas enviadas",
   contact_submitted: "Contactos enviados",
+  appointment_submitted: "Citas solicitadas",
+  trade_in_submitted: "Vehículos para entregar",
+  search_alert_submitted: "Búsquedas guardadas",
   price_alert_submitted: "Alertas de precio",
 };
 
