@@ -24,8 +24,11 @@ const expectedFiles = [
   "043_dealer_storefront_customization.sql",
   "044_google_calendar.sql",
   "045_storefront_trust_content.sql",
+  "046_password_recovery_and_sessions.sql",
+  "047_billing_events_and_email_outbox.sql",
+  "048_public_request_idempotency.sql",
 ];
-const expectedTables = ["appointment_blocks", "organizations", "organization_members", "organization_settings", "organization_integrations", "social_drafts", "billing_subscriptions", "platform_plans", "vehicle_3d_jobs"];
+const expectedTables = ["appointment_blocks", "organizations", "organization_members", "organization_settings", "organization_integrations", "social_drafts", "billing_subscriptions", "platform_plans", "vehicle_3d_jobs", "password_reset_tokens", "billing_webhook_events", "email_delivery_log", "public_request_idempotency"];
 const expectedColumns = [
   ["organizations", "custom_domain"],
   ["business_settings", "appointment_capacity"],
@@ -56,6 +59,8 @@ const expectedColumns = [
   ["test_drive_requests", "google_event_id"],
   ["organization_settings", "faq_items"],
   ["organization_settings", "testimonials"],
+  ["admin_users", "session_version"],
+  ["customer_accounts", "session_version"],
 ];
 
 const missingFiles = [];

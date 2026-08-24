@@ -14,6 +14,7 @@ import helmet from "helmet";
 import { initMonitoring, reportServerError } from "./monitoring.js";
 import { catalogPrerender, vehiclePrerender, catalogJsonLd, vehicleJsonLd } from "./prerender.js";
 import sharp from "sharp";
+import Stripe from "stripe";
 import { fileURLToPath } from "node:url";
 
 // Se usa solo cuando el correo no existe para que todos los intentos hagan una
@@ -73,6 +74,10 @@ const botProtectionRequired = String(process.env.BOT_PROTECTION_REQUIRED || "fal
 const turnstileSecretKey = String(process.env.TURNSTILE_SECRET_KEY || "").trim();
 const billingProvider = String(process.env.BILLING_PROVIDER || "none").trim().toLowerCase();
 const billingCheckoutUrl = String(process.env.BILLING_CHECKOUT_URL || "").trim();
+const stripeSecretKey = String(process.env.STRIPE_SECRET_KEY || "").trim();
+const stripeWebhookSecret = String(process.env.STRIPE_WEBHOOK_SECRET || "").trim();
+const stripeClient = stripeSecretKey ? new Stripe(stripeSecretKey) : null;
+const billingReady = Boolean(billingCheckoutUrl || stripeClient);
 const metaAppConfigured = Boolean(String(process.env.META_APP_ID || "").trim() && String(process.env.META_APP_SECRET || "").trim());
 const googleCalendarConfigured = Boolean(String(process.env.GOOGLE_CALENDAR_CLIENT_ID || "").trim() && String(process.env.GOOGLE_CALENDAR_CLIENT_SECRET || "").trim());
 const googleCalendarTokenKey = String(process.env.GOOGLE_CALENDAR_TOKEN_ENCRYPTION_KEY || "").trim();
@@ -452,6 +457,7 @@ app.use((_req, res, next) => {
   next();
 });
 app.use(cors({ origin: frontendOrigin ? frontendOrigin.split(",").map((value) => value.trim()) : true, credentials: true }));
+app.use("/api/webhooks/stripe", express.raw({ type: "application/json", limit: "1mb" }));
 app.use(express.json({ limit: "1mb" }));
 app.use("/uploads", express.static(uploadsDir, {
   maxAge: "1y",
@@ -489,6 +495,10 @@ function publicRateLimit(options) {
 app.use("/api/customer/auth/login", publicRateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Demasiados intentos. Intenta nuevamente mas tarde." } }));
 app.use("/api/customer/auth/register", publicRateLimit({ windowMs: 60 * 60 * 1000, limit: 10, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Demasiados registros. Intenta nuevamente mas tarde." } }));
 app.use("/api/auth/login", publicRateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Demasiados intentos. Intenta nuevamente más tarde." } }));
+app.use("/api/auth/password-reset/request", publicRateLimit({ windowMs: 60 * 60 * 1000, limit: 8, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Demasiadas solicitudes. Intenta nuevamente más tarde." } }));
+app.use("/api/auth/password-reset/confirm", publicRateLimit({ windowMs: 15 * 60 * 1000, limit: 12, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Demasiados intentos. Intenta nuevamente más tarde." } }));
+app.use("/api/customer/auth/password-reset/request", publicRateLimit({ windowMs: 60 * 60 * 1000, limit: 8, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Demasiadas solicitudes. Intenta nuevamente más tarde." } }));
+app.use("/api/customer/auth/password-reset/confirm", publicRateLimit({ windowMs: 15 * 60 * 1000, limit: 12, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Demasiados intentos. Intenta nuevamente más tarde." } }));
 app.use("/api/auth/register-dealer", publicRateLimit({ windowMs: 60 * 60 * 1000, limit: 10, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Demasiados registros de dealer. Intenta nuevamente más tarde." } }));
 app.use("/api/leads", publicRateLimit({ windowMs: 10 * 60 * 1000, limit: 30, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Demasiadas solicitudes. Intenta nuevamente más tarde." } }));
 app.use("/api/offers", publicRateLimit({ windowMs: 10 * 60 * 1000, limit: 20, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Demasiadas ofertas enviadas. Intenta nuevamente más tarde." } }));
@@ -564,6 +574,7 @@ const vehicleSelect = `
 // aunque el token sea válido, para que un reseteo no deje una sesión operando con
 // una contraseña que el titular de la cuenta nunca eligió.
 const PASSWORD_CHANGE_PATH = "/api/auth/change-password";
+const PASSWORD_RESET_REQUEST_PATH = "/api/auth/password-reset/request";
 const ADMIN_SESSION_COOKIE = "authentiq_admin_session";
 const CUSTOMER_SESSION_COOKIE = "authentiq_customer_session";
 const DEFAULT_ORGANIZATION_SLUG = String(process.env.DEFAULT_ORGANIZATION_SLUG || "authentiq").trim().toLowerCase();
@@ -711,6 +722,29 @@ function sendOrganizationNotFound(res) {
   return res.status(404).json({ error: "Dealer no encontrado", code: "ORGANIZATION_NOT_FOUND" });
 }
 
+async function publicRequestIdempotency(req, res, next) {
+  const requestKey = String(req.headers["idempotency-key"] || "").trim();
+  if (!requestKey) return next();
+  if (requestKey.length > 120) return res.status(400).json({ error: "El Idempotency-Key no puede superar 120 caracteres" });
+  try {
+    const organization = await getOrganizationContext(req);
+    const route = String(req.path || req.originalUrl || "").slice(0, 80);
+    await pool.query("DELETE FROM public_request_idempotency WHERE expires_at < NOW() AND organization_id=$1", [organization.id]);
+    const claimed = await pool.query("INSERT INTO public_request_idempotency (organization_id, route, request_key) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING RETURNING request_key", [organization.id, route, requestKey]);
+    if (!claimed.rowCount) {
+      const existing = await pool.query("SELECT response_status AS \"responseStatus\", response_body AS \"responseBody\" FROM public_request_idempotency WHERE organization_id=$1 AND route=$2 AND request_key=$3", [organization.id, route, requestKey]);
+      if (existing.rows[0]?.responseBody) return res.status(existing.rows[0].responseStatus || 200).json(existing.rows[0].responseBody);
+      return res.status(409).json({ error: "Esta solicitud ya está siendo procesada. Espera un momento.", code: "REQUEST_IN_PROGRESS" });
+    }
+    const originalJson = res.json.bind(res);
+    res.json = (body) => {
+      pool.query("UPDATE public_request_idempotency SET response_status=$1, response_body=$2::jsonb WHERE organization_id=$3 AND route=$4 AND request_key=$5", [res.statusCode, JSON.stringify(body), organization.id, route, requestKey]).catch((error) => console.error("Idempotency response save failed", error));
+      return originalJson(body);
+    };
+    return next();
+  } catch (error) { console.error("Public request idempotency failed", error); return next(); }
+}
+
 function adminOrganizationId(req) {
   return req.admin?.organizationId || req.organizationContext?.id || null;
 }
@@ -743,11 +777,12 @@ async function authenticate(req, res, next) {
   if (!token) return res.status(401).json({ error: "Autenticación requerida" });
   try {
     req.admin = jwt.verify(token, jwtSecret);
-    const organization = await pool.query("SELECT organization_id AS \"organizationId\", is_active AS \"isActive\", role FROM admin_users WHERE id=$1", [req.admin.id]);
+    const organization = await pool.query("SELECT organization_id AS \"organizationId\", is_active AS \"isActive\", role, session_version AS \"sessionVersion\" FROM admin_users WHERE id=$1", [req.admin.id]);
     if (!organization.rowCount || !organization.rows[0].isActive) return res.status(403).json({ error: "La cuenta administrativa no está activa" });
     req.admin.role = organization.rows[0].role;
     if (req.admin.role !== "platform_admin" && !organization.rows[0].organizationId) return res.status(403).json({ error: "La cuenta no tiene una organización activa asignada" });
     req.admin.organizationId = organization.rows[0].organizationId || null;
+    if (Number(req.admin.sessionVersion || 0) !== Number(organization.rows[0].sessionVersion || 0)) return res.status(401).json({ error: "La sesión fue revocada. Inicia sesión nuevamente" });
     if (req.admin.mustChangePassword && req.path !== PASSWORD_CHANGE_PATH) {
       return res.status(403).json({ error: "Debes definir una nueva contraseña antes de continuar", code: "MUST_CHANGE_PASSWORD" });
     }
@@ -768,8 +803,11 @@ function authenticateCustomer(req, res, next) {
   try {
     const customer = jwt.verify(token, jwtSecret);
     if (customer.kind !== "customer") throw new Error("Invalid customer token");
-    req.customer = customer;
-    return next();
+    return pool.query("SELECT session_version AS \"sessionVersion\", is_active AS \"isActive\" FROM customer_accounts WHERE id=$1", [customer.id]).then((result) => {
+      if (!result.rowCount || !result.rows[0].isActive || Number(customer.sessionVersion || 0) !== Number(result.rows[0].sessionVersion || 0)) return res.status(401).json({ error: "La sesión del comprador expiró" });
+      req.customer = customer;
+      return next();
+    }).catch(() => res.status(401).json({ error: "La sesión del comprador expiró" }));
   } catch {
     return res.status(401).json({ error: "La sesión del comprador expiró" });
   }
@@ -1069,6 +1107,28 @@ function minutesToTime(value) {
   return `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
 }
 
+function hashResetToken(token) {
+  return crypto.createHash("sha256").update(String(token || "")).digest("hex");
+}
+
+function resetTokenUrl(req, token, kind) {
+  const origin = publicSiteUrl || `${req.protocol}://${req.get("host")}`;
+  return `${origin}/${kind === "customer" ? "cuenta" : "backoffice"}/restablecer-contrasena?token=${encodeURIComponent(token)}`;
+}
+
+async function issuePasswordReset({ accountType, accountId, email, req }) {
+  const rawToken = crypto.randomBytes(32).toString("base64url");
+  await pool.query("UPDATE password_reset_tokens SET used_at=COALESCE(used_at, NOW()) WHERE account_type=$1 AND account_id=$2 AND used_at IS NULL", [accountType, accountId]);
+  await pool.query("INSERT INTO password_reset_tokens (account_type, account_id, token_hash, expires_at, requested_ip) VALUES ($1,$2,$3,NOW()+INTERVAL '30 minutes',$4)", [accountType, accountId, hashResetToken(rawToken), String(req.ip || "").split(",")[0] || null]);
+  const url = resetTokenUrl(req, rawToken, accountType);
+  await sendTransactionalEmail({
+    to: email,
+    subject: "Restablece tu contraseña · AUTHENTIQ",
+    text: `Usa este enlace en los próximos 30 minutos para crear una nueva contraseña: ${url}`,
+    html: `<p>Solicitaste restablecer tu contraseña.</p><p><a href="${escapeHtml(url)}">Crear una nueva contraseña</a></p><p>El enlace vence en 30 minutos y solo se puede usar una vez.</p>`,
+  });
+}
+
 function zonedParts(timeZone, instant = new Date()) {
   const parts = new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(instant);
   return Object.fromEntries(parts.filter((part) => part.type !== "literal").map((part) => [part.type, Number(part.value)]));
@@ -1206,8 +1266,17 @@ async function syncAppointmentToGoogle(organizationId, appointmentId) {
   }
 }
 
-async function sendTransactionalEmail({ to, subject, text, html }) {
-  if (!emailDeliveryConfigured || !to) return { sent: false, reason: "not_configured" };
+async function sendTransactionalEmail({ to, subject, text, html, organizationId = null }) {
+  if (!to) return { sent: false, reason: "missing_recipient" };
+  let deliveryId = null;
+  try {
+    const queued = await pool.query("INSERT INTO email_delivery_log (organization_id, recipient, subject, payload, status, attempts) VALUES ($1,$2,$3,$4::jsonb,'queued',1) RETURNING id", [organizationId, String(to).slice(0, 240), String(subject).slice(0, 240), JSON.stringify({ kind: "transactional_email" })]);
+    deliveryId = queued.rows[0]?.id || null;
+  } catch (error) { console.error("Email delivery log failed", error); }
+  if (!emailDeliveryConfigured) {
+    if (deliveryId) await pool.query("UPDATE email_delivery_log SET status='failed', last_error=$1, next_attempt_at=NOW()+INTERVAL '15 minutes' WHERE id=$2", ["RESEND no está configurado", deliveryId]).catch(() => {});
+    return { sent: false, reason: "not_configured" };
+  }
   try {
     const response = await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -1215,8 +1284,10 @@ async function sendTransactionalEmail({ to, subject, text, html }) {
       body: JSON.stringify({ from: resendFromEmail, to: [to], subject, text, html }),
     });
     if (!response.ok) throw new Error(`Resend respondió ${response.status}`);
+    if (deliveryId) await pool.query("UPDATE email_delivery_log SET status='sent', sent_at=NOW(), last_error=NULL WHERE id=$1", [deliveryId]).catch(() => {});
     return { sent: true };
   } catch (error) {
+    if (deliveryId) await pool.query("UPDATE email_delivery_log SET status='failed', last_error=$1, next_attempt_at=NOW()+INTERVAL '15 minutes' WHERE id=$2", [error.message, deliveryId]).catch(() => {});
     console.error("Transactional email failed", { to, subject, error: error.message });
     return { sent: false, reason: "provider_error" };
   }
@@ -1325,7 +1396,7 @@ app.post("/api/auth/login", async (req, res) => {
   const password = String(req.body?.password || "");
   try {
     const organization = await getOrganizationContext(req);
-    const result = await pool.query("SELECT id, full_name, email, role, password_hash, must_change_password AS \"mustChangePassword\", organization_id AS \"organizationId\" FROM admin_users WHERE LOWER(email) = $1 AND (organization_id = $2 OR role = 'platform_admin') AND is_active = TRUE", [email, organization.id]);
+    const result = await pool.query("SELECT id, full_name, email, role, password_hash, must_change_password AS \"mustChangePassword\", organization_id AS \"organizationId\", session_version AS \"sessionVersion\" FROM admin_users WHERE LOWER(email) = $1 AND (organization_id = $2 OR role = 'platform_admin') AND is_active = TRUE", [email, organization.id]);
     let admin = result.rows[0];
     // Quien se registra desde el dominio central acaba con su cuenta en su propio
     // concesionario, y al volver a entrar por la misma puerta no la encontraba:
@@ -1336,14 +1407,14 @@ app.post("/api/auth/login", async (req, res) => {
     // sigue llevando SU organizationId, de modo que el aislamiento entre
     // concesionarios no cambia: solo se le deja entrar por la puerta principal.
     if (!admin && organization.slug === DEFAULT_ORGANIZATION_SLUG) {
-      const fallback = await pool.query("SELECT id, full_name, email, role, password_hash, must_change_password AS \"mustChangePassword\", organization_id AS \"organizationId\" FROM admin_users WHERE LOWER(email) = $1 AND is_active = TRUE AND organization_id IS NOT NULL", [email]);
+      const fallback = await pool.query("SELECT id, full_name, email, role, password_hash, must_change_password AS \"mustChangePassword\", organization_id AS \"organizationId\", session_version AS \"sessionVersion\" FROM admin_users WHERE LOWER(email) = $1 AND is_active = TRUE AND organization_id IS NOT NULL", [email]);
       admin = fallback.rows[0];
     }
     const passwordMatches = await bcrypt.compare(password, admin?.password_hash || DUMMY_PASSWORD_HASH);
     if (!admin || !passwordMatches) return res.status(401).json({ error: "Correo o contraseña incorrectos" });
     // Una contraseña restablecida por un administrador solo sirve para volver a entrar:
     // el token es de vida corta y obliga a definir una contraseña propia antes de operar.
-    const token = jwt.sign({ id: admin.id, email: admin.email, role: admin.role, name: admin.full_name, organizationId: admin.organizationId, mustChangePassword: admin.mustChangePassword }, jwtSecret, { expiresIn: admin.mustChangePassword ? "15m" : "8h" });
+    const token = jwt.sign({ id: admin.id, email: admin.email, role: admin.role, name: admin.full_name, organizationId: admin.organizationId, mustChangePassword: admin.mustChangePassword, sessionVersion: admin.sessionVersion || 0 }, jwtSecret, { expiresIn: admin.mustChangePassword ? "15m" : "8h" });
     setSessionCookie(res, ADMIN_SESSION_COOKIE, token, admin.mustChangePassword ? 900 : 28800);
     res.json({ token, user: { id: admin.id, name: admin.full_name, email: admin.email, role: admin.role, organizationId: admin.organizationId, mustChangePassword: admin.mustChangePassword } });
   } catch (error) {
@@ -1351,6 +1422,36 @@ app.post("/api/auth/login", async (req, res) => {
     console.error("Admin login failed", error);
     res.status(503).json({ error: "El servicio no está disponible en este momento. Intenta nuevamente." });
   }
+});
+
+app.post("/api/auth/password-reset/request", async (req, res) => {
+  const email = String(req.body?.email || "").trim().toLowerCase();
+  try {
+    const result = await pool.query("SELECT id, email FROM admin_users WHERE LOWER(email)=$1 AND is_active=TRUE LIMIT 1", [email]);
+    if (result.rowCount && email) await issuePasswordReset({ accountType: "admin", accountId: result.rows[0].id, email: result.rows[0].email, req });
+  } catch (error) { console.error("Admin password recovery failed", error); }
+  res.json({ message: "Si existe una cuenta con ese correo, recibirás instrucciones para continuar." });
+});
+
+app.post("/api/auth/password-reset/confirm", async (req, res) => {
+  const token = String(req.body?.token || "").trim();
+  const newPassword = String(req.body?.newPassword || "");
+  if (!token || newPassword.length < 8) return res.status(400).json({ error: "El enlace y una contraseña de al menos 8 caracteres son obligatorios" });
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const reset = await client.query("SELECT id, account_id AS \"accountId\" FROM password_reset_tokens WHERE account_type='admin' AND token_hash=$1 AND used_at IS NULL AND expires_at > NOW() FOR UPDATE", [hashResetToken(token)]);
+    if (!reset.rowCount) { await client.query("ROLLBACK"); return res.status(400).json({ error: "El enlace no es válido o ya expiró" }); }
+    const passwordHash = await bcrypt.hash(newPassword, 12);
+    const account = await client.query("UPDATE admin_users SET password_hash=$1, must_change_password=FALSE, session_version=session_version+1, updated_at=NOW() WHERE id=$2 AND is_active=TRUE RETURNING id, email, full_name AS \"name\", role, organization_id AS \"organizationId\", session_version AS \"sessionVersion\"", [passwordHash, reset.rows[0].accountId]);
+    if (!account.rowCount) { await client.query("ROLLBACK"); return res.status(400).json({ error: "La cuenta ya no está disponible" }); }
+    await client.query("UPDATE password_reset_tokens SET used_at=NOW() WHERE id=$1", [reset.rows[0].id]);
+    await client.query("COMMIT");
+    const admin = account.rows[0];
+    const sessionToken = jwt.sign({ id: admin.id, email: admin.email, name: admin.name, role: admin.role, organizationId: admin.organizationId, sessionVersion: admin.sessionVersion, mustChangePassword: false }, jwtSecret, { expiresIn: "8h" });
+    setSessionCookie(res, ADMIN_SESSION_COOKIE, sessionToken, 28800);
+    res.json({ token: sessionToken, user: { id: admin.id, name: admin.name, email: admin.email, role: admin.role, organizationId: admin.organizationId, mustChangePassword: false } });
+  } catch (error) { await client.query("ROLLBACK").catch(() => {}); console.error("Admin password reset confirmation failed", error); res.status(500).json({ error: "No se pudo restablecer la contraseña" }); } finally { client.release(); }
 });
 
 // Comprobación del identificador antes de pedir los datos personales. Sin esto,
@@ -1515,7 +1616,7 @@ app.post("/api/customer/auth/register", verifyPublicForm, async (req, res) => {
     const passwordHash = await bcrypt.hash(password, 12);
     const result = await pool.query("INSERT INTO customer_accounts (full_name, email, phone, password_hash) VALUES ($1,$2,$3,$4) RETURNING id, full_name, email, phone", [fullName, email, phone, passwordHash]);
     const account = result.rows[0];
-    const token = jwt.sign({ id: account.id, email: account.email, name: account.full_name, kind: "customer" }, jwtSecret, { expiresIn: "30d" });
+    const token = jwt.sign({ id: account.id, email: account.email, name: account.full_name, kind: "customer", sessionVersion: account.session_version || 0 }, jwtSecret, { expiresIn: "30d" });
     setSessionCookie(res, CUSTOMER_SESSION_COOKIE, token, 2592000);
     res.status(201).json({ token, user: { id: account.id, name: account.full_name, email: account.email, phone: account.phone } });
   } catch (error) {
@@ -1529,16 +1630,46 @@ app.post("/api/customer/auth/login", async (req, res) => {
   const email = String(req.body.email || "").trim().toLowerCase();
   const password = String(req.body.password || "");
   try {
-    const result = await pool.query("SELECT id, full_name, email, phone, password_hash FROM customer_accounts WHERE LOWER(email)=$1 AND is_active=TRUE", [email]);
+    const result = await pool.query("SELECT id, full_name, email, phone, password_hash, session_version AS \"sessionVersion\" FROM customer_accounts WHERE LOWER(email)=$1 AND is_active=TRUE", [email]);
     const account = result.rows[0];
     if (!account || !(await bcrypt.compare(password, account.password_hash))) return res.status(401).json({ error: "Correo o contraseña incorrectos" });
-    const token = jwt.sign({ id: account.id, email: account.email, name: account.full_name, kind: "customer" }, jwtSecret, { expiresIn: "30d" });
+    const token = jwt.sign({ id: account.id, email: account.email, name: account.full_name, kind: "customer", sessionVersion: account.sessionVersion || 0 }, jwtSecret, { expiresIn: "30d" });
     setSessionCookie(res, CUSTOMER_SESSION_COOKIE, token, 2592000);
     res.json({ token, user: { id: account.id, name: account.full_name, email: account.email, phone: account.phone } });
   } catch (error) {
     console.error("Customer login failed", error);
     res.status(500).json({ error: "No se pudo iniciar sesión" });
   }
+});
+
+app.post("/api/customer/auth/password-reset/request", async (req, res) => {
+  const email = String(req.body?.email || "").trim().toLowerCase();
+  try {
+    const result = await pool.query("SELECT id, email FROM customer_accounts WHERE LOWER(email)=$1 AND is_active=TRUE LIMIT 1", [email]);
+    if (result.rowCount && email) await issuePasswordReset({ accountType: "customer", accountId: result.rows[0].id, email: result.rows[0].email, req });
+  } catch (error) { console.error("Customer password recovery failed", error); }
+  res.json({ message: "Si existe una cuenta con ese correo, recibirás instrucciones para continuar." });
+});
+
+app.post("/api/customer/auth/password-reset/confirm", async (req, res) => {
+  const token = String(req.body?.token || "").trim();
+  const newPassword = String(req.body?.newPassword || "");
+  if (!token || newPassword.length < 8) return res.status(400).json({ error: "El enlace y una contraseña de al menos 8 caracteres son obligatorios" });
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const reset = await client.query("SELECT id, account_id AS \"accountId\" FROM password_reset_tokens WHERE account_type='customer' AND token_hash=$1 AND used_at IS NULL AND expires_at > NOW() FOR UPDATE", [hashResetToken(token)]);
+    if (!reset.rowCount) { await client.query("ROLLBACK"); return res.status(400).json({ error: "El enlace no es válido o ya expiró" }); }
+    const passwordHash = await bcrypt.hash(newPassword, 12);
+    const account = await client.query("UPDATE customer_accounts SET password_hash=$1, session_version=session_version+1 WHERE id=$2 AND is_active=TRUE RETURNING id, full_name AS \"name\", email, phone, session_version AS \"sessionVersion\"", [passwordHash, reset.rows[0].accountId]);
+    if (!account.rowCount) { await client.query("ROLLBACK"); return res.status(400).json({ error: "La cuenta ya no está disponible" }); }
+    await client.query("UPDATE password_reset_tokens SET used_at=NOW() WHERE id=$1", [reset.rows[0].id]);
+    await client.query("COMMIT");
+    const customer = account.rows[0];
+    const sessionToken = jwt.sign({ id: customer.id, email: customer.email, name: customer.name, kind: "customer", sessionVersion: customer.sessionVersion }, jwtSecret, { expiresIn: "30d" });
+    setSessionCookie(res, CUSTOMER_SESSION_COOKIE, sessionToken, 2592000);
+    res.json({ token: sessionToken, user: { id: customer.id, name: customer.name, email: customer.email, phone: customer.phone } });
+  } catch (error) { await client.query("ROLLBACK").catch(() => {}); console.error("Customer password reset confirmation failed", error); res.status(500).json({ error: "No se pudo restablecer la contraseña" }); } finally { client.release(); }
 });
 
 app.get("/api/customer/me", authenticateCustomer, async (req, res) => {
@@ -1668,7 +1799,7 @@ app.get("/api/blog/:slug", async (req, res) => {
   } catch (error) { if (isOrganizationNotFound(error)) return sendOrganizationNotFound(res); console.error("Blog article failed", error); res.status(500).json({ error: "No se pudo cargar el artículo" }); }
 });
 
-app.post("/api/offers", verifyPublicForm, async (req, res) => {
+app.post("/api/offers", verifyPublicForm, publicRequestIdempotency, async (req, res) => {
   const vehicleId = String(req.body.vehicleId || "");
   const buyerName = String(req.body.buyerName || "").trim();
   const buyerEmail = String(req.body.buyerEmail || "").trim() || null;
@@ -1732,7 +1863,7 @@ app.get("/api/appointments/availability", async (req, res) => {
   }
 });
 
-app.post("/api/appointments", publicRateLimit({ windowMs: 10 * 60 * 1000, limit: 15, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Demasiadas solicitudes de cita. Intenta nuevamente más tarde." } }), verifyPublicForm, async (req, res) => {
+app.post("/api/appointments", publicRateLimit({ windowMs: 10 * 60 * 1000, limit: 15, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Demasiadas solicitudes de cita. Intenta nuevamente más tarde." } }), verifyPublicForm, publicRequestIdempotency, async (req, res) => {
   const vehicleId = String(req.body.vehicleId || "").trim() || null;
   const name = String(req.body.name || "").trim();
   const email = String(req.body.email || "").trim() || null;
@@ -1793,7 +1924,7 @@ app.post("/api/appointments", publicRateLimit({ windowMs: 10 * 60 * 1000, limit:
   }
 });
 
-app.post("/api/leads", verifyPublicForm, async (req, res) => {
+app.post("/api/leads", verifyPublicForm, publicRequestIdempotency, async (req, res) => {
   const name = String(req.body.name || "").trim();
   const email = String(req.body.email || "").trim() || null;
   const phone = String(req.body.phone || "").trim() || null;
@@ -2282,23 +2413,26 @@ app.patch("/api/admin/leads/:id", authenticate, requireRoles("admin", "editor", 
   const nextAction = String(req.body.nextAction || "").trim() || null;
   const nextActionAt = String(req.body.nextActionAt || "").trim() || null;
   const lostReason = String(req.body.lostReason || "").trim() || null;
+  const expectedUpdatedAt = String(req.body.updatedAt || "").trim() || null;
   if (!["new", "contacted", "qualified", "closed", "lost"].includes(status)) return res.status(400).json({ error: "Estado de lead no válido" });
   if (![1, 2, 3].includes(priority)) return res.status(400).json({ error: "La prioridad no es válida" });
   if (status === "lost" && !lostReason) return res.status(400).json({ error: "Indica el motivo de pérdida" });
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-     const current = await client.query("SELECT status, notes FROM leads WHERE id=$1 AND organization_id=$2", [req.params.id, adminOrganizationId(req)]);
+     const current = await client.query("SELECT status, notes, updated_at AS \"updatedAt\" FROM leads WHERE id=$1 AND organization_id=$2", [req.params.id, adminOrganizationId(req)]);
     if (!current.rowCount) { await client.query("ROLLBACK"); return res.status(404).json({ error: "Lead no encontrado" }); }
+    if (expectedUpdatedAt && new Date(expectedUpdatedAt).getTime() !== new Date(current.rows[0].updatedAt).getTime()) { await client.query("ROLLBACK"); return res.status(409).json({ error: "Este cliente cambió en otra sesión. Recarga la ficha antes de guardar.", code: "STALE_RECORD" }); }
     if (assignedTo) {
        const assignee = await client.query("SELECT id FROM admin_users WHERE id=$1 AND organization_id=$2 AND is_active=TRUE", [assignedTo, adminOrganizationId(req)]);
       if (!assignee.rowCount) { await client.query("ROLLBACK"); return res.status(400).json({ error: "Usuario asignado no válido" }); }
     }
     const result = await client.query(
        `UPDATE leads SET status=$1::varchar, notes=$2::text, assigned_to=$3::uuid, priority=$4::smallint, next_action=$5::varchar, next_action_at=$6::timestamptz, lost_reason=$7::varchar, closed_at=CASE WHEN $1::varchar='closed' THEN COALESCE(closed_at, NOW()) ELSE NULL::timestamptz END, updated_at=NOW(), last_contacted_at=CASE WHEN $1::varchar IN ('contacted','qualified','closed') THEN NOW() ELSE last_contacted_at END
-        WHERE id=$8::uuid AND organization_id=$9 RETURNING id, status, notes, assigned_to AS "assignedTo", priority, next_action AS "nextAction", next_action_at AS "nextActionAt", lost_reason AS "lostReason", closed_at AS "closedAt", updated_at AS "updatedAt"`,
-       [status, notes, assignedTo, priority, nextAction, nextActionAt, lostReason, req.params.id, adminOrganizationId(req)],
+        WHERE id=$8::uuid AND organization_id=$9 AND ($10::timestamptz IS NULL OR updated_at=$10::timestamptz) RETURNING id, status, notes, assigned_to AS "assignedTo", priority, next_action AS "nextAction", next_action_at AS "nextActionAt", lost_reason AS "lostReason", closed_at AS "closedAt", updated_at AS "updatedAt"`,
+       [status, notes, assignedTo, priority, nextAction, nextActionAt, lostReason, req.params.id, adminOrganizationId(req), expectedUpdatedAt],
     );
+    if (!result.rowCount) { await client.query("ROLLBACK"); return res.status(409).json({ error: "Este cliente cambió en otra sesión. Recarga la ficha antes de guardar.", code: "STALE_RECORD" }); }
     if (current.rows[0].status !== status) await client.query("INSERT INTO lead_events (lead_id, actor_id, event_type, note) VALUES ($1,$2,'status_change',$3)", [req.params.id, req.admin.id, `Estado cambiado a ${status}`]);
     if (current.rows[0].notes !== notes) await client.query("INSERT INTO lead_events (lead_id, actor_id, event_type, note) VALUES ($1,$2,'note',$3)", [req.params.id, req.admin.id, notes]);
     await client.query("COMMIT");
@@ -2343,13 +2477,13 @@ app.post("/api/auth/change-password", authenticate, async (req, res) => {
   try {
     const passwordHash = await bcrypt.hash(newPassword, 12);
     const result = await pool.query(
-      "UPDATE admin_users SET password_hash=$1, must_change_password=FALSE, updated_at=NOW() WHERE id=$2 AND is_active=TRUE RETURNING id, full_name, email, role",
+      "UPDATE admin_users SET password_hash=$1, must_change_password=FALSE, session_version=session_version+1, updated_at=NOW() WHERE id=$2 AND is_active=TRUE RETURNING id, full_name, email, role, session_version AS \"sessionVersion\", organization_id AS \"organizationId\"",
       [passwordHash, req.admin.id],
     );
     if (!result.rowCount) return res.status(404).json({ error: "Cuenta no encontrada" });
     await writeAudit(req, "user.password_change", "admin_user", req.admin.id, {});
     const admin = result.rows[0];
-    const token = jwt.sign({ id: admin.id, email: admin.email, role: admin.role, name: admin.full_name, mustChangePassword: false }, jwtSecret, { expiresIn: "8h" });
+    const token = jwt.sign({ id: admin.id, email: admin.email, role: admin.role, name: admin.full_name, organizationId: admin.organizationId, sessionVersion: admin.sessionVersion, mustChangePassword: false }, jwtSecret, { expiresIn: "8h" });
     setSessionCookie(res, ADMIN_SESSION_COOKIE, token, 28800);
     res.json({ token, user: { id: admin.id, name: admin.full_name, email: admin.email, role: admin.role, mustChangePassword: false } });
   } catch (error) { console.error("Password change failed", error); res.status(500).json({ error: "No se pudo cambiar la contraseña" }); }
@@ -2402,7 +2536,7 @@ app.post("/api/admin/users/:id/reset-password", authenticate, requireRoles("admi
     const temporaryPassword = crypto.randomBytes(9).toString("base64url");
     const passwordHash = await bcrypt.hash(temporaryPassword, 12);
     const result = await pool.query(
-       "UPDATE admin_users SET password_hash=$1, must_change_password=TRUE, updated_at=NOW() WHERE id=$2 AND organization_id=$3 AND is_active=TRUE RETURNING id, email, full_name AS \"name\"",
+       "UPDATE admin_users SET password_hash=$1, must_change_password=TRUE, session_version=session_version+1, updated_at=NOW() WHERE id=$2 AND organization_id=$3 AND is_active=TRUE RETURNING id, email, full_name AS \"name\"",
        [passwordHash, req.params.id, adminOrganizationId(req)],
     );
     if (!result.rowCount) return res.status(404).json({ error: "Usuario no encontrado o inactivo" });
@@ -2874,6 +3008,58 @@ app.get("/api/admin/export/quotes.csv", authenticate, requireRoles("admin", "edi
   } catch (error) { console.error("Quotes export failed", error); res.status(500).json({ error: "No se pudo exportar las cotizaciones" }); }
 });
 
+app.post("/api/admin/billing/checkout", authenticate, requireRoles("admin"), async (req, res) => {
+  if (!stripeClient) return res.status(503).json({ error: "Stripe todavía no está configurado en el servidor", code: "BILLING_NOT_CONFIGURED" });
+  const planCode = String(req.body?.planCode || "starter").trim();
+  try {
+    const [plan, admin] = await Promise.all([
+      pool.query("SELECT code, name, monthly_amount AS \"monthlyAmount\" FROM platform_plans WHERE code=$1 AND is_active=TRUE", [planCode]),
+      pool.query("SELECT email FROM admin_users WHERE id=$1 AND organization_id=$2", [req.admin.id, adminOrganizationId(req)]),
+    ]);
+    if (!plan.rowCount) return res.status(400).json({ error: "El plan seleccionado no existe" });
+    const origin = publicSiteUrl || `${req.protocol}://${req.get("host")}`;
+    const session = await stripeClient.checkout.sessions.create({
+      mode: "subscription",
+      customer_email: admin.rows[0]?.email || undefined,
+      line_items: [{ price_data: { currency: "usd", unit_amount: Math.round(Number(plan.rows[0].monthlyAmount) * 100), recurring: { interval: "month" }, product_data: { name: `AUTHENTIQ · ${plan.rows[0].name}` } }, quantity: 1 }],
+      metadata: { organizationId: adminOrganizationId(req), planCode },
+      subscription_data: { metadata: { organizationId: adminOrganizationId(req), planCode } },
+      success_url: `${origin}/backoffice?billing=success`,
+      cancel_url: `${origin}/backoffice?billing=cancelled`,
+    });
+    await pool.query("UPDATE organization_integrations SET mode='stripe', status='checkout_ready', config=config || $2::jsonb, updated_at=NOW() WHERE organization_id=$1 AND provider='billing'", [adminOrganizationId(req), JSON.stringify({ checkout: "stripe", planCode })]);
+    res.json({ data: { url: session.url, sessionId: session.id } });
+  } catch (error) { console.error("Stripe checkout creation failed", error); res.status(502).json({ error: "No se pudo preparar el checkout de Stripe" }); }
+});
+
+app.post("/api/webhooks/stripe", async (req, res) => {
+  if (!stripeClient || !stripeWebhookSecret) return res.status(503).json({ error: "Stripe webhook no configurado" });
+  const signature = String(req.headers["stripe-signature"] || "");
+  let event;
+  try { event = stripeClient.webhooks.constructEvent(req.body, signature, stripeWebhookSecret); } catch (error) { return res.status(400).json({ error: `Webhook inválido: ${error.message}` }); }
+  const inserted = await pool.query("INSERT INTO billing_webhook_events (event_id, provider, event_type, payload) VALUES ($1,'stripe',$2,$3::jsonb) ON CONFLICT (event_id) DO NOTHING RETURNING event_id", [event.id, event.type, JSON.stringify(event)]);
+  if (!inserted.rowCount) return res.json({ received: true, duplicate: true });
+  try {
+    const object = event.data.object;
+    const metadata = object.metadata || {};
+    const organizationId = metadata.organizationId || metadata.organization_id || null;
+    let subscriptionId = typeof object.subscription === "string" ? object.subscription : null;
+    if (!subscriptionId && object.parent?.subscription_details?.subscription) subscriptionId = object.parent.subscription_details.subscription;
+    if (!subscriptionId && event.type === "invoice.payment_failed" && stripeClient && object.id) {
+      const invoice = await stripeClient.invoices.retrieve(object.id);
+      subscriptionId = typeof invoice.subscription === "string" ? invoice.subscription : null;
+    }
+    if (!subscriptionId && event.type.startsWith("customer.subscription.")) subscriptionId = object.id;
+    const status = event.type === "customer.subscription.deleted" ? "cancelled" : event.type === "invoice.payment_failed" ? "past_due" : event.type === "checkout.session.completed" ? "active" : null;
+    if (status && (organizationId || subscriptionId)) {
+      await pool.query(`UPDATE billing_subscriptions SET provider='stripe', mode='live', status=$1, plan_code=COALESCE($2, plan_code), stripe_subscription_id=COALESCE($3, stripe_subscription_id), current_period_end=COALESCE($4::date, current_period_end), updated_at=NOW() WHERE ${organizationId ? "organization_id=$5" : "stripe_subscription_id=$5"}`, [status, metadata.planCode || null, subscriptionId || null, object.current_period_end ? new Date(Number(object.current_period_end) * 1000).toISOString().slice(0, 10) : null, organizationId || subscriptionId]);
+      if (organizationId) await pool.query("UPDATE organization_integrations SET mode='stripe', status=$1, config=config || $2::jsonb, updated_at=NOW() WHERE organization_id=$3 AND provider='billing'", [status === "active" ? "active" : status, JSON.stringify({ provider: "stripe", subscriptionId }), organizationId]);
+    }
+    await pool.query("UPDATE billing_webhook_events SET processed_at=NOW() WHERE event_id=$1", [event.id]);
+    res.json({ received: true });
+  } catch (error) { console.error("Stripe webhook processing failed", { eventId: event.id, error: error.message }); res.status(500).json({ error: "No se pudo procesar el webhook" }); }
+});
+
 app.get("/api/admin/integrations", authenticate, requireRoles("admin"), async (req, res) => {
   try {
     const organizationId = adminOrganizationId(req);
@@ -2893,7 +3079,7 @@ app.get("/api/admin/integrations", authenticate, requireRoles("admin"), async (r
         email: { provider: "resend", configured: emailDeliveryConfigured, status: emailDeliveryConfigured ? "ready" : "not_configured", detail: emailDeliveryConfigured ? "Emails transaccionales activos" : "Añade RESEND_API_KEY y RESEND_FROM_EMAIL" },
         googleCalendar: { provider: "google_calendar", configured: googleCalendarConfigured, status: googleCalendarConfigured ? "oauth_ready" : "local_export_ready", detail: googleCalendarConfigured ? "OAuth listo para completar la autorización" : "Exportación .ics disponible; falta OAuth" },
         metaSocial: { provider: "meta_social", configured: metaAppConfigured, status: metaAppConfigured ? "oauth_ready" : "drafts_ready", detail: metaAppConfigured ? "App Meta configurada; falta autorizar cada dealer" : "Borradores listos; falta App Meta y autorización" },
-        billing: { provider: billingProvider, configured: Boolean(billingCheckoutUrl), status: billingCheckoutUrl ? "checkout_ready" : "local_demo", detail: billingCheckoutUrl ? "Checkout externo configurado" : "Modo demo; falta proveedor y webhook" },
+        billing: { provider: stripeClient ? "stripe" : billingProvider, configured: billingReady, status: billingReady ? "checkout_ready" : "local_demo", detail: billingReady ? (stripeWebhookSecret ? "Stripe listo; webhook firmado configurado" : "Stripe listo para checkout; falta el webhook firmado") : "Modo demo; añade credenciales de Stripe" },
         domain: { configured: Boolean(customDomain), status: !customDomain ? "not_configured" : requestHost === customDomain ? "verified" : "dns_pending", detail: !customDomain ? "Asigna un dominio desde Configuración" : requestHost === customDomain ? "La petición llegó por el dominio personalizado" : `Apunta DNS hacia el hosting y prueba ${customDomain}`, domain: customDomain || null },
       },
       organization: { name: organization.rows[0]?.name || "", customDomain: customDomain || null },
@@ -2987,7 +3173,7 @@ app.post("/api/admin/social/drafts", authenticate, requireRoles("admin", "editor
 app.get("/api/admin/billing", authenticate, requireRoles("admin"), async (req, res) => {
   try {
     const result = await pool.query("SELECT bs.provider, bs.mode, bs.plan_code AS \"planCode\", pp.name AS \"planName\", pp.vehicle_limit AS \"vehicleLimit\", bs.status, bs.monthly_amount AS \"monthlyAmount\", bs.currency, bs.current_period_end AS \"currentPeriodEnd\", bs.updated_at AS \"updatedAt\", (SELECT COUNT(*)::int FROM vehicles v WHERE v.organization_id=bs.organization_id AND v.status <> 'inactive') AS \"vehicleUsage\" FROM billing_subscriptions bs LEFT JOIN platform_plans pp ON pp.code=bs.plan_code WHERE bs.organization_id=$1", [adminOrganizationId(req)]);
-    res.json({ data: { ...(result.rows[0] || { provider: "local", mode: "local_demo", planCode: "starter", planName: "Starter", status: "trialing", monthlyAmount: 0, currency: "USD", vehicleLimit: 40, vehicleUsage: 0 }), checkoutReady: Boolean(billingCheckoutUrl), providerConfigured: Boolean(billingCheckoutUrl), provider: billingProvider, message: billingCheckoutUrl ? "Checkout externo configurado; falta validar el webhook." : "Modo local: conecta Stripe o el proveedor elegido antes de cobrar." } });
+    res.json({ data: { ...(result.rows[0] || { provider: "local", mode: "local_demo", planCode: "starter", planName: "Starter", status: "trialing", monthlyAmount: 0, currency: "USD", vehicleLimit: 40, vehicleUsage: 0 }), checkoutReady: Boolean(stripeClient), providerConfigured: billingReady, provider: stripeClient ? "stripe" : billingProvider, message: stripeClient ? (stripeWebhookSecret ? "Stripe configurado; valida un webhook de prueba antes de producción." : "Stripe configurado para checkout; falta STRIPE_WEBHOOK_SECRET.") : "Modo local: conecta Stripe o el proveedor elegido antes de cobrar." } });
   } catch (error) { console.error("Billing query failed", error); res.status(500).json({ error: "No se pudo cargar la suscripción" }); }
 });
 
@@ -3319,6 +3505,38 @@ app.get("/api/admin/analytics", authenticate, requireRoles("admin", "editor", "s
     const result = await pool.query("SELECT event_name AS \"eventName\", COUNT(*)::int AS count FROM analytics_events WHERE organization_id=$1 AND created_at >= NOW() - ($2::int * INTERVAL '1 day') GROUP BY event_name ORDER BY count DESC", [adminOrganizationId(req), days]);
     res.json({ data: result.rows, days });
   } catch (error) { console.error("Analytics query failed", error); res.status(500).json({ error: "No se pudo cargar la analítica" }); }
+});
+
+app.get("/api/admin/analytics/funnel", authenticate, requireRoles("admin", "editor", "seller"), async (req, res) => {
+  const days = Math.min(Math.max(Number(req.query.days || 30), 1), 365);
+  try {
+    const [funnel, sources, responseTime] = await Promise.all([
+      pool.query(`
+        SELECT
+          COUNT(DISTINCT ae.session_id) FILTER (WHERE ae.event_name IN ('page_view','catalog_view'))::int AS visits,
+          COUNT(DISTINCT l.id)::int AS leads,
+          COUNT(DISTINCT l.id) FILTER (WHERE l.status IN ('contacted','qualified','closed'))::int AS contacted,
+          COUNT(DISTINCT t.id)::int AS appointments,
+          COUNT(DISTINCT o.id)::int AS offers,
+          COUNT(DISTINCT l.id) FILTER (WHERE l.status='closed')::int AS closed
+        FROM analytics_events ae
+        LEFT JOIN leads l ON l.organization_id=ae.organization_id AND l.created_at >= NOW() - ($2::int * INTERVAL '1 day')
+        LEFT JOIN test_drive_requests t ON t.organization_id=ae.organization_id AND t.created_at >= NOW() - ($2::int * INTERVAL '1 day')
+        LEFT JOIN offers o ON o.organization_id=ae.organization_id AND o.created_at >= NOW() - ($2::int * INTERVAL '1 day')
+        WHERE ae.organization_id=$1 AND ae.created_at >= NOW() - ($2::int * INTERVAL '1 day')`, [adminOrganizationId(req), days]),
+      pool.query(`SELECT COALESCE(NULLIF(source,''),'direct') AS source, COUNT(*)::int AS events, COUNT(DISTINCT session_id)::int AS sessions, COUNT(*) FILTER (WHERE event_name IN ('contact_submitted','offer_submitted','appointment_submitted','trade_in_submitted'))::int AS conversions FROM analytics_events WHERE organization_id=$1 AND created_at >= NOW() - ($2::int * INTERVAL '1 day') GROUP BY 1 ORDER BY conversions DESC, events DESC LIMIT 30`, [adminOrganizationId(req), days]),
+      pool.query(`SELECT ROUND(AVG(EXTRACT(EPOCH FROM (l.last_contacted_at-l.created_at))/60)::numeric, 1) AS "averageMinutes" FROM leads l WHERE l.organization_id=$1 AND l.last_contacted_at IS NOT NULL AND l.created_at >= NOW() - ($2::int * INTERVAL '1 day')`, [adminOrganizationId(req), days]),
+    ]);
+    res.json({ data: { days, funnel: funnel.rows[0] || {}, sources: sources.rows, responseTime: responseTime.rows[0] || { averageMinutes: null } } });
+  } catch (error) { console.error("Analytics funnel query failed", error); res.status(500).json({ error: "No se pudo cargar el embudo comercial" }); }
+});
+
+app.get("/api/admin/analytics/sources", authenticate, requireRoles("admin", "editor", "seller"), async (req, res) => {
+  const days = Math.min(Math.max(Number(req.query.days || 30), 1), 365);
+  try {
+    const result = await pool.query(`SELECT COALESCE(NULLIF(source,''),'direct') AS source, COUNT(*)::int AS events, COUNT(DISTINCT session_id)::int AS sessions, COUNT(*) FILTER (WHERE event_name IN ('contact_submitted','offer_submitted','appointment_submitted','trade_in_submitted'))::int AS conversions FROM analytics_events WHERE organization_id=$1 AND created_at >= NOW() - ($2::int * INTERVAL '1 day') GROUP BY 1 ORDER BY conversions DESC, events DESC LIMIT 100`, [adminOrganizationId(req), days]);
+    res.json({ data: result.rows, days });
+  } catch (error) { console.error("Analytics sources query failed", error); res.status(500).json({ error: "No se pudieron cargar las fuentes" }); }
 });
 
 app.get("/sitemap.xml", async (req, res) => {

@@ -106,7 +106,8 @@ function publicMediaUrl(url) {
 }
 
 const analyticsSessionId = (() => { const key = "authentiq_analytics_session"; const current = localStorage.getItem(key); if (current) return current; const next = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`; localStorage.setItem(key, next); return next; })();
-function trackEvent(eventName, payload = {}) { if (localStorage.getItem("authentiq_cookie_consent") !== "accepted") return; fetch(`${apiUrl}/api/events`, { method: "POST", keepalive: true, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventName, path: window.location.pathname, sessionId: analyticsSessionId, ...payload }) }).catch(() => {}); }
+function publicRequestKey(prefix) { return `${prefix}-${crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}`; }
+function trackEvent(eventName, payload = {}) { if (localStorage.getItem("authentiq_cookie_consent") !== "accepted") return; const query = new URLSearchParams(window.location.search); const source = payload.source || query.get("utm_source") || query.get("source") || "direct"; fetch(`${apiUrl}/api/events`, { method: "POST", keepalive: true, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventName, path: window.location.pathname, source, sessionId: analyticsSessionId, metadata: { utmMedium: query.get("utm_medium") || "", utmCampaign: query.get("utm_campaign") || "", utmContent: query.get("utm_content") || "" }, ...payload }) }).catch(() => {}); }
 
 function formatPrice(value) {
   return `$${Number(value).toLocaleString("en-US")} USD`;
@@ -448,7 +449,7 @@ function PriceAlertModal({ vehicle, onClose }) {
     try {
       const response = await fetch(`${apiUrl}/api/leads`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Idempotency-Key": publicRequestKey("price-alert") },
         body: JSON.stringify({
           name: form.name,
           email: form.email,
@@ -533,7 +534,7 @@ function BuyerRequestModal({ kind, vehicle = null, onClose }) {
       ? `[TASACIÓN] Vehículo actual: ${form.currentVehicle}. Año: ${form.year || "No indicado"}. Kilometraje: ${form.mileage || "No indicado"} km.${vehicle ? ` Interesado además en: ${vehicle.brand} ${vehicle.model}.` : ""}${form.note ? ` Nota: ${form.note}` : ""}`
       : `[ALERTA DE BÚSQUEDA] Busca: ${form.currentVehicle}.${form.year ? ` Año desde: ${form.year}.` : ""}${form.note ? ` Preferencias: ${form.note}` : ""}`;
     try {
-      const response = await fetch(`${apiUrl}/api/leads`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: form.name, email: form.email, phone: form.phone, vehicleId: vehicle?.id || null, message: requestMessage, privacyConsent: form.privacyConsent, turnstileToken }) });
+      const response = await fetch(`${apiUrl}/api/leads`, { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": publicRequestKey("vehicle-lead") }, body: JSON.stringify({ name: form.name, email: form.email, phone: form.phone, vehicleId: vehicle?.id || null, message: requestMessage, privacyConsent: form.privacyConsent, turnstileToken }) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "No se pudo registrar tu solicitud");
       trackEvent(isTradeIn ? "trade_in_submitted" : "search_alert_submitted", vehicle ? { vehicleId: vehicle.id } : {});
@@ -1108,7 +1109,7 @@ function LeadForm({ vehicle, onClose, customerToken = "" }) {
     setStatus({ loading: true, error: "", success: false });
     const body = { vehicleId: vehicle.id, ...form, amountUsd: Number(form.amountUsd), turnstileToken };
     try {
-      const response = await fetch(`${apiUrl}/api/offers`, { method: "POST", headers: { "Content-Type": "application/json", ...(customerToken ? { Authorization: `Bearer ${customerToken}` } : {}) }, body: JSON.stringify(body) });
+      const response = await fetch(`${apiUrl}/api/offers`, { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": publicRequestKey("offer"), ...(customerToken ? { Authorization: `Bearer ${customerToken}` } : {}) }, body: JSON.stringify(body) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "No se pudo enviar la solicitud");
       trackEvent("offer_submitted", { vehicleId: vehicle.id });
@@ -1137,13 +1138,13 @@ function TestDriveModal({ vehicle, onClose }) {
   }, [form.date]);
   const submit = async (event) => {
     event.preventDefault(); setStatus({ loading: true, error: "", success: false });
-    try { const response = await fetch(`${apiUrl}/api/appointments`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...form, vehicleId: vehicle.id, turnstileToken }) }); const payload = await response.json(); if (!response.ok) throw new Error(payload.error || "No se pudo registrar la cita"); trackEvent("appointment_submitted", { vehicleId: vehicle.id }); setStatus({ loading: false, error: "", success: true }); } catch (error) { setStatus({ loading: false, error: error.message, success: false }); }
+    try { const response = await fetch(`${apiUrl}/api/appointments`, { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": publicRequestKey("appointment") }, body: JSON.stringify({ ...form, vehicleId: vehicle.id, turnstileToken }) }); const payload = await response.json(); if (!response.ok) throw new Error(payload.error || "No se pudo registrar la cita"); trackEvent("appointment_submitted", { vehicleId: vehicle.id }); setStatus({ loading: false, error: "", success: true }); } catch (error) { setStatus({ loading: false, error: error.message, success: false }); }
   };
   const minDate = localIsoDate();
   return <motion.div className="lead-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}><motion.section className="lead-modal test-drive-modal" role="dialog" aria-modal="true" aria-labelledby="test-drive-title" initial={{ y: 14, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ duration: .2, ease: "easeOut" }}><button className="modal-close" type="button" onClick={onClose} aria-label="Cerrar">×</button>{status.success ? <div className="lead-success"><span className="eyebrow">CITA RECIBIDA</span><h2>Tu cita está en revisión.</h2><p>Un asesor confirmará el horario y te contactará con los detalles de tu visita.</p><button className="primary-action" type="button" onClick={onClose}>Cerrar</button></div> : <><span className="eyebrow">AGENDA · {getBrandName()}</span><h2 id="test-drive-title">Agenda tu cita.</h2><p className="modal-vehicle">{vehicle.brand} {vehicle.model} · {vehicle.year}</p><form className="lead-form" onSubmit={submit}><label>Nombre<input value={form.name} onChange={(event) => change("name", event.target.value)} autoComplete="name" required /></label><div className="lead-form-grid"><label>Correo<input type="email" value={form.email} onChange={(event) => change("email", event.target.value)} autoComplete="email" required /></label><label>Teléfono<input value={form.phone} onChange={(event) => change("phone", event.target.value)} autoComplete="tel" required /></label></div><div className="lead-form-grid"><label>Fecha<input type="date" min={minDate} value={form.date} onChange={(event) => { change("date", event.target.value); change("time", ""); }} required /></label><label>Horario<select value={form.time} onChange={(event) => change("time", event.target.value)} disabled={!form.date || availability.loading} required><option value="">{availability.loading ? "Consultando…" : "Selecciona un horario"}</option>{availability.slots.filter((slot) => slot.available).map((slot) => <option value={slot.time} key={slot.time}>{slot.time}</option>)}</select></label></div><p className={`appointment-availability-note${availability.slots.length && !availability.slots.some((slot) => slot.available) ? " is-full" : ""}`}>{availability.message}</p><TurnstileField onTokenChange={setTurnstileToken} /><label className="consent-check"><input type="checkbox" checked={form.privacyConsent} onChange={(event) => change("privacyConsent", event.target.checked)} required /><span>Acepto la política de privacidad y autorizo el uso de mis datos para coordinar la visita.</span></label>{status.error && <p className="state-message error">{status.error}</p>}<button className="primary-action" type="submit" disabled={status.loading || availability.loading || !form.time}>{status.loading ? "Registrando…" : "Solicitar cita"}</button></form></>}</motion.section></motion.div>;
 }
 
-function CustomerAccountModal({ customer, form, mode, status, favoriteCount, favoriteVehicles = [], activity = { offers: [], quotes: [], notifications: [] }, whatsapp = "", businessName = getBrandName(), onChange, onSubmit, onTurnstileToken, onMode, onClose, onLogout, onReadNotifications, onOpenVehicle, onToggleFavorite, onQuickAction }) {
+function CustomerAccountModal({ customer, form, mode, status, recoveryStatus = {}, favoriteCount, favoriteVehicles = [], activity = { offers: [], quotes: [], notifications: [] }, whatsapp = "", businessName = getBrandName(), onChange, onSubmit, onRecoverySubmit, onTurnstileToken, onMode, onClose, onLogout, onReadNotifications, onOpenVehicle, onToggleFavorite, onQuickAction }) {
   const dialogRef = useAccessibleDialog(onClose);
   return <motion.div className="quote-overlay" role="dialog" aria-modal="true" aria-label="Cuenta de comprador" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
     <section ref={dialogRef} className="customer-account-modal">
@@ -1159,9 +1160,9 @@ function CustomerAccountModal({ customer, form, mode, status, favoriteCount, fav
         <div className="quote-actions"><button className="primary-action" type="button" onClick={onClose}>Seguir explorando</button><button className="secondary-action" type="button" onClick={onLogout}>Cerrar sesión</button></div>
       </> : <>
         <span className="eyebrow">{getBrandName()} · CUENTA DE COMPRADOR</span>
-        <h2>{mode === "login" ? <>Vuelve a tu <em>selección.</em></> : <>Guarda lo que te <em>mueve.</em></>}</h2>
-        <p className="account-welcome">{mode === "login" ? "Accede a tus favoritos desde cualquier dispositivo." : "Crea una cuenta para conservar tus favoritos y continuar tu búsqueda."}</p>
-        <form className="customer-account-form" onSubmit={onSubmit}>
+        <h2>{mode === "login" ? <>Vuelve a tu <em>selección.</em></> : mode === "forgot" ? <>Recupera tu <em>cuenta.</em></> : <>Guarda lo que te <em>mueve.</em></>}</h2>
+        <p className="account-welcome">{mode === "login" ? "Accede a tus favoritos desde cualquier dispositivo." : mode === "forgot" ? "Te enviaremos un enlace si existe una cuenta con ese correo." : "Crea una cuenta para conservar tus favoritos y continuar tu búsqueda."}</p>
+        {mode === "forgot" ? <form className="customer-account-form" onSubmit={onRecoverySubmit}><label>Correo<input type="email" value={form.email} onChange={(event) => onChange("email", event.target.value)} autoComplete="email" required /></label>{recoveryStatus.message && <p className="state-message success" role="status">{recoveryStatus.message}</p>}{recoveryStatus.error && <p className="state-message error" role="alert">{recoveryStatus.error}</p>}<button className="primary-action" type="submit" disabled={recoveryStatus.loading}>{recoveryStatus.loading ? "Enviando…" : "Enviar enlace"}</button></form> : <form className="customer-account-form" onSubmit={onSubmit}>
           {mode === "register" && <label>Nombre completo<input value={form.name} onChange={(event) => onChange("name", event.target.value)} autoComplete="name" required /></label>}
           <label>Correo<input type="email" value={form.email} onChange={(event) => onChange("email", event.target.value)} autoComplete="email" required /></label>
           {mode === "register" && <label>Teléfono <span>(opcional)</span><input value={form.phone} onChange={(event) => onChange("phone", event.target.value)} autoComplete="tel" /></label>}
@@ -1169,8 +1170,9 @@ function CustomerAccountModal({ customer, form, mode, status, favoriteCount, fav
           {mode === "register" && <TurnstileField onTokenChange={onTurnstileToken} />}
           {status.error && <p className="state-message error">{status.error}</p>}
           <button className="primary-action" type="submit" disabled={status.loading}>{status.loading ? "Procesando…" : mode === "login" ? "Entrar a mi cuenta" : "Crear mi cuenta"}</button>
-        </form>
-        <button className="account-mode-switch" type="button" onClick={() => onMode(mode === "login" ? "register" : "login")}>{mode === "login" ? "¿Aún no tienes cuenta? Crear una" : "Ya tengo una cuenta · Entrar"}</button>
+        </form>}
+        {mode === "login" && <button className="text-button" type="button" onClick={() => onMode("forgot")}>¿Olvidaste tu contraseña?</button>}
+        <button className="account-mode-switch" type="button" onClick={() => onMode(mode === "login" || mode === "forgot" ? "register" : "login")}>{mode === "login" || mode === "forgot" ? "¿Aún no tienes cuenta? Crear una" : "Ya tengo una cuenta · Entrar"}</button>
       </>}
     </section>
   </motion.div>;
@@ -1183,7 +1185,7 @@ function ContactForm() {
   const submit = async (event) => {
     event.preventDefault(); setStatus({ loading: true, error: "", success: false });
     try {
-      const response = await fetch(`${apiUrl}/api/leads`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...form, turnstileToken }) });
+      const response = await fetch(`${apiUrl}/api/leads`, { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": publicRequestKey("contact") }, body: JSON.stringify({ ...form, turnstileToken }) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "No se pudo enviar el mensaje");
       setStatus({ loading: false, error: "", success: true }); trackEvent("contact_submitted"); setForm({ name: "", email: "", phone: "", message: "", privacyConsent: false });
@@ -1703,6 +1705,29 @@ function PresentationMode({ vehicles, loading, onExit, onOpenVehicle, businessNa
   </main>;
 }
 
+function PasswordResetPage({ kind = "customer" }) {
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [state, setState] = useState({ loading: false, error: "", success: false });
+  const token = new URLSearchParams(window.location.search).get("token") || "";
+  const isCustomer = kind === "customer";
+  const submit = async (event) => {
+    event.preventDefault();
+    if (password.length < 8) return setState({ loading: false, error: "La contraseña debe tener al menos 8 caracteres", success: false });
+    if (password !== confirm) return setState({ loading: false, error: "Las contraseñas no coinciden", success: false });
+    setState({ loading: true, error: "", success: false });
+    try {
+      const response = await fetch(`${apiUrl}${isCustomer ? "/api/customer/auth/password-reset/confirm" : "/api/auth/password-reset/confirm"}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, newPassword: password }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "No se pudo restablecer la contraseña");
+      if (payload.token) localStorage.setItem(isCustomer ? "authentiq_customer_token" : "authentiq_admin_token", payload.token);
+      if (payload.user) localStorage.setItem(isCustomer ? "authentiq_customer_user" : "authentiq_admin_user", JSON.stringify(payload.user));
+      setState({ loading: false, error: "", success: true });
+    } catch (error) { setState({ loading: false, error: error.message, success: false }); }
+  };
+  return <main className="admin-page admin-login-page"><form className="admin-login" onSubmit={submit}><span className="eyebrow">AUTHENTIQ · SEGURIDAD</span><h1>Crea tu <em>nueva contraseña.</em></h1>{state.success ? <><p className="state-message success">Contraseña actualizada. Ya puedes volver a iniciar sesión.</p><button className="primary-action" type="button" onClick={() => { window.history.pushState({}, "", isCustomer ? "/" : "/backoffice"); window.location.reload(); }}>Continuar</button></> : <><p className="account-welcome">El enlace vence en 30 minutos y solo funciona una vez.</p><label>Nueva contraseña<input type="password" autoComplete="new-password" minLength="8" value={password} onChange={(event) => setPassword(event.target.value)} required /></label><label>Repite la contraseña<input type="password" autoComplete="new-password" minLength="8" value={confirm} onChange={(event) => setConfirm(event.target.value)} required /></label>{state.error && <p className="state-message error" role="alert">{state.error}</p>}<button className="primary-action" type="submit" disabled={state.loading}>{state.loading ? "Guardando…" : "Guardar contraseña"}</button></>}</form></main>;
+}
+
 function App() {
   const prefersReducedMotion = useReducedMotion();
   const [vehicles, setVehicles] = useState([]);
@@ -1717,6 +1742,7 @@ function App() {
   const [accountMode, setAccountMode] = useState("login");
   const [accountForm, setAccountForm] = useState({ name: "", email: "", phone: "", password: "" });
   const [accountStatus, setAccountStatus] = useState({ loading: false, error: "" });
+  const [customerRecoveryStatus, setCustomerRecoveryStatus] = useState({ loading: false, message: "", error: "" });
   const [accountTurnstileToken, setAccountTurnstileToken] = useState("");
   const [quickAction, setQuickAction] = useState(null);
   const [buyerRequestKind, setBuyerRequestKind] = useState(null);
@@ -1982,6 +2008,7 @@ function App() {
     } catch (requestError) { setAccountStatus({ loading: false, error: requestError.message }); }
   };
   const logoutCustomer = () => { fetch(`${apiUrl}/api/customer/auth/logout`, { method: "POST", credentials: "include" }).catch(() => {}); localStorage.removeItem("authentiq_customer_token"); localStorage.removeItem("authentiq_customer_user"); setCustomerToken(""); setCustomer(null); setCustomerActivity({ offers: [], quotes: [], notifications: [] }); setAccountStatus({ loading: false, error: "" }); };
+  const submitCustomerRecovery = async (event) => { event.preventDefault(); setCustomerRecoveryStatus({ loading: true, message: "", error: "" }); try { const response = await fetch(`${apiUrl}/api/customer/auth/password-reset/request`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: accountForm.email }) }); const payload = await response.json(); if (!response.ok) throw new Error(payload.error || "No se pudo preparar la recuperación"); setCustomerRecoveryStatus({ loading: false, message: payload.message, error: "" }); } catch (error) { setCustomerRecoveryStatus({ loading: false, message: "", error: error.message }); } };
   const markCustomerNotificationsRead = async () => { try { await customerRequest("/api/customer/notifications/read", { method: "PATCH" }); setCustomerActivity((current) => ({ ...current, notifications: (current.notifications || []).map((item) => ({ ...item, readAt: new Date().toISOString() })) })); } catch (requestError) { setAccountStatus({ loading: false, error: requestError.message }); } };
   const toggleFavorite = (vehicle) => {
     const wasFavorite = favoriteIds.includes(vehicle.id);
@@ -1998,6 +2025,8 @@ function App() {
     });
   };
 
+  if (pathname === "/backoffice/restablecer-contrasena") return <PasswordResetPage kind="admin" />;
+  if (pathname === "/cuenta/restablecer-contrasena") return <PasswordResetPage kind="customer" />;
   if (screen === "admin") return <Suspense fallback={<main className="admin-page"><p className="state-message">Cargando panel de control…</p></main>}><Backoffice initialMode={adminInitialMode} impersonation={impersonatePayload} onBack={() => { setScreen("catalog"); setAdminInitialMode("login"); refreshVehicles(); }} onVehiclesChanged={syncCatalogVehicle} /></Suspense>;
   if (tenantNotFound) return <TenantNotFoundPage />;
   if (pathname === "/presentacion") return <PresentationMode vehicles={vehicles} loading={loading} businessName={businessSettings.businessName} logoUrl={businessSettings.logoUrl} onExit={() => { if (requestedDealerSlug) navigate(`/?dealer=${encodeURIComponent(requestedDealerSlug)}`); else { setShowDemoCatalog(true); navigate("/"); } }} onOpenVehicle={(vehicle) => navigate(vehiclePath(vehicle))} />;
@@ -2006,7 +2035,7 @@ function App() {
   if (pathname.startsWith("/blog/")) return <BlogArticle slug={pathname.slice("/blog/".length)} onBack={() => navigate("/")} />;
   if (pathname.startsWith("/vehiculos/") && loading) return <main className="article-page"><p className="state-message">Cargando vehículo…</p></main>;
   if (pathname.startsWith("/vehiculos/") && !routeVehicle) return <main className="article-page"><button className="back-button" onClick={() => navigate("/")}>← Volver al catálogo</button><section className="article-empty"><span className="eyebrow">AUTHENTIQ · INVENTARIO</span><h1>Este vehículo no está disponible.</h1><p>Puede haber sido vendido, archivado o la dirección puede haber cambiado.</p></section></main>;
-  const knownPath = pathname === "/" || pathname === "/presentacion" || pathname === "/preview" || pathname.startsWith("/cotizaciones/") || pathname.startsWith("/blog/") || pathname.startsWith("/vehiculos/");
+  const knownPath = pathname === "/" || pathname === "/presentacion" || pathname === "/preview" || pathname === "/backoffice/restablecer-contrasena" || pathname === "/cuenta/restablecer-contrasena" || pathname.startsWith("/cotizaciones/") || pathname.startsWith("/blog/") || pathname.startsWith("/vehiculos/");
   if (!knownPath) return <NotFoundPage onBack={() => navigate("/")} />;
   if (["contact", "location", "privacy", "terms"].includes(screen)) return <InstitutionalPage type={screen} settings={businessSettings} onBack={() => setScreen("catalog")} />;
   if (activeVehicle) return <VehicleDetail vehicle={activeVehicle} vehicles={vehicles} onBack={() => navigate("/")} isFavorite={favoriteIds.includes(activeVehicle.id)} onToggleFavorite={toggleFavorite} customerToken={customerToken} compareVehicles={compareVehicles} favoriteIds={favoriteIds} onOpenVehicle={(vehicle) => navigate(vehiclePath(vehicle))} onToggleCompare={toggleCompare} whatsapp={businessSettings.whatsapp} />;
@@ -2080,7 +2109,7 @@ function App() {
           </nav>
         </footer>
       </section>
-      <AnimatePresence>{accountOpen && <CustomerAccountModal customer={customer} form={accountForm} mode={accountMode} status={accountStatus} favoriteCount={favoriteIds.length} favoriteVehicles={favoriteVehicles} activity={customerActivity} whatsapp={businessSettings.whatsapp} businessName={businessSettings.businessName || getBrandName()} onChange={changeAccountForm} onSubmit={submitAccount} onTurnstileToken={setAccountTurnstileToken} onMode={(mode) => { setAccountMode(mode); setAccountStatus({ loading: false, error: "" }); }} onClose={() => setAccountOpen(false)} onLogout={logoutCustomer} onReadNotifications={markCustomerNotificationsRead} onOpenVehicle={(vehicle) => { setAccountOpen(false); navigate(vehiclePath(vehicle)); }} onToggleFavorite={toggleFavorite} onQuickAction={(vehicle, type) => { setAccountOpen(false); setQuickAction({ vehicle, type }); }} />}</AnimatePresence>
+      <AnimatePresence>{accountOpen && <CustomerAccountModal customer={customer} form={accountForm} mode={accountMode} status={accountStatus} recoveryStatus={customerRecoveryStatus} favoriteCount={favoriteIds.length} favoriteVehicles={favoriteVehicles} activity={customerActivity} whatsapp={businessSettings.whatsapp} businessName={businessSettings.businessName || getBrandName()} onChange={changeAccountForm} onSubmit={submitAccount} onRecoverySubmit={submitCustomerRecovery} onTurnstileToken={setAccountTurnstileToken} onMode={(mode) => { setAccountMode(mode); setAccountStatus({ loading: false, error: "" }); setCustomerRecoveryStatus({ loading: false, message: "", error: "" }); }} onClose={() => setAccountOpen(false)} onLogout={logoutCustomer} onReadNotifications={markCustomerNotificationsRead} onOpenVehicle={(vehicle) => { setAccountOpen(false); navigate(vehiclePath(vehicle)); }} onToggleFavorite={toggleFavorite} onQuickAction={(vehicle, type) => { setAccountOpen(false); setQuickAction({ vehicle, type }); }} />}</AnimatePresence>
       <AnimatePresence>{quickAction?.type === "appointment" && <TestDriveModal vehicle={quickAction.vehicle} onClose={() => setQuickAction(null)} />}</AnimatePresence>
       <AnimatePresence>{quickAction?.type === "quote" && <QuoteModal vehicle={quickAction.vehicle} onClose={() => setQuickAction(null)} />}</AnimatePresence>
       <AnimatePresence>{buyerRequestKind && <BuyerRequestModal kind={buyerRequestKind} onClose={() => setBuyerRequestKind(null)} />}</AnimatePresence>
