@@ -1677,6 +1677,7 @@ body { background: var(--auth-bg); color: var(--auth-ink); }
 .vehicle-card-quick-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; padding: 9px 6px 0; }
 .vehicle-card-quick-actions button, .vehicle-card-quick-actions a { display: inline-flex; min-height: 30px; align-items: center; justify-content: center; padding: 5px 6px; border: 1px solid var(--auth-line); color: var(--auth-gold); background: transparent; cursor: pointer; font: 500 14px "IBM Plex Mono", monospace; letter-spacing: .03em; line-height: 1.15; text-align: center; text-decoration: none; text-transform: uppercase; transition: color .2s ease, border-color .2s ease, background-color .2s ease, transform .2s ease; }
 .vehicle-card-quick-actions button:hover, .vehicle-card-quick-actions button:focus-visible, .vehicle-card-quick-actions a:hover, .vehicle-card-quick-actions a:focus-visible { border-color: var(--tenant-primary); color: var(--auth-ink); background: var(--auth-soft); transform: translateY(-1px); }
+.vehicle-share-status, .detail-share-status { color: var(--auth-muted); font: 500 14px "IBM Plex Mono", monospace; letter-spacing: .03em; }
 .vehicle-card h3 { letter-spacing: -.025em; }
 .vehicle-card-body strong { font-variant-numeric: tabular-nums; }
 .vehicle-card:hover .vehicle-card-body { border-bottom-color: var(--auth-gold); }

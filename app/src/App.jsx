@@ -225,6 +225,11 @@ function ShareAction({ vehicle }) {
 }
 
 function localIsoDate(value = new Date()) { const date = new Date(value); return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 10); }
+async function shareOrCopyUrl(url, title) {
+  if (navigator.share) { await navigator.share({ title, url }); return "shared"; }
+  if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(url); return "copied"; }
+  return "unavailable";
+}
 
 function Breadcrumbs({ vehicle }) {
   return <nav className="breadcrumbs" aria-label="Ruta de navegación"><a href="#catalog">Inventario</a><span aria-hidden="true">/</span><a href="#catalog">{vehicle.brand}</a><span aria-hidden="true">/</span><span aria-current="page">{vehicle.model}</span></nav>;
@@ -1031,6 +1036,8 @@ function VehicleCard({ vehicle, onOpen, onToggleCompare, isCompared, isFavorite,
   const whatsappNumber = String(whatsapp || "").replace(/\D/g, "");
   const whatsappText = encodeURIComponent(`Mira este ${vehicle.brand} ${vehicle.model} en ${businessName}: ${window.location.origin}${vehiclePath(vehicle)}`);
   const whatsappHref = `https://wa.me/${whatsappNumber}${whatsappText ? `?text=${whatsappText}` : ""}`;
+  const [shareStatus, setShareStatus] = useState("");
+  const shareVehicle = async (event) => { event.stopPropagation(); try { const result = await shareOrCopyUrl(`${window.location.origin}${vehiclePath(vehicle)}`, `${vehicle.brand} ${vehicle.model}`); setShareStatus(result === "copied" ? "URL copiada" : result === "shared" ? "Compartido" : "No disponible"); window.setTimeout(() => setShareStatus(""), 2200); } catch { setShareStatus(""); } };
   // La vista de ficha se registra al cambiar de ruta (cubre también los enlaces directos),
   // así que aquí no se emite un segundo vehicle_view para no duplicar la métrica.
   const open = (event) => {
@@ -1076,7 +1083,7 @@ function VehicleCard({ vehicle, onOpen, onToggleCompare, isCompared, isFavorite,
         <strong>{formatPrice(vehicle.priceUsd)}</strong>
         <span className="vehicle-card-cta">Abrir ficha <span>↗</span></span>
       </button>
-      {onQuickAction && <div className="vehicle-card-quick-actions"><button type="button" onClick={(event) => { event.stopPropagation(); onQuickAction(vehicle, "appointment"); }}>Agendar cita</button><button type="button" onClick={(event) => { event.stopPropagation(); onQuickAction(vehicle, "quote"); }}>Cotización</button><a href={whatsappHref} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()}>{whatsappNumber ? "WhatsApp" : "Compartir"}</a></div>}
+      {onQuickAction && <div className="vehicle-card-quick-actions"><button type="button" onClick={(event) => { event.stopPropagation(); onQuickAction(vehicle, "appointment"); }}>Agendar cita</button><button type="button" onClick={(event) => { event.stopPropagation(); onQuickAction(vehicle, "quote"); }}>Cotización</button>{whatsappNumber ? <a href={whatsappHref} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()}>WhatsApp</a> : <button type="button" onClick={shareVehicle}>Compartir</button>}{shareStatus && <span className="vehicle-share-status" role="status">{shareStatus}</span>}</div>}
     </motion.article>
   );
 }
@@ -1343,6 +1350,8 @@ function VehicleDetail({ vehicle, vehicles = [], onBack, isFavorite = false, onT
   const whatsappNumber = String(whatsapp || "").replace(/\D/g, "");
   const whatsappText = encodeURIComponent(`Hola, me interesa el ${vehicle.brand} ${vehicle.model}${vehicle.year ? ` ${vehicle.year}` : ""}: ${window.location.origin}${vehiclePath(vehicle)}`);
   const whatsappHref = `https://wa.me/${whatsappNumber}?text=${whatsappText}`;
+  const [shareStatus, setShareStatus] = useState("");
+  const shareVehicle = async () => { try { const result = await shareOrCopyUrl(`${window.location.origin}${vehiclePath(vehicle)}`, `${vehicle.brand} ${vehicle.model}`); setShareStatus(result === "copied" ? "URL copiada" : result === "shared" ? "Compartido" : "No disponible"); window.setTimeout(() => setShareStatus(""), 2200); } catch { setShareStatus(""); } };
   const [activeImage, setActiveImage] = useState(0);
   const [leadType, setLeadType] = useState(null);
   const [lightboxOpen, setLightboxOpen] = useState(false);
@@ -1459,7 +1468,7 @@ function VehicleDetail({ vehicle, vehicles = [], onBack, isFavorite = false, onT
             <button className={`detail-utility-action favorite-detail-action ${isFavorite ? "is-selected" : ""}`} type="button" onClick={() => onToggleFavorite(vehicle)}>{isFavorite ? "Guardado en favoritos ♥" : "Guardar en favoritos ♡"}</button>
             <button className="detail-utility-action" type="button" onClick={() => setPriceAlertOpen(true)}>🔔 Avisarme si baja de precio</button>
             <button className="detail-utility-action" type="button" onClick={() => window.print()}>📄 Ficha Técnica / Imprimir</button>
-            <a className="detail-utility-action" href={whatsappHref} target="_blank" rel="noreferrer">{whatsappNumber ? "Contactar por WhatsApp ↗" : "Compartir por WhatsApp ↗"}</a>
+            {whatsappNumber ? <a className="detail-utility-action" href={whatsappHref} target="_blank" rel="noreferrer">Contactar por WhatsApp ↗</a> : <button className="detail-utility-action" type="button" onClick={shareVehicle}>Compartir ficha ↗</button>}{shareStatus && <span className="detail-share-status" role="status">{shareStatus}</span>}
           </div>
           {vehicle.description && <div className="detail-description"><span className="eyebrow">SOBRE ESTE VEHÍCULO</span><p>{vehicle.description}</p></div>}
           {!!vehicle.features?.length && <div className="detail-features"><span className="eyebrow">EQUIPAMIENTO DESTACADO</span><div>{vehicle.features.map((feature) => <span key={feature}>{feature}</span>)}</div></div>}
@@ -1485,7 +1494,7 @@ function VehicleDetail({ vehicle, vehicles = [], onBack, isFavorite = false, onT
       <div className="detail-mobile-actions" aria-label="Acciones rápidas del vehículo">
         <button className="primary-action" type="button" onClick={() => setLeadType("offer")} disabled={vehicle.status === "reserved"}>{vehicle.status === "reserved" ? "Reservado" : "Hacer una oferta"}</button>
         <button className="secondary-action" type="button" onClick={() => setLeadType("test-drive")}>Agendar cita</button>
-        <a className="detail-mobile-whatsapp" href={whatsappHref} target="_blank" rel="noreferrer" aria-label="Contactar al concesionario por WhatsApp">WhatsApp</a>
+        {whatsappNumber ? <a className="detail-mobile-whatsapp" href={whatsappHref} target="_blank" rel="noreferrer" aria-label="Contactar al concesionario por WhatsApp">WhatsApp</a> : <button className="detail-mobile-whatsapp" type="button" onClick={shareVehicle}>Compartir</button>}
       </div>
       <AnimatePresence>{leadType === "offer" && <LeadForm vehicle={quickVehicle || vehicle} customerToken={customerToken} onClose={() => { setLeadType(null); setQuickVehicle(null); }} />}</AnimatePresence>
       <AnimatePresence>{leadType === "test-drive" && <TestDriveModal vehicle={quickVehicle || vehicle} onClose={() => { setLeadType(null); setQuickVehicle(null); }} />}</AnimatePresence>
