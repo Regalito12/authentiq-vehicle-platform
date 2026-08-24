@@ -468,9 +468,9 @@ function PriceAlertModal({ vehicle, onClose }) {
         <button className="modal-close" type="button" onClick={onClose} aria-label="Cerrar">×</button>
         {status.success ? (
           <div className="lead-success">
-            <span className="eyebrow">ALERTA ACTIVADA</span>
-            <h2>¡Te avisaremos primero!</h2>
-            <p>Si el precio de este {vehicle.brand} {vehicle.model} baja o entra en promoción especial, recibirás un aviso inmediato por correo o WhatsApp.</p>
+            <span className="eyebrow">SOLICITUD REGISTRADA</span>
+            <h2>Te tendremos en cuenta.</h2>
+            <p>Registramos tu interés en este {vehicle.brand} {vehicle.model}. Un asesor revisará cualquier rebaja o promoción y se pondrá en contacto contigo.</p>
             <button className="primary-action" type="button" onClick={onClose}>Listo</button>
           </div>
         ) : (
