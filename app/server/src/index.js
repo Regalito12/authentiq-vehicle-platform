@@ -1069,19 +1069,43 @@ function minutesToTime(value) {
   return `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
 }
 
+function zonedParts(timeZone, instant = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(instant);
+  return Object.fromEntries(parts.filter((part) => part.type !== "literal").map((part) => [part.type, Number(part.value)]));
+}
+
+function isoDateInTimeZone(timeZone, instant = new Date()) {
+  const parts = zonedParts(timeZone, instant);
+  return `${String(parts.year).padStart(4, "0")}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
+}
+
+function dateOnlyDifference(from, to) {
+  const toUtc = (value) => { const [year, month, day] = String(value).split("-").map(Number); return Date.UTC(year, month - 1, day); };
+  return Math.round((toUtc(to) - toUtc(from)) / 86400000);
+}
+
+function zonedLocalDateTimeToUtc(date, time, timeZone) {
+  const [year, month, day] = String(date).split("-").map(Number);
+  const [hour, minute] = String(time).slice(0, 5).split(":").map(Number);
+  const naiveUtc = Date.UTC(year, month - 1, day, hour, minute || 0);
+  const offsetAt = (instant) => { const parts = zonedParts(timeZone, instant); return Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute) - instant.getTime(); };
+  const first = new Date(naiveUtc - offsetAt(new Date(naiveUtc)));
+  return new Date(naiveUtc - offsetAt(first));
+}
+
 async function appointmentAvailability(date, organizationId) {
   const settingsResult = await pool.query(`SELECT appointment_timezone AS timezone, appointment_start AS "start", appointment_end AS "end", appointment_duration_minutes AS "durationMinutes", appointment_min_notice_hours AS "minNoticeHours", appointment_max_days_ahead AS "maxDaysAhead", appointment_days AS "days", appointment_capacity AS "capacity" FROM organization_settings WHERE organization_id=$1`, [organizationId]);
   const settings = settingsResult.rows[0] || { start: "09:00", end: "18:00", durationMinutes: 60, minNoticeHours: 2, maxDaysAhead: 30, days: [1, 2, 3, 4, 5, 6], capacity: 1 };
-  const requestedDate = new Date(`${date}T00:00:00`);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const daysAhead = Math.round((requestedDate - today) / 86400000);
-  const dayOfWeek = requestedDate.getDay() || 7;
+  const timezone = settings.timezone || "America/Santo_Domingo";
+  let todayIso;
+  try { todayIso = isoDateInTimeZone(timezone); } catch { timezone = "UTC"; todayIso = isoDateInTimeZone(timezone); }
+  const daysAhead = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? dateOnlyDifference(todayIso, date) : -1;
+  const dayOfWeek = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? (new Date(`${date}T00:00:00Z`).getUTCDay() || 7) : 0;
   const start = timeToMinutes(String(settings.start).slice(0, 5));
   const end = timeToMinutes(String(settings.end).slice(0, 5));
   const duration = Number(settings.durationMinutes) || 60;
   if (!isIsoDate(date) || daysAhead < 0 || daysAhead > Number(settings.maxDaysAhead) || !settings.days.includes(dayOfWeek) || start === null || end === null || end <= start) {
-    return { date, timezone: settings.timezone || "America/Santo_Domingo", slots: [], capacity: Number(settings.capacity) || 1 };
+    return { date, timezone, slots: [], capacity: Number(settings.capacity) || 1 };
   }
   const bookedResult = await pool.query(`SELECT requested_time AS "time", COUNT(*)::int AS count FROM test_drive_requests WHERE organization_id=$1 AND requested_date=$2 AND status IN ('pending','confirmed') GROUP BY requested_time`, [organizationId, date]);
   const booked = new Map(bookedResult.rows.map((row) => [String(row.time).slice(0, 5), Number(row.count)]));
@@ -1090,12 +1114,12 @@ async function appointmentAvailability(date, organizationId) {
   const slots = [];
   for (let minute = start; minute + duration <= end; minute += duration) {
     const time = minutesToTime(minute);
-    const slotDate = new Date(`${date}T${time}:00`);
+    const slotDate = zonedLocalDateTimeToUtc(date, time, timezone);
     const availableByNotice = slotDate.getTime() - Date.now() >= Number(settings.minNoticeHours || 0) * 3600000;
     const blocked = blocks.some((block) => minute < block.end && minute + duration > block.start);
     slots.push({ time, available: availableByNotice && !blocked && (booked.get(time) || 0) < Number(settings.capacity || 1), booked: booked.get(time) || 0, blocked, capacity: Number(settings.capacity || 1) });
   }
-  return { date, timezone: settings.timezone || "America/Santo_Domingo", durationMinutes: duration, slots, capacity: Number(settings.capacity || 1) };
+  return { date, timezone, durationMinutes: duration, slots, capacity: Number(settings.capacity || 1) };
 }
 
 function escapeHtml(value) {
