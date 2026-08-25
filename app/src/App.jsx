@@ -314,17 +314,70 @@ function StudioLanding({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPriv
 function StudioChapterMedia({ src, alt, reduceMotion }) {
   const ref = useRef(null);
   const { scrollYProgress } = useScroll({ target: ref, offset: ["start end", "end start"] });
-  const y = useTransform(scrollYProgress, [0, 1], reduceMotion ? ["0%", "0%"] : ["-6%", "6%"]);
+  const y = useTransform(scrollYProgress, [0, 1], reduceMotion ? ["0%", "0%"] : ["-7%", "7%"]);
+  const scale = useTransform(scrollYProgress, [0, 0.5, 1], reduceMotion ? [1, 1, 1] : [1.06, 1.01, 1.06]);
   return (
     <div className="studio-chapter-media" ref={ref}>
-      <motion.img style={reduceMotion ? undefined : { y }} src={src} alt={alt} loading="lazy" />
+      <motion.img style={reduceMotion ? undefined : { y, scale }} src={src} alt={alt} loading="lazy" />
     </div>
   );
 }
 
-function StudioChapters({ reduceMotion, onViewDemo }) {
+// Continuous drift as the element crosses the viewport, plus a one-time entrance.
+// The drift is what keeps the page feeling alive between reveals.
+function StudioDrift({ children, className, depth = 28, delay = 0, reduceMotion }) {
+  const ref = useRef(null);
+  const { scrollYProgress } = useScroll({ target: ref, offset: ["start end", "end start"] });
+  const y = useTransform(scrollYProgress, [0, 1], reduceMotion ? [0, 0] : [depth, -depth]);
   return (
-    <div className="studio-chapters" id="landing-product">
+    <motion.div ref={ref} className="studio-drift" style={reduceMotion ? undefined : { y }}>
+      <motion.div
+        className={className}
+        initial={reduceMotion ? false : { opacity: 0, y: 30 }}
+        whileInView={reduceMotion ? undefined : { opacity: 1, y: 0 }}
+        viewport={{ once: true, amount: 0.35 }}
+        transition={{ duration: 0.75, delay, ease: studioEase }}
+      >
+        {children}
+      </motion.div>
+    </motion.div>
+  );
+}
+
+// The thread draws itself as the chapter passes — Novo's signature connective move.
+function StudioThread({ reduceMotion }) {
+  const ref = useRef(null);
+  const { scrollYProgress } = useScroll({ target: ref, offset: ["start 0.85", "end 0.45"] });
+  const pathLength = useTransform(scrollYProgress, [0, 1], [0, 1]);
+  return (
+    <svg ref={ref} className="studio-thread" viewBox="0 0 40 620" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+      <motion.path
+        d="M20 4 C 4 130, 36 210, 20 310 C 4 410, 36 490, 20 616"
+        fill="none"
+        stroke="var(--studio-gold)"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        style={reduceMotion ? { pathLength: 1 } : { pathLength }}
+      />
+    </svg>
+  );
+}
+
+function StudioChapters({ reduceMotion, onViewDemo }) {
+  const ref = useRef(null);
+  const { scrollYProgress } = useScroll({ target: ref, offset: ["start end", "end start"] });
+  const glowOneY = useTransform(scrollYProgress, [0, 1], reduceMotion ? ["0%", "0%"] : ["-14%", "26%"]);
+  const glowTwoY = useTransform(scrollYProgress, [0, 1], reduceMotion ? ["0%", "0%"] : ["18%", "-22%"]);
+  const glowThreeX = useTransform(scrollYProgress, [0, 1], reduceMotion ? ["0%", "0%"] : ["-8%", "10%"]);
+  const veilOpacity = useTransform(scrollYProgress, [0, 0.5, 1], reduceMotion ? [0.5, 0.5, 0.5] : [0.25, 0.6, 0.25]);
+  return (
+    <div className="studio-chapters" id="landing-product" ref={ref}>
+      <div className="studio-ambient" aria-hidden="true">
+        <motion.span className="studio-ambient-one" style={reduceMotion ? undefined : { y: glowOneY, opacity: veilOpacity }} />
+        <motion.span className="studio-ambient-two" style={reduceMotion ? undefined : { y: glowTwoY }} />
+        <motion.span className="studio-ambient-three" style={reduceMotion ? undefined : { x: glowThreeX }} />
+      </div>
+
       <section className="studio-chapter">
         <div className="studio-chapter-copy">
           <StudioReveal as="span" className="studio-kicker" reduceMotion={reduceMotion}>01 · Publica</StudioReveal>
@@ -332,16 +385,16 @@ function StudioChapters({ reduceMotion, onViewDemo }) {
           <StudioReveal as="p" delay={0.12} reduceMotion={reduceMotion}>Cada vehículo sale con ficha completa, fotos ordenadas y una vista previa que apruebas antes de que el cliente lo vea.</StudioReveal>
         </div>
         <div className="studio-chapter-panel">
-          <StudioReveal delay={0.1} reduceMotion={reduceMotion}>
+          <StudioDrift depth={34} delay={0.08} reduceMotion={reduceMotion}>
             <StudioChapterMedia src="/assets/audi-etron-gt.jpg" alt="Vehículo publicado en un showroom AUTHENTIQ" reduceMotion={reduceMotion} />
-          </StudioReveal>
-          <StudioReveal className="studio-card studio-card-float" delay={0.24} reduceMotion={reduceMotion}>
+          </StudioDrift>
+          <StudioDrift className="studio-card studio-card-float" depth={62} delay={0.2} reduceMotion={reduceMotion}>
             <div className="studio-card-top"><span>Inventario</span><b>Publicado</b></div>
             <div className="studio-card-vehicle">
               <img src="/assets/taycan-turbo-s-2.webp" alt="" />
               <div><strong>Porsche Taycan Turbo S</strong><span>Ficha completa · showroom listo</span></div>
             </div>
-          </StudioReveal>
+          </StudioDrift>
         </div>
       </section>
 
@@ -352,23 +405,23 @@ function StudioChapters({ reduceMotion, onViewDemo }) {
           <StudioReveal as="p" delay={0.12} reduceMotion={reduceMotion}>Sabes qué vehículo miró, qué preguntó y quién lo atiende. El equipo responde sin reconstruir la historia cada vez.</StudioReveal>
         </div>
         <div className="studio-chapter-panel studio-chapter-thread">
-          <span className="studio-thread" aria-hidden="true" />
-          <StudioReveal className="studio-card" delay={0.1} reduceMotion={reduceMotion}>
+          <StudioThread reduceMotion={reduceMotion} />
+          <StudioDrift className="studio-card" depth={20} delay={0.06} reduceMotion={reduceMotion}>
             <span className="studio-card-index">01 · Señal</span>
             <h3>El cliente deja pistas.</h3>
             <p>Visita una ficha, guarda un modelo, pide una cotización. Todo queda registrado.</p>
-          </StudioReveal>
-          <StudioReveal className="studio-card" delay={0.2} reduceMotion={reduceMotion}>
+          </StudioDrift>
+          <StudioDrift className="studio-card" depth={48} delay={0.14} reduceMotion={reduceMotion}>
             <span className="studio-card-index">02 · Lead</span>
             <h3>María quiere verlo.</h3>
             <p className="studio-card-quote">“¿Puedo agendar una visita esta semana?”</p>
             <span className="studio-card-meta">Porsche Taycan Turbo S · hace 4 min</span>
-          </StudioReveal>
-          <StudioReveal className="studio-card" delay={0.3} reduceMotion={reduceMotion}>
+          </StudioDrift>
+          <StudioDrift className="studio-card" depth={76} delay={0.22} reduceMotion={reduceMotion}>
             <span className="studio-card-index">03 · Respuesta</span>
             <h3>El equipo contesta con todo a la mano.</h3>
             <p>Historial, vehículo y próxima acción en la misma pantalla.</p>
-          </StudioReveal>
+          </StudioDrift>
         </div>
       </section>
 
@@ -382,16 +435,16 @@ function StudioChapters({ reduceMotion, onViewDemo }) {
           </StudioReveal>
         </div>
         <div className="studio-chapter-panel">
-          <StudioReveal className="studio-card studio-card-appointment" delay={0.1} reduceMotion={reduceMotion}>
+          <StudioDrift className="studio-card studio-card-appointment" depth={30} delay={0.06} reduceMotion={reduceMotion}>
             <div className="studio-card-top"><span>Cita confirmada</span><b>Hoy</b></div>
             <strong className="studio-card-time">4:30 PM</strong>
             <span className="studio-card-meta">Visita al showroom · Porsche Cayenne Turbo GT</span>
-          </StudioReveal>
-          <StudioReveal className="studio-list" delay={0.2} reduceMotion={reduceMotion}>
+          </StudioDrift>
+          <StudioDrift className="studio-list" depth={58} delay={0.16} reduceMotion={reduceMotion}>
             <div><h3>Agenda</h3><p>El cliente elige hora y tu equipo la confirma en un toque.</p></div>
             <div><h3>Cotiza</h3><p>Genera una propuesta con precio, plan y condiciones listas para compartir.</p></div>
             <div><h3>Sigue</h3><p>Cada oportunidad avanza con recordatorios hasta el cierre.</p></div>
-          </StudioReveal>
+          </StudioDrift>
         </div>
       </section>
     </div>
