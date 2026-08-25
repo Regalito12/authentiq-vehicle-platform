@@ -3203,14 +3203,14 @@ html[data-theme="dark"] .dealer-slug-badge {
   border: 1px solid var(--auth-line);
   border-top: 3px solid var(--auth-gold);
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(260px, .9fr);
+  /* Colapsa por el espacio disponible, no por el viewport: la tarjeta vive en la
+     columna lateral de la ficha y ahí llega a ~370px con el viewport aún ancho. */
+  grid-template-columns: repeat(auto-fit, minmax(min(272px, 100%), 1fr));
   gap: 28px;
 }
 .financing-calc-card, .financing-controls, .financing-result-box { min-width: 0; }
 .calc-field-head { gap: 16px; flex-wrap: wrap; }
 .calc-field-head span { min-width: 0; line-height: 1.35; }
-.calc-term-pills { display: flex; flex-wrap: wrap; gap: 7px; }
-.calc-term-pill { min-width: 48px; }
 .financing-calc-card h3 {
   margin: 8px 0 16px;
   font-size: 24px;
@@ -3220,6 +3220,9 @@ html[data-theme="dark"] .dealer-slug-badge {
 }
 .financing-controls {
   display: grid;
+  /* Anula el `repeat(2, 1fr)` general: dentro de la ficha esta tarjeta baja a
+     ~370px y dos columnas parten cada etiqueta en varias líneas. */
+  grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
   gap: 18px;
 }
 .calc-field {
@@ -3248,13 +3251,14 @@ html[data-theme="dark"] .dealer-slug-badge {
   accent-color: var(--auth-gold);
 }
 .calc-term-pills {
-  display: flex;
+  /* Grid en vez de flex: evita que la pastilla huérfana de la última fila
+     se estire al doble de ancho que las demás. */
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(52px, 1fr));
   gap: 8px;
-  flex-wrap: wrap;
 }
 .calc-term-pill {
-  flex: 1;
-  min-width: 50px;
+  min-width: 0;
   padding: 8px 4px;
   border: 1px solid var(--auth-line);
   background: var(--auth-soft);
@@ -4112,4 +4116,35 @@ button, input, select, textarea { font-size: 16px; }
 @media (prefers-reduced-motion: reduce) {
   .studio-card:hover { transform: none; }
   .studio-nav { transition: none; }
+}
+
+/* Always-on ambient life: slow loops that run independently of scroll, so the
+   page breathes even when the reader is still. Long cycles, small amplitude. */
+/* Se animan `scale` y `translate` (propiedades independientes) y no `transform`:
+   Motion escribe transform inline en estas mismas capas y una animación CSS sobre
+   transform lo sobrescribiría, anulando el parallax. Así se componen. */
+@keyframes studio-breathe { 0%, 100% { scale: 1; } 50% { scale: 1.14; } }
+@keyframes studio-breathe-alt { 0%, 100% { scale: 1.08; opacity: .85; } 50% { scale: .94; opacity: .5; } }
+@keyframes studio-float { 0%, 100% { translate: 0 0; } 50% { translate: 0 -9px; } }
+@keyframes studio-cue { 0%, 100% { transform: translateY(0); opacity: .55; } 50% { transform: translateY(5px); opacity: 1; } }
+@keyframes studio-sheen { 0% { opacity: .25; } 50% { opacity: .7; } 100% { opacity: .25; } }
+
+.studio-ambient-one { animation: studio-breathe 26s ease-in-out infinite; }
+.studio-ambient-two { animation: studio-breathe-alt 32s ease-in-out infinite; }
+.studio-ambient-three { animation: studio-breathe 21s ease-in-out infinite 3s; }
+.studio-card-float { animation: studio-float 9s ease-in-out infinite; }
+.studio-thread { animation: studio-sheen 7s ease-in-out infinite; }
+.studio-link span, .studio-text-action span { display: inline-block; animation: studio-cue 2.6s ease-in-out infinite; }
+
+/* Hover reaches further: depth and light, not just a border tint. */
+.studio-card { transition: transform 420ms var(--ease-out-quart, ease), border-color 420ms ease, background-color 420ms ease, box-shadow 420ms ease; }
+.studio-card:hover { box-shadow: 0 22px 50px rgba(0,0,0,.4); }
+.studio-primary, .studio-cta { transition: transform 220ms cubic-bezier(.22,1,.36,1), background-color 180ms ease, box-shadow 320ms ease; }
+.studio-primary:hover, .studio-cta:hover { box-shadow: 0 14px 34px rgba(226,185,95,.32); }
+.studio-chapter-media img { transition: filter 600ms ease, transform 700ms var(--ease-out-quart, ease); }
+
+@media (prefers-reduced-motion: reduce) {
+  .studio-ambient-one, .studio-ambient-two, .studio-ambient-three,
+  .studio-card-float, .studio-thread,
+  .studio-link span, .studio-text-action span { animation: none; }
 }
