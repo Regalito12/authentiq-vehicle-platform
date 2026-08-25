@@ -4062,3 +4062,48 @@ button, input, select, textarea { font-size: 16px; }
   .studio-hero-media, .studio-proof-stage > img, .studio-demo-media { transform: none !important; }
   .studio-demo-media video { display: none; }
 }
+
+/* Scroll story: one focused frame at a time, with the vehicle doing the motion. */
+.studio-sequence { position: relative; min-height: 320vh; background: #171b1a; color: #f8f5ed; }
+.studio-sequence-sticky { position: sticky; top: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 100svh; padding: 108px max(30px, calc((100% - 1180px) / 2)) 28px; overflow: hidden; }
+.studio-sequence-top, .studio-sequence-bottom { position: relative; z-index: 3; display: flex; align-items: center; justify-content: space-between; gap: 20px; color: rgba(248,245,237,.62); font: 500 14px "IBM Plex Mono", monospace; letter-spacing: .08em; text-transform: uppercase; }
+.studio-sequence-stage { position: relative; min-height: 0; isolation: isolate; overflow: hidden; background: #202624; }
+.studio-sequence-image { position: absolute; inset: -8% -4%; z-index: -3; transform-origin: center; }
+.studio-sequence-image img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: center; filter: saturate(.76) contrast(1.08); }
+.studio-sequence-image-two img { object-position: center 62%; }
+.studio-sequence-image-three img { object-position: center 58%; }
+.studio-sequence-wash { position: absolute; z-index: -2; inset: 0; background: linear-gradient(90deg, rgba(12,16,15,.94) 0%, rgba(12,16,15,.56) 46%, rgba(12,16,15,.2) 100%), linear-gradient(0deg, rgba(12,16,15,.86), transparent 62%); pointer-events: none; }
+.studio-sequence-copy { position: relative; z-index: 2; display: grid; align-content: center; width: min(580px, 72%); min-height: 100%; padding: 40px 0; }
+.studio-sequence-chapter { grid-area: 1 / 1; display: grid; align-content: center; gap: 18px; }
+.studio-sequence-chapter:not(:first-child) { opacity: 0; }
+.studio-sequence-chapter > span { color: var(--studio-gold); font: 500 14px "IBM Plex Mono", monospace; letter-spacing: .1em; }
+.studio-sequence-chapter h2 { max-width: 9ch; margin: 0; font-size: clamp(52px, 7vw, 104px); font-weight: 300; letter-spacing: -.055em; line-height: .86; text-wrap: balance; }
+.studio-sequence-chapter h2 em { color: var(--studio-gold); font-style: normal; }
+.studio-sequence-chapter p { max-width: 35ch; margin: 0; color: rgba(248,245,237,.76); font-size: 18px; line-height: 1.55; text-wrap: pretty; }
+.studio-sequence-mark { position: absolute; z-index: 2; right: 26px; top: 25px; color: rgba(248,245,237,.68); font: 500 14px "IBM Plex Mono", monospace; letter-spacing: .1em; }
+.studio-sequence-bottom { padding-top: 22px; }
+.studio-sequence-bottom .studio-primary { min-height: 42px; padding: 9px 15px; }
+@media (max-width: 800px) {
+  .studio-sequence { min-height: 260vh; }
+  .studio-sequence-sticky { min-height: 100svh; padding: 116px 20px 20px; }
+  .studio-sequence-top { align-items: flex-start; }
+  .studio-sequence-top > span:last-child { max-width: 12ch; text-align: right; }
+  .studio-sequence-stage { min-height: 0; }
+  .studio-sequence-copy { width: 100%; padding: 30px 22px; }
+  .studio-sequence-chapter h2 { font-size: clamp(48px, 14vw, 76px); }
+  .studio-sequence-chapter p { max-width: 28ch; font-size: 16px; }
+  .studio-sequence-image { inset: -4% -16%; }
+  .studio-sequence-wash { background: linear-gradient(90deg, rgba(12,16,15,.9), rgba(12,16,15,.34)), linear-gradient(0deg, rgba(12,16,15,.92), transparent 64%); }
+  .studio-sequence-mark { right: 20px; top: 20px; }
+  .studio-sequence-bottom { align-items: flex-end; }
+  .studio-sequence-bottom .studio-primary { max-width: 220px; text-align: left; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .studio-sequence { min-height: auto; }
+  .studio-sequence-sticky { position: relative; min-height: auto; }
+  .studio-sequence-stage { min-height: 620px; }
+  .studio-sequence-image { opacity: 0; }
+  .studio-sequence-image-one { opacity: 1; }
+  .studio-sequence-chapter { display: none; }
+  .studio-sequence-chapter-one { display: grid; }
+}

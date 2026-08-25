@@ -1,4 +1,4 @@
-import { Component, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Component, forwardRef, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion, useInView, useReducedMotion, useScroll, useTransform } from "motion/react";
 import { TurnstileField, turnstileSiteKey } from "./utils/turnstile.jsx";
 import { flushSync } from "react-dom";
@@ -256,16 +256,14 @@ function StudioLanding({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPriv
   const demoRef = useRef(null);
   const { scrollYProgress: heroProgress } = useScroll({ target: heroRef, offset: ["start start", "end start"] });
   const { scrollYProgress: proofProgress } = useScroll({ target: proofRef, offset: ["start end", "end start"] });
-  const { scrollYProgress: demoProgress } = useScroll({ target: demoRef, offset: ["start end", "end start"] });
   const heroY = useTransform(heroProgress, [0, 1], reduceMotion ? ["0%", "0%"] : ["0%", "18%"]);
   const heroScale = useTransform(heroProgress, [0, 1], reduceMotion ? [1, 1] : [1, 1.12]);
   const proofImageY = useTransform(proofProgress, [0, 1], reduceMotion ? ["0%", "0%"] : ["-8%", "12%"]);
-  const demoY = useTransform(demoProgress, [0, 1], reduceMotion ? ["0%", "0%"] : ["10%", "-10%"]);
   return (
     <main className="studio-landing">
       <nav className="studio-nav" aria-label="Navegación de AUTHENTIQ">
         <a className="studio-brand" href="#landing-top">AUTHENTIQ<span>°</span></a>
-        <div className="studio-nav-links"><a href="#landing-story">La experiencia</a><a href="#landing-product">Cómo funciona</a><a href="#landing-demo">Ver showroom</a></div>
+        <div className="studio-nav-links"><a href="#landing-story">La experiencia</a><a href="#landing-product">Cómo funciona</a><a href="#landing-product">Ver showroom</a></div>
         <div className="studio-nav-actions"><button type="button" className="studio-login" onClick={onDealerLogin}>Iniciar sesión</button><button type="button" className="studio-cta" onClick={onCreateShowroom}>Crear showroom <span>↗</span></button></div>
       </nav>
 
@@ -279,7 +277,6 @@ function StudioLanding({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPriv
           <div className="studio-actions"><button type="button" className="studio-primary" onClick={onCreateShowroom}>Crear mi showroom <span>↗</span></button><button type="button" className="studio-link" onClick={onViewDemo}>Explorar una demo <span>↓</span></button></div>
         </div>
         <div className="studio-hero-meta"><span>AUTHENTIQ / 2026</span><span>Inventario · clientes · citas</span></div>
-        <div className="studio-hero-model"><span>MODELO DESTACADO</span><strong>Porsche<br />Taycan Turbo S</strong><small>Ver experiencia ↗</small></div>
       </section>
 
       <section ref={proofRef} className="studio-proof" id="landing-story">
@@ -287,25 +284,47 @@ function StudioLanding({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPriv
         <div className="studio-proof-stage"><motion.img style={{ y: proofImageY }} src="/assets/taycan-turbo-s-2.jpg" alt="Porsche Taycan presentado en un showroom digital" /><div className="studio-proof-overlay"><span>01 / PRESENTACIÓN</span><strong>Lo que vendes<br /><em>se siente.</em></strong><small>Fotos · video · 3D · ficha · cita</small></div><div className="studio-proof-index">01</div></div>
       </section>
 
-      <section className="studio-operations" id="landing-product">
-        <div className="studio-operations-intro"><span className="studio-kicker">La operación detrás de la vitrina</span><h2>Del vehículo a la cita, sin perder el hilo.</h2><p>Una sola vista para publicar, responder, agendar y cerrar. El equipo sabe qué pasó y qué toca después.</p></div>
-        <div className="studio-operations-list">
-          <article><div><span>01</span><h3>Publica con intención.</h3><p>Ficha completa, fotos ordenadas y una vista previa antes de salir al aire.</p></div><img src="/assets/audi-etron-gt.jpg" alt="Audi e-tron GT en inventario" /></article>
-          <article><div><span>02</span><h3>Responde con contexto.</h3><p>Leads, ofertas y conversaciones llegan al lugar donde el equipo trabaja.</p></div><img src="/assets/porsche-interior.jpg" alt="Interior de vehículo premium" /></article>
-          <article><div><span>03</span><h3>Convierte la intención.</h3><p>Citas y cotizaciones siguen vivas hasta que el cliente toma una decisión.</p></div><img src="/assets/cayenne-turbo-gt-2.jpg" alt="Porsche Cayenne en showroom" /></article>
-        </div>
-      </section>
-
-      <section ref={demoRef} className="studio-demo" id="landing-demo">
-        <motion.div className="studio-demo-media" style={{ y: demoY }} aria-hidden="true"><video autoPlay={!reduceMotion} muted loop playsInline preload="metadata" poster="/assets/authentiq-cinematic-drive-poster.jpg"><source src="/assets/authentiq-cinematic-drive.mp4" /></video><div /></motion.div>
-        <div className="studio-demo-copy"><span className="studio-kicker">Una experiencia que puedes enseñar</span><h2>Lo que ve el cliente, lo controlas tú.</h2><p>Abre un showroom de ejemplo y recorre la misma experiencia que tus compradores tendrán en cada visita.</p><button type="button" className="studio-primary" onClick={onViewDemo}>Abrir showroom de ejemplo <span>↗</span></button></div>
-      </section>
+      <StudioScrollSequence ref={demoRef} reduceMotion={reduceMotion} onViewDemo={onViewDemo} />
 
       <section className="studio-close"><span className="studio-kicker">Tu siguiente vehículo empieza aquí</span><h2>Haz que tu inventario<br /><em>se sienta propio.</em></h2><button type="button" className="studio-primary" onClick={onCreateShowroom}>Crear mi showroom <span>↗</span></button></section>
       <footer className="studio-footer"><span>AUTHENTIQ°</span><span>La vitrina digital para concesionarios.</span><nav aria-label="Enlaces legales"><button type="button" onClick={onOpenPrivacy}>Privacidad</button><button type="button" onClick={onOpenTerms}>Términos</button></nav></footer>
     </main>
   );
 }
+
+const StudioScrollSequence = forwardRef(function StudioScrollSequence({ reduceMotion, onViewDemo }, ref) {
+  const { scrollYProgress } = useScroll({ target: ref, offset: ["start start", "end end"] });
+  const firstOpacity = useTransform(scrollYProgress, [0, .2, .34], [1, 1, 0]);
+  const secondOpacity = useTransform(scrollYProgress, [.25, .42, .62], [0, 1, 0]);
+  const thirdOpacity = useTransform(scrollYProgress, [.54, .74, .94], [0, 1, 1]);
+  const firstScale = useTransform(scrollYProgress, [0, .34], [1, 1.08]);
+  const secondScale = useTransform(scrollYProgress, [.25, .62], [.92, 1.06]);
+  const thirdScale = useTransform(scrollYProgress, [.54, .94], [.92, 1.04]);
+  const copyY = useTransform(scrollYProgress, [0, 1], [24, -24]);
+  const firstStyle = reduceMotion ? { opacity: 1, scale: 1 } : { opacity: firstOpacity, scale: firstScale };
+  const secondStyle = reduceMotion ? { opacity: 0, scale: 1 } : { opacity: secondOpacity, scale: secondScale };
+  const thirdStyle = reduceMotion ? { opacity: 0, scale: 1 } : { opacity: thirdOpacity, scale: thirdScale };
+  return (
+    <section ref={ref} className="studio-sequence" id="landing-product">
+      <div className="studio-sequence-sticky">
+        <div className="studio-sequence-top"><span className="studio-kicker">El recorrido AUTHENTIQ</span><span>Desplaza para explorar</span></div>
+        <div className="studio-sequence-stage" role="region" aria-label="Recorrido visual del showroom">
+          <motion.div className="studio-sequence-image studio-sequence-image-one" style={firstStyle} aria-hidden="true"><img src="/assets/audi-etron-gt.jpg" alt="" /></motion.div>
+          <motion.div className="studio-sequence-image studio-sequence-image-two" style={secondStyle} aria-hidden="true"><img src="/assets/porsche-interior.jpg" alt="" /></motion.div>
+          <motion.div className="studio-sequence-image studio-sequence-image-three" style={thirdStyle} aria-hidden="true"><img src="/assets/cayenne-turbo-gt-2.jpg" alt="" /></motion.div>
+          <div className="studio-sequence-wash" aria-hidden="true" />
+          <motion.div className="studio-sequence-copy" style={reduceMotion ? undefined : { y: copyY }}>
+            <div className="studio-sequence-chapter studio-sequence-chapter-one"><span>01 / PUBLICA</span><h2>Tu inventario,<br /><em>presentado.</em></h2><p>Ficha completa, fotos ordenadas y una vista previa antes de salir al aire.</p></div>
+            <div className="studio-sequence-chapter studio-sequence-chapter-two"><span>02 / RESPONDE</span><h2>Cada conversación,<br /><em>en contexto.</em></h2><p>Leads, ofertas y clientes llegan al lugar donde el equipo trabaja.</p></div>
+            <div className="studio-sequence-chapter studio-sequence-chapter-three"><span>03 / CIERRA</span><h2>De la intención<br /><em>a la cita.</em></h2><p>Agenda, cotiza y sigue cada oportunidad hasta que el cliente decide.</p></div>
+          </motion.div>
+          <div className="studio-sequence-mark" aria-hidden="true">AUTHENTIQ°</div>
+        </div>
+        <div className="studio-sequence-bottom"><span>01 — 03</span><button type="button" className="studio-primary" onClick={onViewDemo}>Abrir showroom de ejemplo <span>↗</span></button></div>
+      </div>
+    </section>
+  );
+});
 
 function LegacyLandingPage({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPrivacy, onOpenTerms }) {
   const reduceMotion = useReducedMotion();
