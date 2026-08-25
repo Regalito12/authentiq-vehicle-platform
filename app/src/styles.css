@@ -3976,13 +3976,20 @@ button, input, select, textarea { font-size: 16px; }
 /* Landing studio: cuatro capítulos con un solo lenguaje de movimiento. */
 .studio-landing { --studio-ink: #171a19; --studio-paper: #f1eee6; --studio-muted: #716f68; --studio-gold: #e2b95f; --studio-line: rgba(23,26,25,.18); overflow: clip; background: var(--studio-paper); color: var(--studio-ink); }
 .studio-landing button, .studio-landing a { -webkit-tap-highlight-color: transparent; }
-.studio-nav { position: absolute; z-index: 20; top: 18px; right: 30px; left: 30px; display: flex; align-items: center; justify-content: space-between; gap: 22px; max-width: 1180px; margin: 0 auto; padding: 11px 14px 11px 19px; border: 1px solid rgba(248,245,237,.2); border-radius: 999px; background: rgba(17,20,19,.86); color: #f8f5ed; backdrop-filter: blur(16px); }
+.studio-nav { position: fixed; z-index: 20; top: 18px; right: 30px; left: 30px; display: flex; align-items: center; justify-content: space-between; gap: 22px; max-width: 1180px; margin: 0 auto; padding: 11px 14px 11px 19px; border: 1px solid rgba(248,245,237,.2); border-radius: 999px; background: rgba(17,20,19,.86); color: #f8f5ed; backdrop-filter: blur(12px); transform: translateZ(0); will-change: transform; contain: layout paint; transition: padding 400ms var(--ease-out-quart, ease), background-color 400ms ease, border-color 400ms ease, box-shadow 400ms ease; }
+.studio-nav.is-condensed { padding-top: 7px; padding-bottom: 7px; border-color: rgba(248,245,237,.14); background: rgba(14,17,16,.92); box-shadow: 0 14px 40px rgba(0,0,0,.34); }
 .studio-brand { color: #f8f5ed; font: 500 16px "IBM Plex Mono", monospace; letter-spacing: .1em; text-decoration: none; }
 .studio-brand span { color: var(--studio-gold); }
 .studio-nav-links { display: flex; align-items: center; gap: clamp(15px, 2.5vw, 32px); margin-left: auto; }
 .studio-nav-links a, .studio-navlink, .studio-login { border: 0; background: transparent; color: rgba(248,245,237,.77); font: 500 14px "IBM Plex Mono", monospace; letter-spacing: .045em; text-decoration: none; text-transform: uppercase; transition: color 180ms ease; cursor: pointer; padding: 0; }
 .studio-nav-links a:hover, .studio-navlink:hover, .studio-login:hover, .studio-nav-links a:focus-visible, .studio-navlink:focus-visible, .studio-login:focus-visible { color: #fff; }
 .studio-nav-actions { display: flex; align-items: center; gap: 12px; }
+.studio-lang { position: relative; display: flex; align-items: center; padding: 3px; border: 1px solid rgba(248,245,237,.18); border-radius: 999px; isolation: isolate; }
+.studio-lang-option { position: relative; z-index: 1; display: grid; min-width: 38px; min-height: 28px; place-items: center; border: 0; border-radius: 999px; padding: 0 9px; background: transparent; color: rgba(248,245,237,.62); cursor: pointer; font: 500 12px "IBM Plex Mono", monospace; letter-spacing: .07em; transition: color 300ms ease; }
+.studio-lang-option:hover { color: #f8f5ed; }
+.studio-lang-option.is-active { color: #171a19; }
+.studio-lang-pill { position: absolute; z-index: 0; top: 3px; bottom: 3px; left: 3px; width: calc((100% - 6px) / var(--studio-lang-count, 2)); border-radius: 999px; background: var(--studio-gold); transition: transform 420ms var(--ease-out-quart, cubic-bezier(.22,1,.36,1)); }
+@media (prefers-reduced-motion: reduce) { .studio-lang-pill { transition: none; } }
 .studio-login { cursor: pointer; }
 .studio-cta, .studio-primary { display: inline-flex; min-height: 46px; align-items: center; justify-content: center; gap: 12px; border: 1px solid var(--studio-gold); border-radius: 999px; padding: 11px 17px; background: var(--studio-gold); color: #171a19; cursor: pointer; font: 600 14px "IBM Plex Mono", monospace; letter-spacing: .04em; text-transform: uppercase; transition: transform 220ms cubic-bezier(.22,1,.36,1), background-color 180ms ease; }
 .studio-cta:hover, .studio-primary:hover, .studio-cta:focus-visible, .studio-primary:focus-visible { background: #f0cf78; transform: translateY(-2px); }
@@ -3994,7 +4001,6 @@ button, input, select, textarea { font-size: 16px; }
 .studio-hero-copy .studio-kicker, .studio-hero-copy h1, .studio-hero-copy > p, .studio-actions { will-change: transform, opacity; }
 .studio-kicker { color: var(--studio-gold); font: 500 14px/1.35 "IBM Plex Mono", monospace; letter-spacing: .1em; text-transform: uppercase; }
 .studio-hero h1 { max-width: 12ch; margin: 24px 0 24px; color: #fbf8f0; font-size: clamp(54px, 7.4vw, 96px); font-weight: 300; letter-spacing: -.04em; line-height: .9; text-wrap: balance; }
-.studio-hero h1 em, .studio-proof h2 em, .studio-close h2 em { color: var(--studio-gold); font-style: normal; }
 .studio-hero-copy > p { max-width: 41ch; margin: 0; color: rgba(248,245,237,.78); font-size: clamp(17px, 1.6vw, 20px); line-height: 1.55; text-wrap: pretty; }
 .studio-actions { display: flex; align-items: center; gap: 24px; margin-top: 34px; }
 .studio-link, .studio-text-action { border: 0; border-bottom: 1px solid currentColor; padding: 8px 0; background: transparent; color: #f8f5ed; cursor: pointer; font: 500 14px "IBM Plex Mono", monospace; letter-spacing: .06em; text-transform: uppercase; }
@@ -4014,7 +4020,7 @@ button, input, select, textarea { font-size: 16px; }
 .studio-proof-overlay small { color: rgba(248,245,237,.72); }
 .studio-proof-index { position: absolute; z-index: 1; top: 22px; right: 24px; color: rgba(248,245,237,.7); font: 500 14px "IBM Plex Mono", monospace; }
 .studio-close { display: grid; justify-items: center; gap: 26px; padding: clamp(150px, 20vw, 280px) 30px; text-align: center; }
-.studio-close h2 { max-width: 10ch; margin: 0; font-size: clamp(48px, 6.6vw, 96px); font-weight: 300; letter-spacing: -.04em; line-height: .9; }
+.studio-close h2 { max-width: 12ch; margin: 0; font-size: clamp(48px, 6.6vw, 96px); font-weight: 300; letter-spacing: -.04em; line-height: .9; }
 .studio-footer { display: flex; justify-content: space-between; gap: 24px; padding: 25px max(30px, calc((100% - 1180px) / 2)); border-top: 1px solid var(--studio-line); color: #747168; font: 500 14px "IBM Plex Mono", monospace; letter-spacing: .05em; text-transform: uppercase; }
 .studio-footer span:first-child { color: var(--studio-ink); }
 .studio-footer nav { display: flex; gap: 18px; }
@@ -4040,7 +4046,7 @@ button, input, select, textarea { font-size: 16px; }
 /* Chapters: editorial rows that keep flowing — giant headline left, evidence right. */
 .studio-chapters { position: relative; isolation: isolate; overflow: clip; background: #141817; }
 .studio-ambient { position: absolute; z-index: -1; inset: 0; pointer-events: none; }
-.studio-ambient span { position: absolute; display: block; border-radius: 50%; filter: blur(90px); will-change: transform; }
+.studio-ambient span { position: absolute; display: block; border-radius: 50%; filter: blur(70px); will-change: transform; }
 .studio-ambient-one { top: 4%; right: -6%; width: 46vw; height: 46vw; max-width: 620px; max-height: 620px; background: radial-gradient(circle, rgba(226,185,95,.16), transparent 68%); }
 .studio-ambient-two { top: 38%; left: -12%; width: 52vw; height: 52vw; max-width: 700px; max-height: 700px; background: radial-gradient(circle, rgba(120,151,145,.16), transparent 70%); }
 .studio-ambient-three { right: -4%; bottom: 4%; width: 40vw; height: 40vw; max-width: 540px; max-height: 540px; background: radial-gradient(circle, rgba(226,185,95,.1), transparent 70%); }
@@ -4088,4 +4094,22 @@ button, input, select, textarea { font-size: 16px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .studio-chapter-media img { transform: none !important; }
+}
+
+/* Masked line reveals: each headline line rises out of its own clip. */
+.studio-line { display: block; overflow: hidden; padding-bottom: .14em; margin-bottom: -.14em; }
+.studio-line > span { display: block; }
+.studio-line-em { color: var(--studio-gold); font-style: normal; }
+.studio-proof-overlay strong .studio-line { padding-bottom: .1em; margin-bottom: -.1em; }
+
+/* Card transitions on hover — the panel reacts, it isn't just decoration. */
+.studio-card { transition: transform 420ms var(--ease-out-quart, ease), border-color 420ms ease, background-color 420ms ease; }
+.studio-card:hover { border-color: rgba(226,185,95,.4); background: rgba(33,39,36,.94); transform: translateY(-4px); }
+.studio-list > div { transition: border-color 380ms ease; }
+.studio-list > div:hover { border-top-color: rgba(226,185,95,.45); }
+.studio-chapter-media img { transition: filter 600ms ease; }
+.studio-chapter-media:hover img { filter: saturate(1.08) brightness(1.04); }
+@media (prefers-reduced-motion: reduce) {
+  .studio-card:hover { transform: none; }
+  .studio-nav { transition: none; }
 }

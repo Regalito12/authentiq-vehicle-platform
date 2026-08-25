@@ -1,5 +1,6 @@
 import { Component, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { AnimatePresence, motion, useInView, useReducedMotion, useScroll, useTransform } from "motion/react";
+import { AnimatePresence, motion, useInView, useMotionValueEvent, useReducedMotion, useScroll, useTransform } from "motion/react";
+import { LANDING_COPY, LANDING_LANGUAGES } from "./landingCopy.js";
 import { TurnstileField, turnstileSiteKey } from "./utils/turnstile.jsx";
 import { flushSync } from "react-dom";
 import { contrastSafeShade } from "./utils/color.js";
@@ -256,57 +257,125 @@ function StudioReveal({ children, className, delay = 0, reduceMotion, as = "div"
   return <Tag className={className} initial={reduceMotion ? false : { opacity: 0, y: 26 }} whileInView={reduceMotion ? undefined : { opacity: 1, y: 0 }} viewport={{ once: true, amount: 0.4 }} transition={{ duration: 0.7, delay, ease: studioEase }}>{children}</Tag>;
 }
 
+// Each line rises out of its own mask, so a headline resolves as a sequence
+// instead of one block fading in.
+function StudioHeadline({ lines, className, reduceMotion, delay = 0, as: Tag = "h2", intro = false }) {
+  const anim = (i) => {
+    if (reduceMotion) return {};
+    const transition = { duration: 0.9, delay: delay + i * 0.085, ease: studioEase };
+    return intro
+      ? { initial: { y: "112%" }, animate: { y: "0%" }, transition }
+      : { initial: { y: "112%" }, whileInView: { y: "0%" }, viewport: { once: true, amount: 0.45 }, transition };
+  };
+  return (
+    <Tag className={className}>
+      {lines.map((line, i) => (
+        <span className="studio-line" key={`${line.t}-${i}`}>
+          <motion.span className={line.em ? "studio-line-em" : undefined} {...anim(i)}>{line.t}</motion.span>
+        </span>
+      ))}
+    </Tag>
+  );
+}
+
+function StudioLangToggle({ lang, onChange, label }) {
+  const index = Math.max(0, LANDING_LANGUAGES.indexOf(lang));
+  return (
+    <div className="studio-lang" role="group" aria-label={label} style={{ "--studio-lang-count": LANDING_LANGUAGES.length }}>
+      <span className="studio-lang-pill" aria-hidden="true" style={{ transform: `translateX(${index * 100}%)` }} />
+      {LANDING_LANGUAGES.map((code) => (
+        <button key={code} type="button" className={`studio-lang-option${lang === code ? " is-active" : ""}`} aria-pressed={lang === code} onClick={() => onChange(code)}>
+          {code.toUpperCase()}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function StudioLanding({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPrivacy, onOpenTerms }) {
   const reduceMotion = useReducedMotion();
+  const [lang, setLang] = useState(() => {
+    try {
+      const saved = localStorage.getItem("authentiq_landing_lang");
+      if (saved && LANDING_LANGUAGES.includes(saved)) return saved;
+    } catch { /* almacenamiento bloqueado: seguimos con el idioma por defecto */ }
+    return typeof navigator !== "undefined" && String(navigator.language || "").toLowerCase().startsWith("en") ? "en" : "es";
+  });
+  const t = LANDING_COPY[lang];
+  useEffect(() => {
+    try { localStorage.setItem("authentiq_landing_lang", lang); } catch { /* sin persistencia: no bloquea la vista */ }
+    const previous = document.documentElement.lang;
+    document.documentElement.lang = lang;
+    return () => { document.documentElement.lang = previous; };
+  }, [lang]);
+
   const heroRef = useRef(null);
   const proofRef = useRef(null);
   const { scrollYProgress: heroProgress } = useScroll({ target: heroRef, offset: ["start start", "end start"] });
   const { scrollYProgress: proofProgress } = useScroll({ target: proofRef, offset: ["start end", "end start"] });
+  const { scrollY } = useScroll();
+  const [navCondensed, setNavCondensed] = useState(false);
+  useMotionValueEvent(scrollY, "change", (v) => setNavCondensed((prev) => {
+    const next = v > 120;
+    return prev === next ? prev : next;
+  }));
   const heroY = useTransform(heroProgress, [0, 1], reduceMotion ? ["0%", "0%"] : ["0%", "18%"]);
   const heroScale = useTransform(heroProgress, [0, 1], reduceMotion ? [1, 1] : [1, 1.12]);
   const heroCopyOpacity = useTransform(heroProgress, [0, 0.72], reduceMotion ? [1, 1] : [1, 0]);
   const heroCopyY = useTransform(heroProgress, [0, 0.72], reduceMotion ? ["0%", "0%"] : ["0%", "-14%"]);
   const proofImageY = useTransform(proofProgress, [0, 1], reduceMotion ? ["0%", "0%"] : ["-8%", "12%"]);
   const heroIntro = (delay) => reduceMotion ? {} : { initial: { opacity: 0, y: 30 }, animate: { opacity: 1, y: 0 }, transition: { duration: 0.8, delay, ease: studioEase } };
+
   return (
-    <main className="studio-landing">
-      <nav className="studio-nav" aria-label="Navegación de AUTHENTIQ">
+    <main className="studio-landing" key={lang}>
+      <nav className={`studio-nav${navCondensed ? " is-condensed" : ""}`} aria-label={t.navAria}>
         <a className="studio-brand" href="#landing-top">AUTHENTIQ<span>°</span></a>
-        <div className="studio-nav-links"><a href="#landing-story">La experiencia</a><a href="#landing-product">Cómo funciona</a><button type="button" className="studio-navlink" onClick={onViewDemo}>Ver demo</button></div>
-        <div className="studio-nav-actions"><button type="button" className="studio-login" onClick={onDealerLogin}>Iniciar sesión</button><button type="button" className="studio-cta" onClick={onCreateShowroom}>Crear showroom <span>↗</span></button></div>
+        <div className="studio-nav-links"><a href="#landing-story">{t.nav.experience}</a><a href="#landing-product">{t.nav.how}</a><button type="button" className="studio-navlink" onClick={onViewDemo}>{t.nav.demo}</button></div>
+        <div className="studio-nav-actions">
+          <StudioLangToggle lang={lang} onChange={setLang} label={t.langAria} />
+          <button type="button" className="studio-login" onClick={onDealerLogin}>{t.nav.login}</button>
+          <button type="button" className="studio-cta" onClick={onCreateShowroom}>{t.nav.cta} <span>↗</span></button>
+        </div>
       </nav>
 
       <section ref={heroRef} className="studio-hero" id="landing-top">
-        <motion.div className="studio-hero-media" style={{ y: heroY, scale: heroScale }} initial={reduceMotion ? false : { opacity: 0 }} animate={reduceMotion ? undefined : { opacity: 1 }} transition={{ duration: 1.1, ease: "easeOut" }} aria-hidden="true"><img src="/assets/authentiq-hero-v1.webp" alt="" /><div className="studio-hero-shade" /></motion.div>
+        <motion.div className="studio-hero-media" style={{ y: heroY, scale: heroScale }} initial={reduceMotion ? false : { opacity: 0, scale: 1.14 }} animate={reduceMotion ? undefined : { opacity: 1, scale: 1 }} transition={{ duration: 1.4, ease: studioEase }} aria-hidden="true"><img src="/assets/authentiq-hero-v1.webp" alt="" /><div className="studio-hero-shade" /></motion.div>
         <motion.div className="studio-hero-copy" style={{ opacity: heroCopyOpacity, y: heroCopyY }}>
-          <motion.span className="studio-kicker" {...heroIntro(0.1)}>El showroom digital para concesionarios</motion.span>
-          <motion.h1 {...heroIntro(0.22)}>Tu inventario<br /><em>vende antes</em><br />de hablar.</motion.h1>
-          <motion.p {...heroIntro(0.38)}>Una experiencia de marca que convierte cada vehículo en una razón para escribirte, visitarte y decidir.</motion.p>
-          <motion.div className="studio-actions" {...heroIntro(0.52)}><button type="button" className="studio-primary" onClick={onCreateShowroom}>Crear mi showroom <span>↗</span></button><button type="button" className="studio-link" onClick={onViewDemo}>Explorar una demo <span>↓</span></button></motion.div>
+          <motion.span className="studio-kicker" {...heroIntro(0.1)}>{t.hero.kicker}</motion.span>
+          <StudioHeadline as="h1" lines={t.hero.lines} reduceMotion={reduceMotion} delay={0.22} intro />
+          <motion.p {...heroIntro(0.6)}>{t.hero.body}</motion.p>
+          <motion.div className="studio-actions" {...heroIntro(0.72)}><button type="button" className="studio-primary" onClick={onCreateShowroom}>{t.hero.primary} <span>↗</span></button><button type="button" className="studio-link" onClick={onViewDemo}>{t.hero.secondary} <span>↓</span></button></motion.div>
         </motion.div>
-        <div className="studio-hero-meta"><span>AUTHENTIQ / 2026</span><span>Inventario · clientes · citas</span></div>
+        <div className="studio-hero-meta"><span>{t.hero.metaLeft}</span><span>{t.hero.metaRight}</span></div>
       </section>
 
       <div className="studio-proof-ground">
       <section ref={proofRef} className="studio-proof" id="landing-story">
         <div className="studio-proof-copy">
-          <StudioReveal as="span" className="studio-kicker" reduceMotion={reduceMotion}>La primera impresión</StudioReveal>
-          <StudioReveal as="h2" delay={0.08} reduceMotion={reduceMotion}>El cliente no quiere otra tabla de vehículos.</StudioReveal>
-          <StudioReveal as="p" delay={0.16} reduceMotion={reduceMotion}>Quiere imaginarse llegando en uno. AUTHENTIQ convierte tus fotos, datos, video y atención en una experiencia que se entiende sola.</StudioReveal>
-          <StudioReveal delay={0.24} reduceMotion={reduceMotion}><button type="button" className="studio-text-action" onClick={onViewDemo}>Ver el showroom en acción <span>↗</span></button></StudioReveal>
+          <StudioReveal as="span" className="studio-kicker" reduceMotion={reduceMotion}>{t.proof.kicker}</StudioReveal>
+          <StudioHeadline lines={t.proof.lines} reduceMotion={reduceMotion} delay={0.05} />
+          <StudioReveal as="p" delay={0.16} reduceMotion={reduceMotion}>{t.proof.body}</StudioReveal>
+          <StudioReveal delay={0.24} reduceMotion={reduceMotion}><button type="button" className="studio-text-action" onClick={onViewDemo}>{t.proof.action} <span>↗</span></button></StudioReveal>
         </div>
-        <motion.div className="studio-proof-stage" initial={reduceMotion ? false : { clipPath: "inset(6% 6% 6% 6%)", opacity: 0.4 }} whileInView={reduceMotion ? undefined : { clipPath: "inset(0% 0% 0% 0%)", opacity: 1 }} viewport={{ once: true, amount: 0.3 }} transition={{ duration: 1, ease: studioEase }}><motion.img style={{ y: proofImageY }} src="/assets/taycan-turbo-s-2.jpg" alt="Porsche Taycan presentado en un showroom digital" /><div className="studio-proof-overlay"><span>01 / PRESENTACIÓN</span><strong>Lo que vendes<br /><em>se siente.</em></strong><small>Fotos · video · 3D · ficha · cita</small></div><div className="studio-proof-index">01</div></motion.div>
+        <motion.div className="studio-proof-stage" initial={reduceMotion ? false : { clipPath: "inset(8% 8% 8% 8% round 20px)", opacity: 0.4 }} whileInView={reduceMotion ? undefined : { clipPath: "inset(0% 0% 0% 0% round 20px)", opacity: 1 }} viewport={{ once: true, amount: 0.3 }} transition={{ duration: 1.1, ease: studioEase }}>
+          <motion.img style={{ y: proofImageY }} src="/assets/taycan-turbo-s-2.jpg" alt={t.proof.imageAlt} />
+          <div className="studio-proof-overlay">
+            <span>{t.proof.overlayTag}</span>
+            <StudioHeadline as="strong" lines={t.proof.overlayLines} reduceMotion={reduceMotion} delay={0.3} />
+            <small>{t.proof.overlayMeta}</small>
+          </div>
+        </motion.div>
       </section>
       </div>
 
-      <StudioChapters reduceMotion={reduceMotion} onViewDemo={onViewDemo} />
+      <StudioChapters reduceMotion={reduceMotion} onViewDemo={onViewDemo} chapters={t.chapters} />
 
       <section className="studio-close">
-        <StudioReveal as="span" className="studio-kicker" reduceMotion={reduceMotion}>Tu siguiente vehículo empieza aquí</StudioReveal>
-        <StudioReveal as="h2" delay={0.1} reduceMotion={reduceMotion}>Haz que tu inventario<br /><em>se sienta propio.</em></StudioReveal>
-        <StudioReveal delay={0.2} reduceMotion={reduceMotion}><button type="button" className="studio-primary" onClick={onCreateShowroom}>Crear mi showroom <span>↗</span></button></StudioReveal>
+        <StudioReveal as="span" className="studio-kicker" reduceMotion={reduceMotion}>{t.close.kicker}</StudioReveal>
+        <StudioHeadline lines={t.close.lines} reduceMotion={reduceMotion} delay={0.08} />
+        <StudioReveal delay={0.3} reduceMotion={reduceMotion}><button type="button" className="studio-primary" onClick={onCreateShowroom}>{t.close.cta} <span>↗</span></button></StudioReveal>
       </section>
-      <footer className="studio-footer"><span>AUTHENTIQ°</span><span>La vitrina digital para concesionarios.</span><nav aria-label="Enlaces legales"><button type="button" onClick={onOpenPrivacy}>Privacidad</button><button type="button" onClick={onOpenTerms}>Términos</button></nav></footer>
+      <footer className="studio-footer"><span>AUTHENTIQ°</span><span>{t.footer.tagline}</span><nav aria-label={t.footer.legalNav}><button type="button" onClick={onOpenPrivacy}>{t.footer.privacy}</button><button type="button" onClick={onOpenTerms}>{t.footer.terms}</button></nav></footer>
     </main>
   );
 }
@@ -363,8 +432,9 @@ function StudioThread({ reduceMotion }) {
   );
 }
 
-function StudioChapters({ reduceMotion, onViewDemo }) {
+function StudioChapters({ reduceMotion, onViewDemo, chapters }) {
   const ref = useRef(null);
+  const [publish, respond, close] = chapters;
   const { scrollYProgress } = useScroll({ target: ref, offset: ["start end", "end start"] });
   const glowOneY = useTransform(scrollYProgress, [0, 1], reduceMotion ? ["0%", "0%"] : ["-14%", "26%"]);
   const glowTwoY = useTransform(scrollYProgress, [0, 1], reduceMotion ? ["0%", "0%"] : ["18%", "-22%"]);
@@ -380,19 +450,19 @@ function StudioChapters({ reduceMotion, onViewDemo }) {
 
       <section className="studio-chapter">
         <div className="studio-chapter-copy">
-          <StudioReveal as="span" className="studio-kicker" reduceMotion={reduceMotion}>01 · Publica</StudioReveal>
-          <StudioReveal as="h2" delay={0.06} reduceMotion={reduceMotion}>Tu inventario, presentado como merece.</StudioReveal>
-          <StudioReveal as="p" delay={0.12} reduceMotion={reduceMotion}>Cada vehículo sale con ficha completa, fotos ordenadas y una vista previa que apruebas antes de que el cliente lo vea.</StudioReveal>
+          <StudioReveal as="span" className="studio-kicker" reduceMotion={reduceMotion}>{publish.kicker}</StudioReveal>
+          <StudioHeadline lines={publish.lines} reduceMotion={reduceMotion} delay={0.05} />
+          <StudioReveal as="p" delay={0.18} reduceMotion={reduceMotion}>{publish.body}</StudioReveal>
         </div>
         <div className="studio-chapter-panel">
           <StudioDrift depth={34} delay={0.08} reduceMotion={reduceMotion}>
-            <StudioChapterMedia src="/assets/audi-etron-gt.jpg" alt="Vehículo publicado en un showroom AUTHENTIQ" reduceMotion={reduceMotion} />
+            <StudioChapterMedia src="/assets/audi-etron-gt.jpg" alt={publish.mediaAlt} reduceMotion={reduceMotion} />
           </StudioDrift>
           <StudioDrift className="studio-card studio-card-float" depth={62} delay={0.2} reduceMotion={reduceMotion}>
-            <div className="studio-card-top"><span>Inventario</span><b>Publicado</b></div>
+            <div className="studio-card-top"><span>{publish.card.tag}</span><b>{publish.card.status}</b></div>
             <div className="studio-card-vehicle">
               <img src="/assets/taycan-turbo-s-2.webp" alt="" />
-              <div><strong>Porsche Taycan Turbo S</strong><span>Ficha completa · showroom listo</span></div>
+              <div><strong>{publish.card.title}</strong><span>{publish.card.meta}</span></div>
             </div>
           </StudioDrift>
         </div>
@@ -400,50 +470,40 @@ function StudioChapters({ reduceMotion, onViewDemo }) {
 
       <section className="studio-chapter">
         <div className="studio-chapter-copy">
-          <StudioReveal as="span" className="studio-kicker" reduceMotion={reduceMotion}>02 · Responde</StudioReveal>
-          <StudioReveal as="h2" delay={0.06} reduceMotion={reduceMotion}>Cada conversación llega con su contexto.</StudioReveal>
-          <StudioReveal as="p" delay={0.12} reduceMotion={reduceMotion}>Sabes qué vehículo miró, qué preguntó y quién lo atiende. El equipo responde sin reconstruir la historia cada vez.</StudioReveal>
+          <StudioReveal as="span" className="studio-kicker" reduceMotion={reduceMotion}>{respond.kicker}</StudioReveal>
+          <StudioHeadline lines={respond.lines} reduceMotion={reduceMotion} delay={0.05} />
+          <StudioReveal as="p" delay={0.18} reduceMotion={reduceMotion}>{respond.body}</StudioReveal>
         </div>
         <div className="studio-chapter-panel studio-chapter-thread">
           <StudioThread reduceMotion={reduceMotion} />
-          <StudioDrift className="studio-card" depth={20} delay={0.06} reduceMotion={reduceMotion}>
-            <span className="studio-card-index">01 · Señal</span>
-            <h3>El cliente deja pistas.</h3>
-            <p>Visita una ficha, guarda un modelo, pide una cotización. Todo queda registrado.</p>
-          </StudioDrift>
-          <StudioDrift className="studio-card" depth={48} delay={0.14} reduceMotion={reduceMotion}>
-            <span className="studio-card-index">02 · Lead</span>
-            <h3>María quiere verlo.</h3>
-            <p className="studio-card-quote">“¿Puedo agendar una visita esta semana?”</p>
-            <span className="studio-card-meta">Porsche Taycan Turbo S · hace 4 min</span>
-          </StudioDrift>
-          <StudioDrift className="studio-card" depth={76} delay={0.22} reduceMotion={reduceMotion}>
-            <span className="studio-card-index">03 · Respuesta</span>
-            <h3>El equipo contesta con todo a la mano.</h3>
-            <p>Historial, vehículo y próxima acción en la misma pantalla.</p>
-          </StudioDrift>
+          {respond.steps.map((step, i) => (
+            <StudioDrift key={step.index} className="studio-card" depth={20 + i * 28} delay={0.06 + i * 0.08} reduceMotion={reduceMotion}>
+              <span className="studio-card-index">{step.index}</span>
+              <h3>{step.title}</h3>
+              {step.quote ? <p className="studio-card-quote">{step.quote}</p> : <p>{step.body}</p>}
+              {step.meta && <span className="studio-card-meta">{step.meta}</span>}
+            </StudioDrift>
+          ))}
         </div>
       </section>
 
       <section className="studio-chapter">
         <div className="studio-chapter-copy">
-          <StudioReveal as="span" className="studio-kicker" reduceMotion={reduceMotion}>03 · Cierra</StudioReveal>
-          <StudioReveal as="h2" delay={0.06} reduceMotion={reduceMotion}>De la intención a la cita firmada.</StudioReveal>
-          <StudioReveal as="p" delay={0.12} reduceMotion={reduceMotion}>Agenda, cotiza y da seguimiento hasta que el cliente decide. Sin hojas sueltas ni conversaciones perdidas.</StudioReveal>
-          <StudioReveal delay={0.18} reduceMotion={reduceMotion}>
-            <button type="button" className="studio-primary" onClick={onViewDemo}>Abrir showroom de ejemplo <span>↗</span></button>
+          <StudioReveal as="span" className="studio-kicker" reduceMotion={reduceMotion}>{close.kicker}</StudioReveal>
+          <StudioHeadline lines={close.lines} reduceMotion={reduceMotion} delay={0.05} />
+          <StudioReveal as="p" delay={0.18} reduceMotion={reduceMotion}>{close.body}</StudioReveal>
+          <StudioReveal delay={0.26} reduceMotion={reduceMotion}>
+            <button type="button" className="studio-primary" onClick={onViewDemo}>{close.action} <span>↗</span></button>
           </StudioReveal>
         </div>
         <div className="studio-chapter-panel">
           <StudioDrift className="studio-card studio-card-appointment" depth={30} delay={0.06} reduceMotion={reduceMotion}>
-            <div className="studio-card-top"><span>Cita confirmada</span><b>Hoy</b></div>
-            <strong className="studio-card-time">4:30 PM</strong>
-            <span className="studio-card-meta">Visita al showroom · Porsche Cayenne Turbo GT</span>
+            <div className="studio-card-top"><span>{close.appointment.tag}</span><b>{close.appointment.status}</b></div>
+            <strong className="studio-card-time">{close.appointment.time}</strong>
+            <span className="studio-card-meta">{close.appointment.meta}</span>
           </StudioDrift>
           <StudioDrift className="studio-list" depth={58} delay={0.16} reduceMotion={reduceMotion}>
-            <div><h3>Agenda</h3><p>El cliente elige hora y tu equipo la confirma en un toque.</p></div>
-            <div><h3>Cotiza</h3><p>Genera una propuesta con precio, plan y condiciones listas para compartir.</p></div>
-            <div><h3>Sigue</h3><p>Cada oportunidad avanza con recordatorios hasta el cierre.</p></div>
+            {close.list.map((item) => <div key={item.title}><h3>{item.title}</h3><p>{item.body}</p></div>)}
           </StudioDrift>
         </div>
       </section>
