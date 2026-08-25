@@ -1,6 +1,7 @@
 import { Component, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion, useInView, useMotionValueEvent, useReducedMotion, useScroll, useTransform } from "motion/react";
 import { LANDING_COPY, LANDING_LANGUAGES } from "./landingCopy.js";
+import { useSmoothScroll } from "./utils/useSmoothScroll.js";
 import { TurnstileField, turnstileSiteKey } from "./utils/turnstile.jsx";
 import { flushSync } from "react-dom";
 import { contrastSafeShade } from "./utils/color.js";
@@ -294,6 +295,9 @@ function StudioLangToggle({ lang, onChange, label }) {
 
 function StudioLanding({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPrivacy, onOpenTerms }) {
   const reduceMotion = useReducedMotion();
+  // El scroll suave es lo que hace que el parallax se lea como un movimiento
+  // continuo y no como saltos; sin él las animaciones van a tirones.
+  useSmoothScroll(!reduceMotion);
   const [lang, setLang] = useState(() => {
     try {
       const saved = localStorage.getItem("authentiq_landing_lang");
