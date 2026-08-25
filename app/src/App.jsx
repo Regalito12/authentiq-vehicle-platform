@@ -300,20 +300,32 @@ const StudioScrollSequence = forwardRef(function StudioScrollSequence({ reduceMo
   const firstScale = useTransform(scrollYProgress, [0, .34], [1, 1.08]);
   const secondScale = useTransform(scrollYProgress, [.25, .62], [.92, 1.06]);
   const thirdScale = useTransform(scrollYProgress, [.54, .94], [.92, 1.04]);
-  const copyY = useTransform(scrollYProgress, [0, 1], [24, -24]);
+  const atmosphereY = useTransform(scrollYProgress, [0, 1], ["0%", "-5%"]);
+  const backgroundY = useTransform(scrollYProgress, [0, 1], ["-2%", "-10%"]);
+  const subjectY = useTransform(scrollYProgress, [0, 1], ["3%", "-15%"]);
+  const foregroundY = useTransform(scrollYProgress, [0, 1], ["7%", "-21%"]);
+  const copyY = useTransform(scrollYProgress, [0, 1], ["10%", "-10%"]);
   const firstStyle = reduceMotion ? { opacity: 1, scale: 1 } : { opacity: firstOpacity, scale: firstScale };
   const secondStyle = reduceMotion ? { opacity: 0, scale: 1 } : { opacity: secondOpacity, scale: secondScale };
   const thirdStyle = reduceMotion ? { opacity: 0, scale: 1 } : { opacity: thirdOpacity, scale: thirdScale };
+  const firstSubjectStyle = reduceMotion ? { opacity: 0, scale: 1 } : { opacity: firstOpacity, y: subjectY, scale: firstScale };
+  const secondSubjectStyle = reduceMotion ? { opacity: 0, scale: 1 } : { opacity: secondOpacity, y: subjectY, scale: secondScale };
+  const thirdSubjectStyle = reduceMotion ? { opacity: 0, scale: 1 } : { opacity: thirdOpacity, y: subjectY, scale: thirdScale };
   return (
     <section ref={ref} className="studio-sequence" id="landing-product">
       <div className="studio-sequence-sticky">
         <div className="studio-sequence-top"><span className="studio-kicker">El recorrido AUTHENTIQ</span><span>Desplaza para explorar</span></div>
         <div className="studio-sequence-stage" role="region" aria-label="Recorrido visual del showroom">
-          <motion.div className="studio-sequence-image studio-sequence-image-one" style={firstStyle} aria-hidden="true"><img src="/assets/audi-etron-gt.jpg" alt="" /></motion.div>
-          <motion.div className="studio-sequence-image studio-sequence-image-two" style={secondStyle} aria-hidden="true"><img src="/assets/porsche-interior.jpg" alt="" /></motion.div>
-          <motion.div className="studio-sequence-image studio-sequence-image-three" style={thirdStyle} aria-hidden="true"><img src="/assets/cayenne-turbo-gt-2.jpg" alt="" /></motion.div>
+          <motion.div className="studio-sequence-atmosphere" data-depth="0.04" style={reduceMotion ? undefined : { y: atmosphereY }} aria-hidden="true" />
+          <motion.div className="studio-sequence-image studio-sequence-image-one" data-depth="0.18" style={reduceMotion ? firstStyle : { ...firstStyle, y: backgroundY }} aria-hidden="true"><img src="/assets/audi-etron-gt.jpg" alt="" /></motion.div>
+          <motion.div className="studio-sequence-image studio-sequence-image-two" data-depth="0.18" style={reduceMotion ? secondStyle : { ...secondStyle, y: backgroundY }} aria-hidden="true"><img src="/assets/porsche-interior.jpg" alt="" /></motion.div>
+          <motion.div className="studio-sequence-image studio-sequence-image-three" data-depth="0.18" style={reduceMotion ? thirdStyle : { ...thirdStyle, y: backgroundY }} aria-hidden="true"><img src="/assets/cayenne-turbo-gt-2.jpg" alt="" /></motion.div>
+          <motion.div className="studio-sequence-subject studio-sequence-subject-one" data-depth="0.32" style={firstSubjectStyle} aria-hidden="true"><img src="/assets/audi-etron-gt.jpg" alt="" /></motion.div>
+          <motion.div className="studio-sequence-subject studio-sequence-subject-two" data-depth="0.32" style={secondSubjectStyle} aria-hidden="true"><img src="/assets/porsche-interior.jpg" alt="" /></motion.div>
+          <motion.div className="studio-sequence-subject studio-sequence-subject-three" data-depth="0.32" style={thirdSubjectStyle} aria-hidden="true"><img src="/assets/cayenne-turbo-gt-2.jpg" alt="" /></motion.div>
           <div className="studio-sequence-wash" aria-hidden="true" />
-          <motion.div className="studio-sequence-copy" style={reduceMotion ? undefined : { y: copyY }}>
+          <motion.div className="studio-sequence-foreground" data-depth="0.52" style={reduceMotion ? undefined : { y: foregroundY }} aria-hidden="true"><span /><span /><span /></motion.div>
+          <motion.div className="studio-sequence-copy" data-depth="0.82" style={reduceMotion ? undefined : { y: copyY }}>
             <div className="studio-sequence-chapter studio-sequence-chapter-one"><span>01 / PUBLICA</span><h2>Tu inventario,<br /><em>presentado.</em></h2><p>Ficha completa, fotos ordenadas y una vista previa antes de salir al aire.</p></div>
             <div className="studio-sequence-chapter studio-sequence-chapter-two"><span>02 / RESPONDE</span><h2>Cada conversación,<br /><em>en contexto.</em></h2><p>Leads, ofertas y clientes llegan al lugar donde el equipo trabaja.</p></div>
             <div className="studio-sequence-chapter studio-sequence-chapter-three"><span>03 / CIERRA</span><h2>De la intención<br /><em>a la cita.</em></h2><p>Agenda, cotiza y sigue cada oportunidad hasta que el cliente decide.</p></div>
