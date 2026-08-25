@@ -1,5 +1,5 @@
 import { Component, forwardRef, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { AnimatePresence, motion, useInView, useReducedMotion, useScroll, useTransform } from "motion/react";
+import { AnimatePresence, motion, useInView, useMotionValueEvent, useReducedMotion, useScroll, useTransform } from "motion/react";
 import { TurnstileField, turnstileSiteKey } from "./utils/turnstile.jsx";
 import { flushSync } from "react-dom";
 import { contrastSafeShade } from "./utils/color.js";
@@ -249,6 +249,13 @@ function LandingPage(props) {
   return <StudioLanding {...props} />;
 }
 
+const studioEase = [0.22, 1, 0.36, 1];
+
+function StudioReveal({ children, className, delay = 0, reduceMotion, as = "div" }) {
+  const Tag = motion[as] || motion.div;
+  return <Tag className={className} initial={reduceMotion ? false : { opacity: 0, y: 26 }} whileInView={reduceMotion ? undefined : { opacity: 1, y: 0 }} viewport={{ once: true, amount: 0.4 }} transition={{ duration: 0.7, delay, ease: studioEase }}>{children}</Tag>;
+}
+
 function StudioLanding({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPrivacy, onOpenTerms }) {
   const reduceMotion = useReducedMotion();
   const heroRef = useRef(null);
@@ -258,35 +265,46 @@ function StudioLanding({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPriv
   const { scrollYProgress: proofProgress } = useScroll({ target: proofRef, offset: ["start end", "end start"] });
   const heroY = useTransform(heroProgress, [0, 1], reduceMotion ? ["0%", "0%"] : ["0%", "18%"]);
   const heroScale = useTransform(heroProgress, [0, 1], reduceMotion ? [1, 1] : [1, 1.12]);
+  const heroCopyOpacity = useTransform(heroProgress, [0, 0.72], reduceMotion ? [1, 1] : [1, 0]);
+  const heroCopyY = useTransform(heroProgress, [0, 0.72], reduceMotion ? ["0%", "0%"] : ["0%", "-14%"]);
   const proofImageY = useTransform(proofProgress, [0, 1], reduceMotion ? ["0%", "0%"] : ["-8%", "12%"]);
+  const heroIntro = (delay) => reduceMotion ? {} : { initial: { opacity: 0, y: 30 }, animate: { opacity: 1, y: 0 }, transition: { duration: 0.8, delay, ease: studioEase } };
   return (
     <main className="studio-landing">
       <nav className="studio-nav" aria-label="Navegación de AUTHENTIQ">
         <a className="studio-brand" href="#landing-top">AUTHENTIQ<span>°</span></a>
-        <div className="studio-nav-links"><a href="#landing-story">La experiencia</a><a href="#landing-product">Cómo funciona</a><a href="#landing-product">Ver showroom</a></div>
+        <div className="studio-nav-links"><a href="#landing-story">La experiencia</a><a href="#landing-product">Cómo funciona</a><button type="button" className="studio-navlink" onClick={onViewDemo}>Ver demo</button></div>
         <div className="studio-nav-actions"><button type="button" className="studio-login" onClick={onDealerLogin}>Iniciar sesión</button><button type="button" className="studio-cta" onClick={onCreateShowroom}>Crear showroom <span>↗</span></button></div>
       </nav>
 
       <section ref={heroRef} className="studio-hero" id="landing-top">
-        <motion.div className="studio-hero-media" style={{ y: heroY, scale: heroScale }} aria-hidden="true"><img src="/assets/authentiq-hero-v1.webp" alt="" /><div className="studio-hero-shade" /></motion.div>
-        <div className="studio-hero-grid" aria-hidden="true" />
-        <div className="studio-hero-copy">
-          <span className="studio-kicker">El showroom digital para concesionarios</span>
-          <h1>Tu inventario<br /><em>vende antes</em><br />de hablar.</h1>
-          <p>Una experiencia de marca que convierte cada vehículo en una razón para escribirte, visitarte y decidir.</p>
-          <div className="studio-actions"><button type="button" className="studio-primary" onClick={onCreateShowroom}>Crear mi showroom <span>↗</span></button><button type="button" className="studio-link" onClick={onViewDemo}>Explorar una demo <span>↓</span></button></div>
-        </div>
+        <motion.div className="studio-hero-media" style={{ y: heroY, scale: heroScale }} initial={reduceMotion ? false : { opacity: 0 }} animate={reduceMotion ? undefined : { opacity: 1 }} transition={{ duration: 1.1, ease: "easeOut" }} aria-hidden="true"><img src="/assets/authentiq-hero-v1.webp" alt="" /><div className="studio-hero-shade" /></motion.div>
+        <motion.div className="studio-hero-copy" style={{ opacity: heroCopyOpacity, y: heroCopyY }}>
+          <motion.span className="studio-kicker" {...heroIntro(0.1)}>El showroom digital para concesionarios</motion.span>
+          <motion.h1 {...heroIntro(0.22)}>Tu inventario<br /><em>vende antes</em><br />de hablar.</motion.h1>
+          <motion.p {...heroIntro(0.38)}>Una experiencia de marca que convierte cada vehículo en una razón para escribirte, visitarte y decidir.</motion.p>
+          <motion.div className="studio-actions" {...heroIntro(0.52)}><button type="button" className="studio-primary" onClick={onCreateShowroom}>Crear mi showroom <span>↗</span></button><button type="button" className="studio-link" onClick={onViewDemo}>Explorar una demo <span>↓</span></button></motion.div>
+        </motion.div>
         <div className="studio-hero-meta"><span>AUTHENTIQ / 2026</span><span>Inventario · clientes · citas</span></div>
       </section>
 
       <section ref={proofRef} className="studio-proof" id="landing-story">
-        <div className="studio-proof-copy"><span className="studio-kicker">La primera impresión</span><h2>El cliente no quiere otra tabla de vehículos.</h2><p>Quiere imaginarse llegando en uno. AUTHENTIQ convierte tus fotos, datos, video y atención en una experiencia que se entiende sola.</p><button type="button" className="studio-text-action" onClick={onViewDemo}>Ver el showroom en acción <span>↗</span></button></div>
-        <div className="studio-proof-stage"><motion.img style={{ y: proofImageY }} src="/assets/taycan-turbo-s-2.jpg" alt="Porsche Taycan presentado en un showroom digital" /><div className="studio-proof-overlay"><span>01 / PRESENTACIÓN</span><strong>Lo que vendes<br /><em>se siente.</em></strong><small>Fotos · video · 3D · ficha · cita</small></div><div className="studio-proof-index">01</div></div>
+        <div className="studio-proof-copy">
+          <StudioReveal as="span" className="studio-kicker" reduceMotion={reduceMotion}>La primera impresión</StudioReveal>
+          <StudioReveal as="h2" delay={0.08} reduceMotion={reduceMotion}>El cliente no quiere otra tabla de vehículos.</StudioReveal>
+          <StudioReveal as="p" delay={0.16} reduceMotion={reduceMotion}>Quiere imaginarse llegando en uno. AUTHENTIQ convierte tus fotos, datos, video y atención en una experiencia que se entiende sola.</StudioReveal>
+          <StudioReveal delay={0.24} reduceMotion={reduceMotion}><button type="button" className="studio-text-action" onClick={onViewDemo}>Ver el showroom en acción <span>↗</span></button></StudioReveal>
+        </div>
+        <motion.div className="studio-proof-stage" initial={reduceMotion ? false : { clipPath: "inset(6% 6% 6% 6%)", opacity: 0.4 }} whileInView={reduceMotion ? undefined : { clipPath: "inset(0% 0% 0% 0%)", opacity: 1 }} viewport={{ once: true, amount: 0.3 }} transition={{ duration: 1, ease: studioEase }}><motion.img style={{ y: proofImageY }} src="/assets/taycan-turbo-s-2.jpg" alt="Porsche Taycan presentado en un showroom digital" /><div className="studio-proof-overlay"><span>01 / PRESENTACIÓN</span><strong>Lo que vendes<br /><em>se siente.</em></strong><small>Fotos · video · 3D · ficha · cita</small></div><div className="studio-proof-index">01</div></motion.div>
       </section>
 
       <StudioScrollSequence ref={demoRef} reduceMotion={reduceMotion} onViewDemo={onViewDemo} />
 
-      <section className="studio-close"><span className="studio-kicker">Tu siguiente vehículo empieza aquí</span><h2>Haz que tu inventario<br /><em>se sienta propio.</em></h2><button type="button" className="studio-primary" onClick={onCreateShowroom}>Crear mi showroom <span>↗</span></button></section>
+      <section className="studio-close">
+        <StudioReveal as="span" className="studio-kicker" reduceMotion={reduceMotion}>Tu siguiente vehículo empieza aquí</StudioReveal>
+        <StudioReveal as="h2" delay={0.1} reduceMotion={reduceMotion}>Haz que tu inventario<br /><em>se sienta propio.</em></StudioReveal>
+        <StudioReveal delay={0.2} reduceMotion={reduceMotion}><button type="button" className="studio-primary" onClick={onCreateShowroom}>Crear mi showroom <span>↗</span></button></StudioReveal>
+      </section>
       <footer className="studio-footer"><span>AUTHENTIQ°</span><span>La vitrina digital para concesionarios.</span><nav aria-label="Enlaces legales"><button type="button" onClick={onOpenPrivacy}>Privacidad</button><button type="button" onClick={onOpenTerms}>Términos</button></nav></footer>
     </main>
   );
@@ -294,215 +312,65 @@ function StudioLanding({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPriv
 
 const StudioScrollSequence = forwardRef(function StudioScrollSequence({ reduceMotion, onViewDemo }, ref) {
   const { scrollYProgress } = useScroll({ target: ref, offset: ["start start", "end end"] });
-  const firstOpacity = useTransform(scrollYProgress, [0, .2, .34], [1, 1, 0]);
-  const secondOpacity = useTransform(scrollYProgress, [.25, .42, .62], [0, 1, 0]);
-  const thirdOpacity = useTransform(scrollYProgress, [.54, .74, .94], [0, 1, 1]);
-  const firstScale = useTransform(scrollYProgress, [0, .34], [1, 1.08]);
-  const secondScale = useTransform(scrollYProgress, [.25, .62], [.92, 1.06]);
-  const thirdScale = useTransform(scrollYProgress, [.54, .94], [.92, 1.04]);
+  const [activeChapter, setActiveChapter] = useState(0);
+  useMotionValueEvent(scrollYProgress, "change", (v) => {
+    const next = v < 0.3 ? 0 : v < 0.6 ? 1 : 2;
+    setActiveChapter((prev) => (prev === next ? prev : next));
+  });
+  const scale = [
+    useTransform(scrollYProgress, [0, .34], [1, 1.08]),
+    useTransform(scrollYProgress, [.25, .62], [.92, 1.06]),
+    useTransform(scrollYProgress, [.54, .94], [.92, 1.04]),
+  ];
   const atmosphereY = useTransform(scrollYProgress, [0, 1], ["0%", "-5%"]);
   const backgroundY = useTransform(scrollYProgress, [0, 1], ["-2%", "-10%"]);
   const subjectY = useTransform(scrollYProgress, [0, 1], ["3%", "-15%"]);
   const foregroundY = useTransform(scrollYProgress, [0, 1], ["7%", "-21%"]);
   const copyY = useTransform(scrollYProgress, [0, 1], ["10%", "-10%"]);
   const artifactX = useTransform(scrollYProgress, [0, 1], ["8%", "-8%"]);
-  const firstStyle = reduceMotion ? { opacity: 1, scale: 1 } : { opacity: firstOpacity, scale: firstScale };
-  const secondStyle = reduceMotion ? { opacity: 0, scale: 1 } : { opacity: secondOpacity, scale: secondScale };
-  const thirdStyle = reduceMotion ? { opacity: 0, scale: 1 } : { opacity: thirdOpacity, scale: thirdScale };
-  const firstSubjectStyle = reduceMotion ? { opacity: 0, scale: 1 } : { opacity: firstOpacity, y: subjectY, scale: firstScale };
-  const secondSubjectStyle = reduceMotion ? { opacity: 0, scale: 1 } : { opacity: secondOpacity, y: subjectY, scale: secondScale };
-  const thirdSubjectStyle = reduceMotion ? { opacity: 0, scale: 1 } : { opacity: thirdOpacity, y: subjectY, scale: thirdScale };
+  const isActive = (i) => (reduceMotion ? i === 0 : activeChapter === i) ? " is-active" : "";
   return (
     <section ref={ref} className="studio-sequence" id="landing-product">
       <div className="studio-sequence-sticky">
         <div className="studio-sequence-top"><span className="studio-kicker">El recorrido AUTHENTIQ</span><span>Desplaza para explorar</span></div>
         <div className="studio-sequence-stage" role="region" aria-label="Recorrido visual del showroom">
           <motion.div className="studio-sequence-atmosphere" data-depth="0.04" style={reduceMotion ? undefined : { y: atmosphereY }} aria-hidden="true" />
-          <motion.div className="studio-sequence-image studio-sequence-image-one" data-depth="0.18" style={reduceMotion ? firstStyle : { ...firstStyle, y: backgroundY }} aria-hidden="true"><img src="/assets/audi-etron-gt.jpg" alt="" /></motion.div>
-          <motion.div className="studio-sequence-image studio-sequence-image-two" data-depth="0.18" style={reduceMotion ? secondStyle : { ...secondStyle, y: backgroundY }} aria-hidden="true"><img src="/assets/porsche-interior.jpg" alt="" /></motion.div>
-          <motion.div className="studio-sequence-image studio-sequence-image-three" data-depth="0.18" style={reduceMotion ? thirdStyle : { ...thirdStyle, y: backgroundY }} aria-hidden="true"><img src="/assets/cayenne-turbo-gt-2.jpg" alt="" /></motion.div>
-          <motion.div className="studio-sequence-subject studio-sequence-subject-one" data-depth="0.32" style={firstSubjectStyle} aria-hidden="true"><img src="/assets/audi-etron-gt.jpg" alt="" /></motion.div>
-          <motion.div className="studio-sequence-subject studio-sequence-subject-two" data-depth="0.32" style={secondSubjectStyle} aria-hidden="true"><img src="/assets/porsche-interior.jpg" alt="" /></motion.div>
-          <motion.div className="studio-sequence-subject studio-sequence-subject-three" data-depth="0.32" style={thirdSubjectStyle} aria-hidden="true"><img src="/assets/cayenne-turbo-gt-2.jpg" alt="" /></motion.div>
+          <motion.div className={`studio-sequence-image studio-sequence-image-one${isActive(0)}`} data-depth="0.18" style={reduceMotion ? undefined : { y: backgroundY, scale: scale[0] }} aria-hidden="true"><img src="/assets/audi-etron-gt.jpg" alt="" /></motion.div>
+          <motion.div className={`studio-sequence-image studio-sequence-image-two${isActive(1)}`} data-depth="0.18" style={reduceMotion ? undefined : { y: backgroundY, scale: scale[1] }} aria-hidden="true"><img src="/assets/porsche-interior.jpg" alt="" /></motion.div>
+          <motion.div className={`studio-sequence-image studio-sequence-image-three${isActive(2)}`} data-depth="0.18" style={reduceMotion ? undefined : { y: backgroundY, scale: scale[2] }} aria-hidden="true"><img src="/assets/cayenne-turbo-gt-2.jpg" alt="" /></motion.div>
+          <motion.div className={`studio-sequence-subject studio-sequence-subject-one${isActive(0)}`} data-depth="0.32" style={reduceMotion ? undefined : { y: subjectY, scale: scale[0] }} aria-hidden="true"><img src="/assets/audi-etron-gt.jpg" alt="" /></motion.div>
+          <motion.div className={`studio-sequence-subject studio-sequence-subject-two${isActive(1)}`} data-depth="0.32" style={reduceMotion ? undefined : { y: subjectY, scale: scale[1] }} aria-hidden="true"><img src="/assets/porsche-interior.jpg" alt="" /></motion.div>
+          <motion.div className={`studio-sequence-subject studio-sequence-subject-three${isActive(2)}`} data-depth="0.32" style={reduceMotion ? undefined : { y: subjectY, scale: scale[2] }} aria-hidden="true"><img src="/assets/cayenne-turbo-gt-2.jpg" alt="" /></motion.div>
           <div className="studio-sequence-wash" aria-hidden="true" />
           <motion.div className="studio-sequence-foreground" data-depth="0.52" style={reduceMotion ? undefined : { y: foregroundY }} aria-hidden="true"><span /><span /><span /></motion.div>
-          <motion.div className="studio-product-artifact studio-product-artifact-one" data-depth="0.82" style={reduceMotion ? firstStyle : { ...firstStyle, x: artifactX }} aria-hidden="true">
+          <motion.div className={`studio-product-artifact studio-product-artifact-one${isActive(0)}`} data-depth="0.82" style={reduceMotion ? undefined : { x: artifactX, scale: scale[0] }} aria-hidden="true">
             <div className="studio-artifact-header"><span>INVENTARIO / 01</span><b>PUBLICADO</b></div>
             <div className="studio-artifact-vehicle"><img src="/assets/taycan-turbo-s-2.webp" alt="" /><div><strong>Porsche Taycan Turbo S</strong><span>Ficha completa · showroom listo</span></div></div>
             <div className="studio-artifact-footer"><span>Vista previa activa</span><span>↗</span></div>
           </motion.div>
-          <motion.div className="studio-product-artifact studio-product-artifact-two" data-depth="0.82" style={reduceMotion ? secondStyle : { ...secondStyle, x: artifactX }} aria-hidden="true">
+          <motion.div className={`studio-product-artifact studio-product-artifact-two${isActive(1)}`} data-depth="0.82" style={reduceMotion ? undefined : { x: artifactX, scale: scale[1] }} aria-hidden="true">
             <div className="studio-artifact-header"><span>LEAD / AHORA</span><b className="studio-artifact-dot">NUEVO</b></div>
             <div className="studio-artifact-lead"><span className="studio-artifact-avatar">MR</span><div><strong>María quiere verlo</strong><span>Porsche Taycan Turbo S</span></div></div>
             <div className="studio-artifact-message">“¿Puedo agendar una visita esta semana?”</div>
             <div className="studio-artifact-footer"><span>Responder con contexto</span><span>↗</span></div>
           </motion.div>
-          <motion.div className="studio-product-artifact studio-product-artifact-three" data-depth="0.82" style={reduceMotion ? thirdStyle : { ...thirdStyle, x: artifactX }} aria-hidden="true">
+          <motion.div className={`studio-product-artifact studio-product-artifact-three${isActive(2)}`} data-depth="0.82" style={reduceMotion ? undefined : { x: artifactX, scale: scale[2] }} aria-hidden="true">
             <div className="studio-artifact-header"><span>CITA / CONFIRMADA</span><b>HOY</b></div>
             <div className="studio-artifact-appointment"><strong>4:30 PM</strong><span>Visita al showroom</span><small>Porsche Cayenne Turbo GT · Cliente confirmado</small></div>
             <div className="studio-artifact-footer"><span>Cotización lista para compartir</span><span>↗</span></div>
           </motion.div>
           <motion.div className="studio-sequence-copy" data-depth="0.82" style={reduceMotion ? undefined : { y: copyY }}>
-            <div className="studio-sequence-chapter studio-sequence-chapter-one"><span>01 / PUBLICA</span><h2>Tu inventario,<br /><em>presentado.</em></h2><p>Ficha completa, fotos ordenadas y una vista previa antes de salir al aire.</p></div>
-            <div className="studio-sequence-chapter studio-sequence-chapter-two"><span>02 / RESPONDE</span><h2>Cada conversación,<br /><em>en contexto.</em></h2><p>Leads, ofertas y clientes llegan al lugar donde el equipo trabaja.</p></div>
-            <div className="studio-sequence-chapter studio-sequence-chapter-three"><span>03 / CIERRA</span><h2>De la intención<br /><em>a la cita.</em></h2><p>Agenda, cotiza y sigue cada oportunidad hasta que el cliente decide.</p></div>
+            <div className={`studio-sequence-chapter studio-sequence-chapter-one${isActive(0)}`}><span>01 / PUBLICA</span><h2>Tu inventario,<br /><em>presentado.</em></h2><p>Ficha completa, fotos ordenadas y una vista previa antes de salir al aire.</p></div>
+            <div className={`studio-sequence-chapter studio-sequence-chapter-two${isActive(1)}`}><span>02 / RESPONDE</span><h2>Cada conversación,<br /><em>en contexto.</em></h2><p>Leads, ofertas y clientes llegan al lugar donde el equipo trabaja.</p></div>
+            <div className={`studio-sequence-chapter studio-sequence-chapter-three${isActive(2)}`}><span>03 / CIERRA</span><h2>De la intención<br /><em>a la cita.</em></h2><p>Agenda, cotiza y sigue cada oportunidad hasta que el cliente decide.</p></div>
           </motion.div>
           <div className="studio-sequence-mark" aria-hidden="true">AUTHENTIQ°</div>
         </div>
-        <div className="studio-sequence-bottom"><span>01 — 03</span><button type="button" className="studio-primary" onClick={onViewDemo}>Abrir showroom de ejemplo <span>↗</span></button></div>
+        <div className="studio-sequence-bottom"><div className="studio-sequence-progress" aria-hidden="true"><span>01 — 03</span><i><motion.b style={reduceMotion ? { scaleX: 1 } : { scaleX: scrollYProgress }} /></i></div><button type="button" className="studio-primary" onClick={onViewDemo}>Abrir showroom de ejemplo <span>↗</span></button></div>
       </div>
     </section>
   );
 });
-
-function LegacyLandingPage({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPrivacy, onOpenTerms }) {
-  const reduceMotion = useReducedMotion();
-  // Un archivo local evita depender de hotlinks de terceros. Un dealer puede
-  // sustituirlo por su propio reel mediante VITE_HERO_VIDEO_URL.
-  const landingVideoUrl = String(import.meta.env.VITE_HERO_VIDEO_URL || "/assets/authentiq-cinematic-drive.mp4").trim();
-  const landingVideoRef = useRef(null);
-  const showcaseRef = useRef(null);
-  const showcaseMediaVisible = useInView(showcaseRef, { once: true, amount: 0.12 });
-  const [landingVideoPlaying, setLandingVideoPlaying] = useState(Boolean(landingVideoUrl) && !reduceMotion);
-  const [landingVideoProgress, setLandingVideoProgress] = useState(12);
-  const pillars = [
-    { title: "Tu marca, tu showroom", body: "Logo, colores y dominio propio. Cada dealer se ve como su propio negocio, no como una plantilla compartida." },
-    { title: "Inventario y clientes en un solo lugar", body: "Publica vehículos, recibe ofertas, agenda citas y da seguimiento a cada cliente desde un panel hecho para vender." },
-    { title: "Revisión antes de publicar", body: "Personaliza todo desde el primer minuto en una vista previa privada. Tu showroom sale al aire cuando el equipo lo aprueba." },
-  ];
-  return (
-    <main className="landing-page">
-      <nav className="landing-nav" aria-label="Navegación de AUTHENTIQ">
-        <a href="#landing-top" className="landing-brand">AUTHENTIQ<span>°</span></a>
-        <div className="landing-nav-links"><a href="#landing-story">Cómo vende</a><a href="#landing-product">Experiencia cliente</a><a href="#landing-demo">Ver demo</a></div>
-        <div className="landing-nav-actions"><button type="button" className="landing-nav-login" onClick={onDealerLogin}>Iniciar sesión</button><button type="button" className="landing-nav-cta" onClick={onCreateShowroom}>Crear mi showroom <span>↗</span></button></div>
-      </nav>
-      <section className="landing-hero" id="landing-top">
-        <motion.div className="landing-hero-copy" initial={reduceMotion ? false : { opacity: 0, y: 24 }} animate={reduceMotion ? undefined : { opacity: 1, y: 0 }} transition={{ duration: .7, ease: [0.22, 1, 0.36, 1] }}>
-          <span className="eyebrow">LA VITRINA DIGITAL PARA CONCESIONARIOS</span>
-          <h1>Tu inventario.<br /><em>Se siente.</em><br />En movimiento.</h1>
-          <p>Presenta cada vehículo con la claridad de una buena visita al lote y la fuerza de una marca que el cliente recuerda.</p>
-          <div className="landing-actions"><button className="primary-action vui-shine-action" type="button" onClick={onCreateShowroom}>Crear mi showroom <span>↗</span></button><button className="landing-quiet-action" type="button" onClick={onViewDemo}>Explorar una demo real <span>↓</span></button></div>
-          <div className="landing-hero-proof"><span><b>01</b> Marca blanca</span><span><b>02</b> Inventario vivo</span><span><b>03</b> Leads y citas</span></div>
-        </motion.div>
-        <motion.div className="landing-hero-visual" initial={reduceMotion ? false : { opacity: 0, scale: .96 }} animate={reduceMotion ? undefined : { opacity: 1, scale: 1 }} transition={{ duration: .9, delay: .12, ease: [0.22, 1, 0.36, 1] }}>
-          <div className="landing-visual-status"><span><i /> SHOWROOM EN VIVO</span><span>AUTHENTIQ / 2026</span></div>
-          <div className="landing-visual-media">{landingVideoUrl ? <video ref={landingVideoRef} autoPlay={!reduceMotion} muted loop playsInline preload="metadata" poster="/assets/authentiq-cinematic-drive-poster.jpg" aria-label="Vehículo en movimiento dentro de un showroom digital" onPlay={() => setLandingVideoPlaying(true)} onPause={() => setLandingVideoPlaying(false)} onTimeUpdate={(event) => { const duration = event.currentTarget.duration || 0; setLandingVideoProgress(duration ? (event.currentTarget.currentTime / duration) * 100 : 12); }}><source src={landingVideoUrl} /></video> : <img src="/assets/authentiq-hero-v1.webp" alt="Vehículo premium presentado en el showroom digital de AUTHENTIQ" />}<div className="landing-visual-wash" /></div>
-          <div className="landing-visual-caption"><span className="eyebrow">EXPERIENCIA 360°</span><strong>Lo que vendes<br /><em>se siente.</em></strong><small>Fotos · video · 3D · ficha · cita</small></div>
-          <div className="landing-visual-card"><span>MODELO DESTACADO</span><strong>Porsche<br />Taycan Turbo S</strong><small>Ver ficha <b>↗</b></small></div>
-          <div className="landing-visual-ring" aria-hidden="true" />
-          <div className="landing-reel-controls">
-            <button type="button" aria-label={landingVideoUrl ? (landingVideoPlaying ? "Pausar video" : "Reproducir video") : "Abrir demo"} onClick={async () => { if (!landingVideoUrl) { onViewDemo(); return; } if (landingVideoRef.current?.paused) await landingVideoRef.current.play(); else landingVideoRef.current?.pause(); }}>{landingVideoUrl && landingVideoPlaying ? "Ⅱ" : "▶"}</button>
-            <div className="landing-reel-progress" aria-hidden="true"><span style={{ width: `${landingVideoProgress}%` }} /></div>
-            <span>{landingVideoUrl ? "SHOWROOM / REEL 01" : "SHOWROOM / PREVIEW"}</span>
-          </div>
-        </motion.div>
-      </section>
-      <div className="landing-scroll-strip"><span>NO TE LO CONTAMOS</span><b>TE LO ENSEÑAMOS</b><span>SCROLL PARA EXPLORAR ↓</span></div>
-      <LandingMotionReel reduceMotion={reduceMotion} landingVideoUrl={landingVideoUrl} />
-      <LandingStory reduceMotion={reduceMotion} onViewDemo={onViewDemo} />
-      <section className="landing-showcase" id="landing-product" aria-label="Demostración de AUTHENTIQ" ref={showcaseRef}>
-        <div className="landing-showcase-copy">
-          <span className="eyebrow">DE LA PROMESA A LA EXPERIENCIA</span>
-          <h2>No tienes que explicar la plataforma. Puedes enseñarla.</h2>
-          <p>Abre un showroom de ejemplo y recorre lo que verá cada cliente: inventario, fichas de vehículo, comparación, citas, ofertas y una experiencia 3D preparada para cada modelo.</p>
-          <div className="landing-showcase-actions">
-            <button className="primary-action vui-shine-action" type="button" onClick={onViewDemo}>Abrir showroom de ejemplo ↗</button>
-            <a className="landing-presentation-link" href="/presentacion">Iniciar presentación guiada <span>→</span></a>
-            <span className="landing-showcase-note"><b>01</b> Demo guiada · 02 Inventario · 03 Conversión</span>
-          </div>
-        </div>
-        <motion.div className="landing-showcase-frame" initial={reduceMotion ? false : { opacity: 0, y: 28 }} whileInView={reduceMotion ? undefined : { opacity: 1, y: 0 }} viewport={{ once: true, amount: .28 }} transition={{ duration: .75, ease: [0.22, 1, 0.36, 1] }}>
-          <div className="landing-showcase-topbar"><span><i /> SHOWROOM DEMO · ONLINE</span><span>AUTHENTIQ / 01</span></div>
-          <div className="landing-showcase-visual">
-            {landingVideoUrl ? <video autoPlay={!reduceMotion && showcaseMediaVisible} muted loop playsInline preload="none" poster="/assets/authentiq-cinematic-drive-poster.jpg" aria-label="Presentación de un showroom de vehículos">{showcaseMediaVisible && <source src={landingVideoUrl} />}</video> : <img src="/assets/authentiq-hero-v1.webp" alt="Vehículo premium dentro de un showroom digital" />}
-            <div className="landing-showcase-glow" />
-            <div className="landing-showcase-model"><span className="eyebrow">EXPERIENCIA 3D</span><strong>Gira. Compara.<br />Decide.</strong><small>Modelo interactivo · ficha · cita</small></div>
-            <div className="landing-showcase-cursor" aria-hidden="true">↗</div>
-          </div>
-          <div className="landing-showcase-footer"><span><b>03</b> modelos activos</span><span><b>360°</b> experiencia visual</span><span><b>1:1</b> atención privada</span></div>
-        </motion.div>
-      </section>
-      <section className="landing-pillars">
-        {pillars.map((pillar) => <article key={pillar.title}><h2>{pillar.title}</h2><p>{pillar.body}</p></article>)}
-      </section>
-      <section className="landing-flow" id="landing-flow" aria-label="Flujo de trabajo para dealers">
-        <div className="landing-flow-heading"><span className="eyebrow">UN CENTRO PARA CADA DEALER</span><h2>Todo lo que pasa entre publicar y vender.</h2></div>
-        <div className="landing-flow-list">
-          {[{ n: "01", title: "Tu marca", body: "Logo, colores, dominio y showroom propio desde el primer acceso." }, { n: "02", title: "Tu inventario", body: "Fotos, videos, ficha técnica y modelos interactivos en una sola vista." }, { n: "03", title: "Tus clientes", body: "Leads, ofertas, citas y seguimiento sin perder conversaciones." }].map((item) => <motion.article key={item.n} whileHover={reduceMotion ? undefined : { y: -6 }} transition={{ duration: .22 }}><span>{item.n}</span><h3>{item.title}</h3><p>{item.body}</p><i>↗</i></motion.article>)}
-        </div>
-      </section>
-      <section className="landing-cta" id="landing-demo">
-        <h2>¿Tienes un lote de vehículos y quieres venderlos online?</h2>
-        <p>Empieza en una vista privada: personaliza tu marca, carga el inventario y comparte tu showroom cuando estés listo.</p>
-        <button className="primary-action vui-shine-action" type="button" onClick={onCreateShowroom}>Crear mi showroom →</button>
-      </section>
-      <footer className="landing-footer">
-        <div><span className="brand-mark">AUTHENTIQ<span>°</span></span><p>Showrooms digitales para dealers que quieren vender mejor.</p></div>
-        <nav aria-label="Enlaces legales"><button type="button" onClick={onOpenPrivacy}>Privacidad</button><button type="button" onClick={onOpenTerms}>Términos</button><button type="button" onClick={onCreateShowroom}>Solicitar demo</button></nav>
-        <small>© {new Date().getFullYear()} AUTHENTIQ · Plataforma para dealers</small>
-      </footer>
-    </main>
-  );
-}
-
-function LandingMotionReel({ reduceMotion, landingVideoUrl }) {
-  const reelRef = useRef(null);
-  const reelMediaVisible = useInView(reelRef, { once: true, amount: 0.12 });
-  const { scrollYProgress } = useScroll({ target: reelRef, offset: ["start end", "end start"] });
-  const roadY = useTransform(scrollYProgress, [0, 1], reduceMotion ? ["0%", "0%"] : ["-9%", "9%"]);
-  const carY = useTransform(scrollYProgress, [0, 1], reduceMotion ? ["0%", "0%"] : ["13%", "-13%"]);
-  const carX = useTransform(scrollYProgress, [0, 1], reduceMotion ? ["0%", "0%"] : ["-4%", "5%"]);
-  const copyY = useTransform(scrollYProgress, [0, 1], reduceMotion ? ["0%", "0%"] : ["8%", "-8%"]);
-  const lineScale = useTransform(scrollYProgress, [0, 1], [0.25, 1]);
-
-  return <section className="landing-motion-reel" ref={reelRef} aria-label="Experiencia visual de AUTHENTIQ">
-    <div className="landing-motion-reel-sticky">
-      <motion.div className="landing-motion-road" style={{ y: roadY }} aria-hidden="true">
-        {landingVideoUrl ? <video autoPlay={!reduceMotion && reelMediaVisible} muted loop playsInline preload="none" poster="/assets/authentiq-cinematic-drive-poster.jpg">{reelMediaVisible && <source src={landingVideoUrl} />}</video> : <img src="/assets/hero-highway.webp" alt="" />}
-      </motion.div>
-      <div className="landing-motion-shade" aria-hidden="true" />
-      <motion.img className="landing-motion-car" style={{ x: carX, y: carY }} src="/assets/porsche-911-three-quarter.jpg" alt="Porsche presentado en un showroom de vehículos" />
-      <motion.div className="landing-motion-copy" style={{ y: copyY }}>
-        <span>UNA VITRINA QUE AVANZA CONTIGO</span>
-        <h2>Haz que cada vehículo tenga presencia antes de que el cliente llegue.</h2>
-        <p>Un recorrido con fotos, video, detalles y una próxima acción clara. El movimiento acompaña la historia; la venta sigue siendo fácil de entender.</p>
-        <motion.div className="landing-motion-line" style={{ scaleX: lineScale }} aria-hidden="true" />
-      </motion.div>
-      <div className="landing-motion-legend" aria-hidden="true"><span>01 / DESCUBRE</span><span>02 / EXPLORA</span><span>03 / CONTACTA</span></div>
-    </div>
-  </section>;
-}
-
-function LandingStory({ reduceMotion, onViewDemo }) {
-  const [activeStep, setActiveStep] = useState(0);
-  const steps = [
-    { label: "Publica", title: "Tu inventario, listo para vender.", body: "Carga fotos, ficha técnica, precio y disponibilidad. Cada vehículo sale con una experiencia propia." },
-    { label: "Conecta", title: "Cada interés llega al equipo correcto.", body: "Cuando un cliente pregunta, el concesionario ve qué quiere, quién lo atiende y cuál es la próxima acción." },
-    { label: "Convierte", title: "De la conversación a la cita.", body: "Agenda una visita, prepara una cotización y mantén el seguimiento hasta que la venta se cierre." },
-  ];
-  const stage = [
-    { status: "INVENTARIO ACTIVO", title: "Porsche Taycan Turbo S", detail: "Publicado · 14 visitas hoy", metric: "12", metricLabel: "vehículos publicados", icon: "▣" },
-    { status: "NUEVO LEAD", title: "María Rodríguez", detail: "Interesada en Taycan · hace 4 min", metric: "3", metricLabel: "clientes para contactar", icon: "◉" },
-    { status: "PRÓXIMA ACCIÓN", title: "Cita confirmada", detail: "Hoy · 3:30 PM · Sala principal", metric: "86%", metricLabel: "avance del seguimiento", icon: "✓" },
-  ][activeStep];
-  return <section className="landing-story" id="landing-story" aria-label="Cómo funciona AUTHENTIQ">
-    <div className="landing-story-heading"><div><span className="eyebrow">DEL ANUNCIO AL CIERRE</span><h2>Una operación que se entiende mientras avanzas.</h2></div><p>AUTHENTIQ conecta lo que el cliente ve con lo que tu equipo debe hacer después.</p></div>
-    <div className="landing-story-grid">
-      <div className="landing-story-steps" role="tablist" aria-label="Etapas de venta">
-        {steps.map((step, index) => <motion.article key={step.label} className={`landing-story-step${activeStep === index ? " is-active" : ""}`} onViewportEnter={() => setActiveStep(index)} viewport={{ amount: .65 }} initial={reduceMotion ? false : { opacity: .65, y: 18 }} whileInView={reduceMotion ? undefined : { opacity: 1, y: 0 }} transition={{ duration: .45, ease: [0.22, 1, 0.36, 1] }}>
-          <button type="button" role="tab" aria-selected={activeStep === index} onClick={() => setActiveStep(index)}><span>{String(index + 1).padStart(2, "0")}</span><strong>{step.label}</strong><i aria-hidden="true">↗</i></button>
-          <div className="landing-story-step-copy"><h3>{step.title}</h3><p>{step.body}</p></div>
-        </motion.article>)}
-      </div>
-      <div className="landing-story-stage-wrap"><div className="landing-story-stage" aria-live="polite">
-        <div className="landing-story-stage-top"><span><i /> AUTHENTIQ · BACKOFFICE</span><span>{String(activeStep + 1).padStart(2, "0")} / 03</span></div>
-        <div className="landing-story-stage-body"><div className="landing-story-stage-label">{stage.status}</div><div className="landing-story-record"><span className="landing-story-record-icon">{stage.icon}</span><div><strong>{stage.title}</strong><small>{stage.detail}</small></div><b>↗</b></div><div className="landing-story-stage-line"><span style={{ width: `${(activeStep + 1) * 33.33}%` }} /></div><div className="landing-story-stage-footer"><span>{stage.metricLabel}</span><strong>{stage.metric}</strong></div></div>
-        <button type="button" className="landing-story-demo" onClick={onViewDemo}>Ver este flujo en la demo <span>↗</span></button>
-      </div></div>
-    </div>
-  </section>;
-}
 
 function FinanceCalculator({ price, vehicle, onApplyFinancing }) {
   const numPrice = Number(price) || 0;
