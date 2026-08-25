@@ -25,6 +25,7 @@ const Backoffice = lazy(() => import("./admin/Backoffice.jsx"));
 const localApiOrigin = `${window.location.protocol}//${window.location.hostname}:3001`;
 const apiUrl = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? localApiOrigin : window.location.origin);
 const requestedDealerSlug = new URLSearchParams(window.location.search).get("dealer")?.trim().toLowerCase() || "";
+const previewPlatformLanding = import.meta.env.DEV && new URLSearchParams(window.location.search).get("studio") === "1";
 const localDemoTenant = import.meta.env.DEV ? requestedDealerSlug : "";
 // Vista previa privada: un dealer logueado puede abrir "/?preview=1" (mismo origen,
 // misma sesión) y ver su propio showroom aunque todavía no tenga dominio propio o
@@ -244,7 +245,69 @@ function TenantNotFoundPage() {
   return <main className="article-page not-found-page"><span className="eyebrow">AUTHENTIQ · SHOWROOM</span><h1>Este showroom no existe.</h1><p>El enlace del dealer no es válido o el showroom todavía no está disponible. Revisa la dirección o vuelve al inicio.</p><a className="primary-action" href="/">Volver al inicio →</a></main>;
 }
 
-function LandingPage({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPrivacy, onOpenTerms }) {
+function LandingPage(props) {
+  return <StudioLanding {...props} />;
+}
+
+function StudioLanding({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPrivacy, onOpenTerms }) {
+  const reduceMotion = useReducedMotion();
+  const heroRef = useRef(null);
+  const proofRef = useRef(null);
+  const demoRef = useRef(null);
+  const { scrollYProgress: heroProgress } = useScroll({ target: heroRef, offset: ["start start", "end start"] });
+  const { scrollYProgress: proofProgress } = useScroll({ target: proofRef, offset: ["start end", "end start"] });
+  const { scrollYProgress: demoProgress } = useScroll({ target: demoRef, offset: ["start end", "end start"] });
+  const heroY = useTransform(heroProgress, [0, 1], reduceMotion ? ["0%", "0%"] : ["0%", "18%"]);
+  const heroScale = useTransform(heroProgress, [0, 1], reduceMotion ? [1, 1] : [1, 1.12]);
+  const proofImageY = useTransform(proofProgress, [0, 1], reduceMotion ? ["0%", "0%"] : ["-8%", "12%"]);
+  const demoY = useTransform(demoProgress, [0, 1], reduceMotion ? ["0%", "0%"] : ["10%", "-10%"]);
+  return (
+    <main className="studio-landing">
+      <nav className="studio-nav" aria-label="Navegación de AUTHENTIQ">
+        <a className="studio-brand" href="#landing-top">AUTHENTIQ<span>°</span></a>
+        <div className="studio-nav-links"><a href="#landing-story">La experiencia</a><a href="#landing-product">Cómo funciona</a><a href="#landing-demo">Ver showroom</a></div>
+        <div className="studio-nav-actions"><button type="button" className="studio-login" onClick={onDealerLogin}>Iniciar sesión</button><button type="button" className="studio-cta" onClick={onCreateShowroom}>Crear showroom <span>↗</span></button></div>
+      </nav>
+
+      <section ref={heroRef} className="studio-hero" id="landing-top">
+        <motion.div className="studio-hero-media" style={{ y: heroY, scale: heroScale }} aria-hidden="true"><img src="/assets/authentiq-hero-v1.webp" alt="" /><div className="studio-hero-shade" /></motion.div>
+        <div className="studio-hero-grid" aria-hidden="true" />
+        <div className="studio-hero-copy">
+          <span className="studio-kicker">El showroom digital para concesionarios</span>
+          <h1>Tu inventario<br /><em>vende antes</em><br />de hablar.</h1>
+          <p>Una experiencia de marca que convierte cada vehículo en una razón para escribirte, visitarte y decidir.</p>
+          <div className="studio-actions"><button type="button" className="studio-primary" onClick={onCreateShowroom}>Crear mi showroom <span>↗</span></button><button type="button" className="studio-link" onClick={onViewDemo}>Explorar una demo <span>↓</span></button></div>
+        </div>
+        <div className="studio-hero-meta"><span>AUTHENTIQ / 2026</span><span>Inventario · clientes · citas</span></div>
+        <div className="studio-hero-model"><span>MODELO DESTACADO</span><strong>Porsche<br />Taycan Turbo S</strong><small>Ver experiencia ↗</small></div>
+      </section>
+
+      <section ref={proofRef} className="studio-proof" id="landing-story">
+        <div className="studio-proof-copy"><span className="studio-kicker">La primera impresión</span><h2>El cliente no quiere otra tabla de vehículos.</h2><p>Quiere imaginarse llegando en uno. AUTHENTIQ convierte tus fotos, datos, video y atención en una experiencia que se entiende sola.</p><button type="button" className="studio-text-action" onClick={onViewDemo}>Ver el showroom en acción <span>↗</span></button></div>
+        <div className="studio-proof-stage"><motion.img style={{ y: proofImageY }} src="/assets/taycan-turbo-s-2.jpg" alt="Porsche Taycan presentado en un showroom digital" /><div className="studio-proof-overlay"><span>01 / PRESENTACIÓN</span><strong>Lo que vendes<br /><em>se siente.</em></strong><small>Fotos · video · 3D · ficha · cita</small></div><div className="studio-proof-index">01</div></div>
+      </section>
+
+      <section className="studio-operations" id="landing-product">
+        <div className="studio-operations-intro"><span className="studio-kicker">La operación detrás de la vitrina</span><h2>Del vehículo a la cita, sin perder el hilo.</h2><p>Una sola vista para publicar, responder, agendar y cerrar. El equipo sabe qué pasó y qué toca después.</p></div>
+        <div className="studio-operations-list">
+          <article><div><span>01</span><h3>Publica con intención.</h3><p>Ficha completa, fotos ordenadas y una vista previa antes de salir al aire.</p></div><img src="/assets/audi-etron-gt.jpg" alt="Audi e-tron GT en inventario" /></article>
+          <article><div><span>02</span><h3>Responde con contexto.</h3><p>Leads, ofertas y conversaciones llegan al lugar donde el equipo trabaja.</p></div><img src="/assets/porsche-interior.jpg" alt="Interior de vehículo premium" /></article>
+          <article><div><span>03</span><h3>Convierte la intención.</h3><p>Citas y cotizaciones siguen vivas hasta que el cliente toma una decisión.</p></div><img src="/assets/cayenne-turbo-gt-2.jpg" alt="Porsche Cayenne en showroom" /></article>
+        </div>
+      </section>
+
+      <section ref={demoRef} className="studio-demo" id="landing-demo">
+        <motion.div className="studio-demo-media" style={{ y: demoY }} aria-hidden="true"><video autoPlay={!reduceMotion} muted loop playsInline preload="metadata" poster="/assets/authentiq-cinematic-drive-poster.jpg"><source src="/assets/authentiq-cinematic-drive.mp4" /></video><div /></motion.div>
+        <div className="studio-demo-copy"><span className="studio-kicker">Una experiencia que puedes enseñar</span><h2>Lo que ve el cliente, lo controlas tú.</h2><p>Abre un showroom de ejemplo y recorre la misma experiencia que tus compradores tendrán en cada visita.</p><button type="button" className="studio-primary" onClick={onViewDemo}>Abrir showroom de ejemplo <span>↗</span></button></div>
+      </section>
+
+      <section className="studio-close"><span className="studio-kicker">Tu siguiente vehículo empieza aquí</span><h2>Haz que tu inventario<br /><em>se sienta propio.</em></h2><button type="button" className="studio-primary" onClick={onCreateShowroom}>Crear mi showroom <span>↗</span></button></section>
+      <footer className="studio-footer"><span>AUTHENTIQ°</span><span>La vitrina digital para concesionarios.</span><nav aria-label="Enlaces legales"><button type="button" onClick={onOpenPrivacy}>Privacidad</button><button type="button" onClick={onOpenTerms}>Términos</button></nav></footer>
+    </main>
+  );
+}
+
+function LegacyLandingPage({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPrivacy, onOpenTerms }) {
   const reduceMotion = useReducedMotion();
   // Un archivo local evita depender de hotlinks de terceros. Un dealer puede
   // sustituirlo por su propio reel mediante VITE_HERO_VIDEO_URL.
@@ -2145,7 +2208,7 @@ function App() {
   if (["contact", "location", "privacy", "terms"].includes(screen)) return <InstitutionalPage type={screen} settings={businessSettings} onBack={() => setScreen("catalog")} />;
   if (activeVehicle) return <VehicleDetail vehicle={activeVehicle} vehicles={vehicles} onBack={() => navigate("/")} isFavorite={favoriteIds.includes(activeVehicle.id)} onToggleFavorite={toggleFavorite} customerToken={customerToken} compareVehicles={compareVehicles} favoriteIds={favoriteIds} onOpenVehicle={(vehicle) => navigate(vehiclePath(vehicle))} onToggleCompare={toggleCompare} whatsapp={businessSettings.whatsapp} />;
   if (pathname === "/" && !settingsLoaded && !showDemoCatalog && !requestedDealerSlug) return <main className="app-boot-shell" aria-hidden="true" />;
-  if (pathname === "/" && businessSettings.isPlatformHome && !showDemoCatalog && !requestedDealerSlug) return <LandingPage onCreateShowroom={() => { setAdminInitialMode("register"); setScreen("admin"); }} onDealerLogin={() => { setAdminInitialMode("login"); setScreen("admin"); }} onViewDemo={() => setShowDemoCatalog(true)} onOpenPrivacy={() => setScreen("privacy")} onOpenTerms={() => setScreen("terms")} />;
+  if (pathname === "/" && (businessSettings.isPlatformHome || previewPlatformLanding) && !showDemoCatalog && !requestedDealerSlug) return <LandingPage onCreateShowroom={() => { setAdminInitialMode("register"); setScreen("admin"); }} onDealerLogin={() => { setAdminInitialMode("login"); setScreen("admin"); }} onViewDemo={() => setShowDemoCatalog(true)} onOpenPrivacy={() => setScreen("privacy")} onOpenTerms={() => setScreen("terms")} />;
 
   const heroVideoUrl = String(import.meta.env.VITE_HERO_VIDEO_URL || "").trim();
   return (
