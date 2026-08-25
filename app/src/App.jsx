@@ -1,5 +1,5 @@
-import { Component, forwardRef, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { AnimatePresence, motion, useInView, useMotionValueEvent, useReducedMotion, useScroll, useTransform } from "motion/react";
+import { Component, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion, useInView, useReducedMotion, useScroll, useTransform } from "motion/react";
 import { TurnstileField, turnstileSiteKey } from "./utils/turnstile.jsx";
 import { flushSync } from "react-dom";
 import { contrastSafeShade } from "./utils/color.js";
@@ -260,7 +260,6 @@ function StudioLanding({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPriv
   const reduceMotion = useReducedMotion();
   const heroRef = useRef(null);
   const proofRef = useRef(null);
-  const demoRef = useRef(null);
   const { scrollYProgress: heroProgress } = useScroll({ target: heroRef, offset: ["start start", "end start"] });
   const { scrollYProgress: proofProgress } = useScroll({ target: proofRef, offset: ["start end", "end start"] });
   const heroY = useTransform(heroProgress, [0, 1], reduceMotion ? ["0%", "0%"] : ["0%", "18%"]);
@@ -288,6 +287,7 @@ function StudioLanding({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPriv
         <div className="studio-hero-meta"><span>AUTHENTIQ / 2026</span><span>Inventario · clientes · citas</span></div>
       </section>
 
+      <div className="studio-proof-ground">
       <section ref={proofRef} className="studio-proof" id="landing-story">
         <div className="studio-proof-copy">
           <StudioReveal as="span" className="studio-kicker" reduceMotion={reduceMotion}>La primera impresión</StudioReveal>
@@ -297,8 +297,9 @@ function StudioLanding({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPriv
         </div>
         <motion.div className="studio-proof-stage" initial={reduceMotion ? false : { clipPath: "inset(6% 6% 6% 6%)", opacity: 0.4 }} whileInView={reduceMotion ? undefined : { clipPath: "inset(0% 0% 0% 0%)", opacity: 1 }} viewport={{ once: true, amount: 0.3 }} transition={{ duration: 1, ease: studioEase }}><motion.img style={{ y: proofImageY }} src="/assets/taycan-turbo-s-2.jpg" alt="Porsche Taycan presentado en un showroom digital" /><div className="studio-proof-overlay"><span>01 / PRESENTACIÓN</span><strong>Lo que vendes<br /><em>se siente.</em></strong><small>Fotos · video · 3D · ficha · cita</small></div><div className="studio-proof-index">01</div></motion.div>
       </section>
+      </div>
 
-      <StudioScrollSequence ref={demoRef} reduceMotion={reduceMotion} onViewDemo={onViewDemo} />
+      <StudioChapters reduceMotion={reduceMotion} onViewDemo={onViewDemo} />
 
       <section className="studio-close">
         <StudioReveal as="span" className="studio-kicker" reduceMotion={reduceMotion}>Tu siguiente vehículo empieza aquí</StudioReveal>
@@ -310,67 +311,92 @@ function StudioLanding({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPriv
   );
 }
 
-const StudioScrollSequence = forwardRef(function StudioScrollSequence({ reduceMotion, onViewDemo }, ref) {
-  const { scrollYProgress } = useScroll({ target: ref, offset: ["start start", "end end"] });
-  const [activeChapter, setActiveChapter] = useState(0);
-  useMotionValueEvent(scrollYProgress, "change", (v) => {
-    const next = v < 0.3 ? 0 : v < 0.6 ? 1 : 2;
-    setActiveChapter((prev) => (prev === next ? prev : next));
-  });
-  const scale = [
-    useTransform(scrollYProgress, [0, .34], [1, 1.08]),
-    useTransform(scrollYProgress, [.25, .62], [.92, 1.06]),
-    useTransform(scrollYProgress, [.54, .94], [.92, 1.04]),
-  ];
-  const atmosphereY = useTransform(scrollYProgress, [0, 1], ["0%", "-5%"]);
-  const backgroundY = useTransform(scrollYProgress, [0, 1], ["-2%", "-10%"]);
-  const subjectY = useTransform(scrollYProgress, [0, 1], ["3%", "-15%"]);
-  const foregroundY = useTransform(scrollYProgress, [0, 1], ["7%", "-21%"]);
-  const copyY = useTransform(scrollYProgress, [0, 1], ["10%", "-10%"]);
-  const artifactX = useTransform(scrollYProgress, [0, 1], ["8%", "-8%"]);
-  const isActive = (i) => (reduceMotion ? i === 0 : activeChapter === i) ? " is-active" : "";
+function StudioChapterMedia({ src, alt, reduceMotion }) {
+  const ref = useRef(null);
+  const { scrollYProgress } = useScroll({ target: ref, offset: ["start end", "end start"] });
+  const y = useTransform(scrollYProgress, [0, 1], reduceMotion ? ["0%", "0%"] : ["-6%", "6%"]);
   return (
-    <section ref={ref} className="studio-sequence" id="landing-product">
-      <div className="studio-sequence-sticky">
-        <div className="studio-sequence-top"><span className="studio-kicker">El recorrido AUTHENTIQ</span><span>Desplaza para explorar</span></div>
-        <div className="studio-sequence-stage" role="region" aria-label="Recorrido visual del showroom">
-          <motion.div className="studio-sequence-atmosphere" data-depth="0.04" style={reduceMotion ? undefined : { y: atmosphereY }} aria-hidden="true" />
-          <motion.div className={`studio-sequence-image studio-sequence-image-one${isActive(0)}`} data-depth="0.18" style={reduceMotion ? undefined : { y: backgroundY, scale: scale[0] }} aria-hidden="true"><img src="/assets/audi-etron-gt.jpg" alt="" /></motion.div>
-          <motion.div className={`studio-sequence-image studio-sequence-image-two${isActive(1)}`} data-depth="0.18" style={reduceMotion ? undefined : { y: backgroundY, scale: scale[1] }} aria-hidden="true"><img src="/assets/porsche-interior.jpg" alt="" /></motion.div>
-          <motion.div className={`studio-sequence-image studio-sequence-image-three${isActive(2)}`} data-depth="0.18" style={reduceMotion ? undefined : { y: backgroundY, scale: scale[2] }} aria-hidden="true"><img src="/assets/cayenne-turbo-gt-2.jpg" alt="" /></motion.div>
-          <motion.div className={`studio-sequence-subject studio-sequence-subject-one${isActive(0)}`} data-depth="0.32" style={reduceMotion ? undefined : { y: subjectY, scale: scale[0] }} aria-hidden="true"><img src="/assets/audi-etron-gt.jpg" alt="" /></motion.div>
-          <motion.div className={`studio-sequence-subject studio-sequence-subject-two${isActive(1)}`} data-depth="0.32" style={reduceMotion ? undefined : { y: subjectY, scale: scale[1] }} aria-hidden="true"><img src="/assets/porsche-interior.jpg" alt="" /></motion.div>
-          <motion.div className={`studio-sequence-subject studio-sequence-subject-three${isActive(2)}`} data-depth="0.32" style={reduceMotion ? undefined : { y: subjectY, scale: scale[2] }} aria-hidden="true"><img src="/assets/cayenne-turbo-gt-2.jpg" alt="" /></motion.div>
-          <div className="studio-sequence-wash" aria-hidden="true" />
-          <motion.div className="studio-sequence-foreground" data-depth="0.52" style={reduceMotion ? undefined : { y: foregroundY }} aria-hidden="true"><span /><span /><span /></motion.div>
-          <motion.div className={`studio-product-artifact studio-product-artifact-one${isActive(0)}`} data-depth="0.82" style={reduceMotion ? undefined : { x: artifactX, scale: scale[0] }} aria-hidden="true">
-            <div className="studio-artifact-header"><span>INVENTARIO / 01</span><b>PUBLICADO</b></div>
-            <div className="studio-artifact-vehicle"><img src="/assets/taycan-turbo-s-2.webp" alt="" /><div><strong>Porsche Taycan Turbo S</strong><span>Ficha completa · showroom listo</span></div></div>
-            <div className="studio-artifact-footer"><span>Vista previa activa</span><span>↗</span></div>
-          </motion.div>
-          <motion.div className={`studio-product-artifact studio-product-artifact-two${isActive(1)}`} data-depth="0.82" style={reduceMotion ? undefined : { x: artifactX, scale: scale[1] }} aria-hidden="true">
-            <div className="studio-artifact-header"><span>LEAD / AHORA</span><b className="studio-artifact-dot">NUEVO</b></div>
-            <div className="studio-artifact-lead"><span className="studio-artifact-avatar">MR</span><div><strong>María quiere verlo</strong><span>Porsche Taycan Turbo S</span></div></div>
-            <div className="studio-artifact-message">“¿Puedo agendar una visita esta semana?”</div>
-            <div className="studio-artifact-footer"><span>Responder con contexto</span><span>↗</span></div>
-          </motion.div>
-          <motion.div className={`studio-product-artifact studio-product-artifact-three${isActive(2)}`} data-depth="0.82" style={reduceMotion ? undefined : { x: artifactX, scale: scale[2] }} aria-hidden="true">
-            <div className="studio-artifact-header"><span>CITA / CONFIRMADA</span><b>HOY</b></div>
-            <div className="studio-artifact-appointment"><strong>4:30 PM</strong><span>Visita al showroom</span><small>Porsche Cayenne Turbo GT · Cliente confirmado</small></div>
-            <div className="studio-artifact-footer"><span>Cotización lista para compartir</span><span>↗</span></div>
-          </motion.div>
-          <motion.div className="studio-sequence-copy" data-depth="0.82" style={reduceMotion ? undefined : { y: copyY }}>
-            <div className={`studio-sequence-chapter studio-sequence-chapter-one${isActive(0)}`}><span>01 / PUBLICA</span><h2>Tu inventario,<br /><em>presentado.</em></h2><p>Ficha completa, fotos ordenadas y una vista previa antes de salir al aire.</p></div>
-            <div className={`studio-sequence-chapter studio-sequence-chapter-two${isActive(1)}`}><span>02 / RESPONDE</span><h2>Cada conversación,<br /><em>en contexto.</em></h2><p>Leads, ofertas y clientes llegan al lugar donde el equipo trabaja.</p></div>
-            <div className={`studio-sequence-chapter studio-sequence-chapter-three${isActive(2)}`}><span>03 / CIERRA</span><h2>De la intención<br /><em>a la cita.</em></h2><p>Agenda, cotiza y sigue cada oportunidad hasta que el cliente decide.</p></div>
-          </motion.div>
-          <div className="studio-sequence-mark" aria-hidden="true">AUTHENTIQ°</div>
-        </div>
-        <div className="studio-sequence-bottom"><div className="studio-sequence-progress" aria-hidden="true"><span>01 — 03</span><i><motion.b style={reduceMotion ? { scaleX: 1 } : { scaleX: scrollYProgress }} /></i></div><button type="button" className="studio-primary" onClick={onViewDemo}>Abrir showroom de ejemplo <span>↗</span></button></div>
-      </div>
-    </section>
+    <div className="studio-chapter-media" ref={ref}>
+      <motion.img style={reduceMotion ? undefined : { y }} src={src} alt={alt} loading="lazy" />
+    </div>
   );
-});
+}
+
+function StudioChapters({ reduceMotion, onViewDemo }) {
+  return (
+    <div className="studio-chapters" id="landing-product">
+      <section className="studio-chapter">
+        <div className="studio-chapter-copy">
+          <StudioReveal as="span" className="studio-kicker" reduceMotion={reduceMotion}>01 · Publica</StudioReveal>
+          <StudioReveal as="h2" delay={0.06} reduceMotion={reduceMotion}>Tu inventario, presentado como merece.</StudioReveal>
+          <StudioReveal as="p" delay={0.12} reduceMotion={reduceMotion}>Cada vehículo sale con ficha completa, fotos ordenadas y una vista previa que apruebas antes de que el cliente lo vea.</StudioReveal>
+        </div>
+        <div className="studio-chapter-panel">
+          <StudioReveal delay={0.1} reduceMotion={reduceMotion}>
+            <StudioChapterMedia src="/assets/audi-etron-gt.jpg" alt="Vehículo publicado en un showroom AUTHENTIQ" reduceMotion={reduceMotion} />
+          </StudioReveal>
+          <StudioReveal className="studio-card studio-card-float" delay={0.24} reduceMotion={reduceMotion}>
+            <div className="studio-card-top"><span>Inventario</span><b>Publicado</b></div>
+            <div className="studio-card-vehicle">
+              <img src="/assets/taycan-turbo-s-2.webp" alt="" />
+              <div><strong>Porsche Taycan Turbo S</strong><span>Ficha completa · showroom listo</span></div>
+            </div>
+          </StudioReveal>
+        </div>
+      </section>
+
+      <section className="studio-chapter">
+        <div className="studio-chapter-copy">
+          <StudioReveal as="span" className="studio-kicker" reduceMotion={reduceMotion}>02 · Responde</StudioReveal>
+          <StudioReveal as="h2" delay={0.06} reduceMotion={reduceMotion}>Cada conversación llega con su contexto.</StudioReveal>
+          <StudioReveal as="p" delay={0.12} reduceMotion={reduceMotion}>Sabes qué vehículo miró, qué preguntó y quién lo atiende. El equipo responde sin reconstruir la historia cada vez.</StudioReveal>
+        </div>
+        <div className="studio-chapter-panel studio-chapter-thread">
+          <span className="studio-thread" aria-hidden="true" />
+          <StudioReveal className="studio-card" delay={0.1} reduceMotion={reduceMotion}>
+            <span className="studio-card-index">01 · Señal</span>
+            <h3>El cliente deja pistas.</h3>
+            <p>Visita una ficha, guarda un modelo, pide una cotización. Todo queda registrado.</p>
+          </StudioReveal>
+          <StudioReveal className="studio-card" delay={0.2} reduceMotion={reduceMotion}>
+            <span className="studio-card-index">02 · Lead</span>
+            <h3>María quiere verlo.</h3>
+            <p className="studio-card-quote">“¿Puedo agendar una visita esta semana?”</p>
+            <span className="studio-card-meta">Porsche Taycan Turbo S · hace 4 min</span>
+          </StudioReveal>
+          <StudioReveal className="studio-card" delay={0.3} reduceMotion={reduceMotion}>
+            <span className="studio-card-index">03 · Respuesta</span>
+            <h3>El equipo contesta con todo a la mano.</h3>
+            <p>Historial, vehículo y próxima acción en la misma pantalla.</p>
+          </StudioReveal>
+        </div>
+      </section>
+
+      <section className="studio-chapter">
+        <div className="studio-chapter-copy">
+          <StudioReveal as="span" className="studio-kicker" reduceMotion={reduceMotion}>03 · Cierra</StudioReveal>
+          <StudioReveal as="h2" delay={0.06} reduceMotion={reduceMotion}>De la intención a la cita firmada.</StudioReveal>
+          <StudioReveal as="p" delay={0.12} reduceMotion={reduceMotion}>Agenda, cotiza y da seguimiento hasta que el cliente decide. Sin hojas sueltas ni conversaciones perdidas.</StudioReveal>
+          <StudioReveal delay={0.18} reduceMotion={reduceMotion}>
+            <button type="button" className="studio-primary" onClick={onViewDemo}>Abrir showroom de ejemplo <span>↗</span></button>
+          </StudioReveal>
+        </div>
+        <div className="studio-chapter-panel">
+          <StudioReveal className="studio-card studio-card-appointment" delay={0.1} reduceMotion={reduceMotion}>
+            <div className="studio-card-top"><span>Cita confirmada</span><b>Hoy</b></div>
+            <strong className="studio-card-time">4:30 PM</strong>
+            <span className="studio-card-meta">Visita al showroom · Porsche Cayenne Turbo GT</span>
+          </StudioReveal>
+          <StudioReveal className="studio-list" delay={0.2} reduceMotion={reduceMotion}>
+            <div><h3>Agenda</h3><p>El cliente elige hora y tu equipo la confirma en un toque.</p></div>
+            <div><h3>Cotiza</h3><p>Genera una propuesta con precio, plan y condiciones listas para compartir.</p></div>
+            <div><h3>Sigue</h3><p>Cada oportunidad avanza con recordatorios hasta el cierre.</p></div>
+          </StudioReveal>
+        </div>
+      </section>
+    </div>
+  );
+}
 
 function FinanceCalculator({ price, vehicle, onApplyFinancing }) {
   const numPrice = Number(price) || 0;
