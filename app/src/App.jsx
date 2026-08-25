@@ -305,6 +305,7 @@ const StudioScrollSequence = forwardRef(function StudioScrollSequence({ reduceMo
   const subjectY = useTransform(scrollYProgress, [0, 1], ["3%", "-15%"]);
   const foregroundY = useTransform(scrollYProgress, [0, 1], ["7%", "-21%"]);
   const copyY = useTransform(scrollYProgress, [0, 1], ["10%", "-10%"]);
+  const artifactX = useTransform(scrollYProgress, [0, 1], ["8%", "-8%"]);
   const firstStyle = reduceMotion ? { opacity: 1, scale: 1 } : { opacity: firstOpacity, scale: firstScale };
   const secondStyle = reduceMotion ? { opacity: 0, scale: 1 } : { opacity: secondOpacity, scale: secondScale };
   const thirdStyle = reduceMotion ? { opacity: 0, scale: 1 } : { opacity: thirdOpacity, scale: thirdScale };
@@ -325,6 +326,22 @@ const StudioScrollSequence = forwardRef(function StudioScrollSequence({ reduceMo
           <motion.div className="studio-sequence-subject studio-sequence-subject-three" data-depth="0.32" style={thirdSubjectStyle} aria-hidden="true"><img src="/assets/cayenne-turbo-gt-2.jpg" alt="" /></motion.div>
           <div className="studio-sequence-wash" aria-hidden="true" />
           <motion.div className="studio-sequence-foreground" data-depth="0.52" style={reduceMotion ? undefined : { y: foregroundY }} aria-hidden="true"><span /><span /><span /></motion.div>
+          <motion.div className="studio-product-artifact studio-product-artifact-one" data-depth="0.82" style={reduceMotion ? firstStyle : { ...firstStyle, x: artifactX }} aria-hidden="true">
+            <div className="studio-artifact-header"><span>INVENTARIO / 01</span><b>PUBLICADO</b></div>
+            <div className="studio-artifact-vehicle"><img src="/assets/taycan-turbo-s-2.webp" alt="" /><div><strong>Porsche Taycan Turbo S</strong><span>Ficha completa · showroom listo</span></div></div>
+            <div className="studio-artifact-footer"><span>Vista previa activa</span><span>↗</span></div>
+          </motion.div>
+          <motion.div className="studio-product-artifact studio-product-artifact-two" data-depth="0.82" style={reduceMotion ? secondStyle : { ...secondStyle, x: artifactX }} aria-hidden="true">
+            <div className="studio-artifact-header"><span>LEAD / AHORA</span><b className="studio-artifact-dot">NUEVO</b></div>
+            <div className="studio-artifact-lead"><span className="studio-artifact-avatar">MR</span><div><strong>María quiere verlo</strong><span>Porsche Taycan Turbo S</span></div></div>
+            <div className="studio-artifact-message">“¿Puedo agendar una visita esta semana?”</div>
+            <div className="studio-artifact-footer"><span>Responder con contexto</span><span>↗</span></div>
+          </motion.div>
+          <motion.div className="studio-product-artifact studio-product-artifact-three" data-depth="0.82" style={reduceMotion ? thirdStyle : { ...thirdStyle, x: artifactX }} aria-hidden="true">
+            <div className="studio-artifact-header"><span>CITA / CONFIRMADA</span><b>HOY</b></div>
+            <div className="studio-artifact-appointment"><strong>4:30 PM</strong><span>Visita al showroom</span><small>Porsche Cayenne Turbo GT · Cliente confirmado</small></div>
+            <div className="studio-artifact-footer"><span>Cotización lista para compartir</span><span>↗</span></div>
+          </motion.div>
           <motion.div className="studio-sequence-copy" data-depth="0.82" style={reduceMotion ? undefined : { y: copyY }}>
             <div className="studio-sequence-chapter studio-sequence-chapter-one"><span>01 / PUBLICA</span><h2>Tu inventario,<br /><em>presentado.</em></h2><p>Ficha completa, fotos ordenadas y una vista previa antes de salir al aire.</p></div>
             <div className="studio-sequence-chapter studio-sequence-chapter-two"><span>02 / RESPONDE</span><h2>Cada conversación,<br /><em>en contexto.</em></h2><p>Leads, ofertas y clientes llegan al lugar donde el equipo trabaja.</p></div>
