@@ -383,7 +383,9 @@ html[data-theme="dark"] .admin-empty-state strong { color: #f2efe9; }
 .state-message { padding: 40px 0; color: #6b6660; }
 .state-message.error { color: #a33b2b; }
 .detail-page { max-width: 1440px; margin: 0 auto; padding: 28px 48px 100px; }
-.back-button { padding: 0; border: 0; background: transparent; color: #6b6660; font: 14px "IBM Plex Mono", monospace; text-transform: uppercase; letter-spacing: .08em; }
+/* Área táctil real: sin esto el enlace medía 18px de alto, por debajo del
+   mínimo cómodo para el dedo en móvil. */
+.back-button { display: inline-flex; align-items: center; min-height: 44px; padding: 0; border: 0; background: transparent; color: #6b6660; font: 14px "IBM Plex Mono", monospace; text-transform: uppercase; letter-spacing: .08em; cursor: pointer; }
 .detail-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(320px, .75fr); gap: 50px; margin-top: 36px; }
 .detail-image-wrap { aspect-ratio: 16 / 10; overflow: hidden; background: #f2eee7; border: 1px solid #d9d3c8; }
 .detail-image { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -2410,7 +2412,9 @@ html[data-theme="dark"] .showroom-nav.is-scrolled .showroom-nav-brand, html[data
 html[data-theme="dark"] .showroom-nav.is-scrolled .nav-admin-link, html[data-theme="dark"] .showroom-nav.is-scrolled .showroom-nav-toggle { border-color: #47443c; }
 html { scroll-behavior: smooth; scroll-padding-top: 86px; }
 #brands, #models, #catalog, #compare-table { scroll-margin-top: 88px; }
-@media (max-width: 900px) {
+/* La barra completa mide 1150px: por debajo de ~1160 se salía de pantalla y
+   "PANEL DE CONTROL" quedaba fuera. El menú compacto entra antes de ese punto. */
+@media (max-width: 1180px) {
   .showroom-nav { padding: 16px 22px; }
   .showroom-nav-links { position: absolute; top: calc(100% + 8px); left: 16px; right: 16px; display: grid; gap: 2px; padding: 10px; border: 1px solid rgba(250,248,245,.25); background: rgba(15,16,16,.97); box-shadow: 0 18px 40px rgba(0,0,0,.2); opacity: 0; pointer-events: none; transform: translateY(-10px) scale(.98); transform-origin: top right; transition: opacity 180ms ease-out, transform 220ms cubic-bezier(.23,1,.32,1); }
   .showroom-nav-links.is-open { opacity: 1; pointer-events: auto; transform: translateY(0) scale(1); }
@@ -2818,7 +2822,7 @@ html[data-theme="dark"] .quote-financing-summary { color: #9da39f; }
 .detail-topbar { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 18px; }
 .detail-topbar .back-button { margin: 0; }
 .detail-topbar-context { color: var(--auth-muted); font: 14px "IBM Plex Mono", monospace; letter-spacing: .08em; text-transform: uppercase; }
-.detail-topbar-link { color: var(--auth-gold); font: 500 14px "IBM Plex Mono", monospace; letter-spacing: .06em; text-decoration: none; text-transform: uppercase; }
+.detail-topbar-link { display: inline-flex; align-items: center; min-height: 44px; color: var(--auth-gold); font: 500 14px "IBM Plex Mono", monospace; letter-spacing: .06em; text-decoration: none; text-transform: uppercase; }
 .detail-topbar-link:hover, .detail-topbar-link:focus-visible { color: var(--auth-ink); }
 .detail-mobile-actions { display: none; }
 @media (max-width: 620px) {
@@ -3815,7 +3819,9 @@ html[data-theme="dark"] .flyer-format-btn {
 .vehicle-3d-hotspot { display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; background: transparent; cursor: pointer; }
 .vehicle-3d-hotspot-dot { width: 11px; height: 11px; border: 1px solid rgba(255,255,255,.9); border-radius: 50%; background: var(--tenant-primary, #c8a24b); box-shadow: 0 0 0 4px rgba(0,0,0,.28); transition: transform .2s ease; }
 .vehicle-3d-hotspot:hover .vehicle-3d-hotspot-dot, .vehicle-3d-hotspot:focus-visible .vehicle-3d-hotspot-dot { transform: scale(1.35); }
-.vehicle-3d-hotspot-label { position: absolute; left: 18px; top: 50%; display: grid; gap: 2px; min-width: max-content; padding: 7px 11px; transform: translateY(-50%) scale(.96); transform-origin: left center; border: 1px solid rgba(255,255,255,.16); background: rgba(16,18,18,.92); color: #f2eee7; text-align: left; opacity: 0; pointer-events: none; transition: opacity .18s ease, transform .18s ease; }
+/* `min-width: max-content` mantiene la etiqueta en una línea y en pantallas
+   estrechas se salía del visor; se acota para que envuelva en vez de desbordar. */
+.vehicle-3d-hotspot-label { position: absolute; left: 18px; top: 50%; display: grid; gap: 2px; width: max-content; max-width: min(230px, 42vw); padding: 7px 11px; transform: translateY(-50%) scale(.96); transform-origin: left center; border: 1px solid rgba(255,255,255,.16); background: rgba(16,18,18,.92); color: #f2eee7; text-align: left; opacity: 0; pointer-events: none; transition: opacity .18s ease, transform .18s ease; }
 .vehicle-3d-hotspot:hover .vehicle-3d-hotspot-label, .vehicle-3d-hotspot:focus-visible .vehicle-3d-hotspot-label { opacity: 1; transform: translateY(-50%) scale(1); }
 .vehicle-3d-hotspot-label strong { font-size: 14px; font-weight: 500; }
 .vehicle-3d-hotspot-label small { color: #b8bdb8; font: 14px "IBM Plex Mono", monospace; letter-spacing: .04em; text-transform: uppercase; }
