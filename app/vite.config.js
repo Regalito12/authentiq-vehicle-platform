@@ -9,6 +9,14 @@ export default defineConfig({
   plugins: [react(), VitePWA({
     registerType: "autoUpdate",
     includeAssets: ["favicon.svg", "pwa-icon.svg"],
+    workbox: {
+      // Sin esto, la precaché de un release anterior sobrevive al despliegue y el
+      // navegador sigue pidiendo chunks con hash que ya no existen.
+      cleanupOutdatedCaches: true,
+      // Los assets con hash nunca deben resolverse con el HTML del SPA: si el
+      // archivo no está, tiene que fallar como archivo, no llegar como página.
+      navigateFallbackDenylist: [/^\/api/, /^\/uploads/, /^\/assets\//],
+    },
     manifest: {
       name: "AUTHENTIQ · Operación de showroom",
       short_name: "AUTHENTIQ",

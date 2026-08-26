@@ -3718,8 +3718,20 @@ app.use(express.static(frontendDist, {
   },
 }));
 app.use("/api", (_req, res) => res.status(404).json({ error: "Recurso no encontrado" }));
+// Extensiones de archivos de build. Un asset versionado que ya no existe
+// pertenece a un release anterior.
+const BUILD_ASSET_PATTERN = /\.(css|m?js|map|woff2?|ttf|otf|eot|png|jpe?g|webp|avif|gif|svg|ico|mp4|webm|glb|gltf|json|txt|webmanifest)$/i;
+
 app.use((req, res, next) => {
   if (req.method !== "GET" || req.path.startsWith("/uploads/") || req.path.startsWith("/api")) return next();
+  // Un navegador que conserva el index.html de un deploy anterior pide chunks
+  // con hash que ya se borraron. Devolverles el HTML del SPA hacía que llegara
+  // `text/html` donde el navegador esperaba CSS o JS: lo rechazaba por MIME y la
+  // página quedaba sin estilos ni scripts, sin ningún error visible en red.
+  // Un 404 real deja que el navegador y el service worker se recuperen solos.
+  if (req.path.startsWith("/assets/") || BUILD_ASSET_PATTERN.test(req.path)) {
+    return res.status(404).type("text/plain").send("Not found");
+  }
   sendTenantIndex(req, res, next);
 });
 
