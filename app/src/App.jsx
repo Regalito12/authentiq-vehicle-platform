@@ -394,7 +394,7 @@ function StudioTravelRail({ items, heading, hint, reduceMotion, motionScale = 1 
         <motion.div className="studio-rail-track" style={reduceMotion ? undefined : { x }}>
           {items.map((item) => (
             <article className="studio-rail-card" key={item.name}>
-              <img src={item.image} alt={item.alt} loading="lazy" />
+              <img src={item.image} alt={item.alt} loading="lazy" decoding="async" width="900" height="600" />
               <div>
                 <strong>{item.name}</strong>
                 <span>{item.meta}</span>
