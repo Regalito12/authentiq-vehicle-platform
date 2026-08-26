@@ -1,5 +1,5 @@
 import { Component, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { AnimatePresence, motion, useInView, useMotionValueEvent, useReducedMotion, useScroll, useSpring, useTransform } from "motion/react";
+import { AnimatePresence, motion, useInView, useMotionTemplate, useMotionValueEvent, useReducedMotion, useScroll, useSpring, useTransform } from "motion/react";
 import { LANDING_COPY, LANDING_LANGUAGES } from "./landingCopy.js";
 import { useSmoothScroll } from "./utils/useSmoothScroll.js";
 import { TurnstileField, turnstileSiteKey } from "./utils/turnstile.jsx";
@@ -258,44 +258,72 @@ const studioEase = [0.22, 1, 0.36, 1];
 // Apagarlo todo dejaba la página inerte para cualquiera con esa preferencia
 // activa — que en Windows a veces viene puesta sin que el usuario lo sepa.
 // Así que el movimiento amplio se retira y la aparición se conserva.
+// Vincula un elemento a la posición del scroll en vez de dispararlo una vez.
+// Con `whileInView` la animación ocurre al entrar y ya no vuelve: si el lector
+// sube, el elemento se queda donde quedó. Atado al progreso, baja y avanza,
+// sube y regresa exactamente a donde estaba, que es como se comporta la
+// referencia. `offset` mide desde que el elemento asoma por abajo hasta que
+// llega a la zona de lectura.
+function useScrubbed(ref, { from = 0.92, to = 0.48 } = {}) {
+  const { scrollYProgress } = useScroll({ target: ref, offset: [`start ${from}`, `start ${to}`] });
+  return scrollYProgress;
+}
+
 function StudioReveal({ children, className, delay = 0, reduceMotion, as = "div" }) {
+  const ref = useRef(null);
   const Tag = motion[as] || motion.div;
+  // El retardo se traduce en un arranque más tardío dentro del recorrido, para
+  // conservar el escalonado sin depender del tiempo.
+  const start = Math.min(0.5, delay);
+  const progress = useScrubbed(ref, { from: 0.95 - start * 0.25, to: 0.5 });
+  const opacity = useTransform(progress, [0, 1], [0, 1]);
+  const y = useTransform(progress, [0, 1], [reduceMotion ? 0 : 30, 0]);
+  return <Tag ref={ref} className={className} style={{ opacity, y }}>{children}</Tag>;
+}
+
+// Cada línea sale de su propia máscara, escalonada a lo largo del recorrido del
+// scroll: al subir vuelven a esconderse en el mismo orden inverso.
+function StudioHeadline({ lines, className, reduceMotion, delay = 0, as: Tag = "h2", intro = false }) {
+  const ref = useRef(null);
+  const progress = useScrubbed(ref, { from: 0.95, to: 0.45 });
   return (
-    <Tag
-      className={className}
-      initial={{ opacity: 0, y: reduceMotion ? 0 : 26 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, amount: 0.4 }}
-      transition={{ duration: reduceMotion ? 0.45 : 0.7, delay, ease: studioEase }}
-    >
-      {children}
+    <Tag className={className} ref={ref}>
+      {lines.map((line, i) => (
+        <StudioHeadlineLine
+          key={`${line.t}-${i}`}
+          line={line}
+          index={i}
+          total={lines.length}
+          progress={progress}
+          reduceMotion={reduceMotion}
+          intro={intro}
+          delay={delay}
+        />
+      ))}
     </Tag>
   );
 }
 
-// Each line rises out of its own mask, so a headline resolves as a sequence
-// instead of one block fading in.
-function StudioHeadline({ lines, className, reduceMotion, delay = 0, as: Tag = "h2", intro = false }) {
-  const anim = (i) => {
-    const transition = { duration: reduceMotion ? 0.5 : 0.9, delay: delay + i * (reduceMotion ? 0.05 : 0.085), ease: studioEase };
-    // Sin máscara vertical: la línea solo aparece, sin recorrido.
-    if (reduceMotion) {
-      return intro
-        ? { initial: { opacity: 0 }, animate: { opacity: 1 }, transition }
-        : { initial: { opacity: 0 }, whileInView: { opacity: 1 }, viewport: { once: true, amount: 0.45 }, transition };
-    }
-    return intro
-      ? { initial: { y: "112%" }, animate: { y: "0%" }, transition }
-      : { initial: { y: "112%" }, whileInView: { y: "0%" }, viewport: { once: true, amount: 0.45 }, transition };
-  };
+function StudioHeadlineLine({ line, index, total, progress, reduceMotion, intro, delay }) {
+  // Cada línea ocupa una ventana propia del recorrido; se solapan para que la
+  // secuencia se sienta encadenada y no como pasos sueltos.
+  const span = 1 / Math.max(1, total);
+  const start = Math.min(0.85, index * span * 0.7);
+  const end = Math.min(1, start + span * 1.5);
+  const y = useTransform(progress, [start, end], reduceMotion ? ["0%", "0%"] : ["112%", "0%"]);
+  const opacity = useTransform(progress, [start, end], reduceMotion ? [0, 1] : [1, 1]);
+  // El hero se ve antes de cualquier scroll: ahí la entrada sí es temporal.
+  const introAnim = intro
+    ? {
+        initial: reduceMotion ? { opacity: 0 } : { y: "112%" },
+        animate: reduceMotion ? { opacity: 1 } : { y: "0%" },
+        transition: { duration: reduceMotion ? 0.5 : 0.9, delay: delay + index * (reduceMotion ? 0.05 : 0.085), ease: studioEase },
+      }
+    : { style: { y, opacity } };
   return (
-    <Tag className={className}>
-      {lines.map((line, i) => (
-        <span className="studio-line" key={`${line.t}-${i}`}>
-          <motion.span className={line.em ? "studio-line-em" : undefined} {...anim(i)}>{line.t}</motion.span>
-        </span>
-      ))}
-    </Tag>
+    <span className="studio-line">
+      <motion.span className={line.em ? "studio-line-em" : undefined} {...introAnim}>{line.t}</motion.span>
+    </span>
   );
 }
 
@@ -422,6 +450,11 @@ function StudioLanding({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPriv
   const heroCopyOpacity = useTransform(heroProgress, [0, 0.72], reduceMotion ? [1, 1] : [1, 0]);
   const heroCopyY = useTransform(heroProgress, [0, 0.72], reduceMotion ? ["0%", "0%"] : ["0%", `${-Math.round(14 * motionScale)}%`]);
   const proofImageY = useTransform(proofProgress, [0, 1], reduceMotion ? ["0%", "0%"] : [`${-Math.round(8 * motionScale)}%`, `${Math.round(12 * motionScale)}%`]);
+  // El marco de la prueba también se abre y se vuelve a cerrar con el scroll.
+  const proofEnter = useScrubbed(proofRef, { from: 0.95, to: 0.45 });
+  const proofOpacity = useTransform(proofEnter, [0, 1], [0.35, 1]);
+  const proofInset = useTransform(proofEnter, [0, 1], reduceMotion ? [0, 0] : [8, 0]);
+  const proofClip = useMotionTemplate`inset(${proofInset}% ${proofInset}% ${proofInset}% ${proofInset}% round 20px)`;
   // El puntero separa las capas del hero: la foto va al contrario que el texto.
   const { px, py } = usePointerParallax(heroRef, !reduceMotion);
   const heroMediaX = useTransform(px, [-1, 1], [18 * motionScale, -18 * motionScale]);
@@ -466,7 +499,7 @@ function StudioLanding({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPriv
           <StudioReveal as="p" delay={0.16} reduceMotion={reduceMotion}>{t.proof.body}</StudioReveal>
           <StudioReveal delay={0.24} reduceMotion={reduceMotion}><button type="button" className="studio-text-action" onClick={onViewDemo}>{t.proof.action} <span>↗</span></button></StudioReveal>
         </div>
-        <motion.div className="studio-proof-stage" initial={reduceMotion ? { opacity: 0 } : { clipPath: "inset(8% 8% 8% 8% round 20px)", opacity: 0.4 }} whileInView={reduceMotion ? { opacity: 1 } : { clipPath: "inset(0% 0% 0% 0% round 20px)", opacity: 1 }} viewport={{ once: true, amount: 0.3 }} transition={{ duration: reduceMotion ? 0.5 : 1.1, ease: studioEase }}>
+        <motion.div className="studio-proof-stage" style={{ clipPath: proofClip, opacity: proofOpacity }}>
           <motion.img style={{ y: proofImageY }} src="/assets/taycan-turbo-s-2.jpg" alt={t.proof.imageAlt} />
           <div className="studio-proof-overlay">
             <span>{t.proof.overlayTag}</span>
@@ -508,18 +541,19 @@ function StudioChapterMedia({ src, alt, reduceMotion, motionScale = 1 }) {
 // The drift is what keeps the page feeling alive between reveals.
 function StudioDrift({ children, className, depth = 28, delay = 0, reduceMotion, motionScale = 1 }) {
   const ref = useRef(null);
+  // Deriva continua mientras cruza el viewport.
   const { scrollYProgress } = useScroll({ target: ref, offset: ["start end", "end start"] });
   const reach = depth * motionScale;
   const y = useTransform(scrollYProgress, [0, 1], reduceMotion ? [0, 0] : [reach, -reach]);
+  // Y la aparición también va atada al scroll, no a un disparo único: al subir,
+  // la tarjeta se vuelve a guardar en lugar de quedarse visible.
+  const start = Math.min(0.5, delay);
+  const enter = useScrubbed(ref, { from: 0.95 - start * 0.2, to: 0.55 });
+  const opacity = useTransform(enter, [0, 1], [0, 1]);
+  const enterY = useTransform(enter, [0, 1], [reduceMotion ? 0 : 34, 0]);
   return (
     <motion.div ref={ref} className="studio-drift" style={reduceMotion ? undefined : { y }}>
-      <motion.div
-        className={className}
-        initial={{ opacity: 0, y: reduceMotion ? 0 : 30 }}
-        whileInView={{ opacity: 1, y: 0 }}
-        viewport={{ once: true, amount: 0.35 }}
-        transition={{ duration: reduceMotion ? 0.45 : 0.75, delay, ease: studioEase }}
-      >
+      <motion.div className={className} style={{ opacity, y: enterY }}>
         {children}
       </motion.div>
     </motion.div>
