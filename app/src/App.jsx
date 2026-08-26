@@ -299,6 +299,50 @@ function StudioHeadline({ lines, className, reduceMotion, delay = 0, as: Tag = "
   );
 }
 
+// El recorrido de una animación se percibe en proporción a la pantalla: 34px
+// sobre 844px de alto se leen, sobre 900px de alto en un monitor de 1440 de
+// ancho no. Sin esto la misma animación se siente viva en el móvil e inerte en
+// el escritorio, que es exactamente lo que se reportó.
+function useMotionScale() {
+  const [scale, setScale] = useState(1);
+  useEffect(() => {
+    const measure = () => {
+      const w = window.innerWidth;
+      // 1 en móvil, con tope en 1.7: por encima de eso el hero recorría más del
+      // 45% de la pantalla, y mover un objeto más de un tercio del alto sin una
+      // nueva clave espacial se lee como deriva, no como intención.
+      setScale(w < 720 ? 1 : Math.min(1.7, 1 + (w - 720) / 900));
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, []);
+  return scale;
+}
+
+// Parallax de puntero: las capas del hero se separan según dónde está el mouse.
+// Es movimiento que solo existe en escritorio y es de lo que más aporta esa
+// sensación de que la página está viva aunque no se scrollee.
+function usePointerParallax(ref, enabled) {
+  const x = useSpring(0, { stiffness: 60, damping: 20, mass: 0.6 });
+  const y = useSpring(0, { stiffness: 60, damping: 20, mass: 0.6 });
+  useEffect(() => {
+    if (!enabled || !ref.current) return undefined;
+    if (window.matchMedia("(pointer: coarse)").matches) return undefined;
+    const el = ref.current;
+    const onMove = (event) => {
+      const r = el.getBoundingClientRect();
+      x.set(((event.clientX - r.left) / r.width - 0.5) * 2);
+      y.set(((event.clientY - r.top) / r.height - 0.5) * 2);
+    };
+    const onLeave = () => { x.set(0); y.set(0); };
+    el.addEventListener("pointermove", onMove);
+    el.addEventListener("pointerleave", onLeave);
+    return () => { el.removeEventListener("pointermove", onMove); el.removeEventListener("pointerleave", onLeave); };
+  }, [enabled, ref, x, y]);
+  return { px: x, py: y };
+}
+
 // Barra de lectura. En una página de ~6000px el visitante no sabe si le quedan
 // dos pantallas o diez, y esa incertidumbre es una razón común para abandonar.
 // Se dibuja con scaleX, así que no recalcula layout en ningún cuadro.
@@ -362,6 +406,7 @@ function StudioLanding({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPriv
     return () => { document.documentElement.lang = previous; };
   }, [lang]);
 
+  const motionScale = useMotionScale();
   const heroRef = useRef(null);
   const proofRef = useRef(null);
   const { scrollYProgress: heroProgress } = useScroll({ target: heroRef, offset: ["start start", "end start"] });
@@ -372,11 +417,17 @@ function StudioLanding({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPriv
     const next = v > 120;
     return prev === next ? prev : next;
   }));
-  const heroY = useTransform(heroProgress, [0, 1], reduceMotion ? ["0%", "0%"] : ["0%", "18%"]);
-  const heroScale = useTransform(heroProgress, [0, 1], reduceMotion ? [1, 1] : [1, 1.12]);
+  const heroY = useTransform(heroProgress, [0, 1], reduceMotion ? ["0%", "0%"] : ["0%", `${Math.round(18 * motionScale)}%`]);
+  const heroScale = useTransform(heroProgress, [0, 1], reduceMotion ? [1, 1] : [1, 1 + 0.12 * motionScale]);
   const heroCopyOpacity = useTransform(heroProgress, [0, 0.72], reduceMotion ? [1, 1] : [1, 0]);
-  const heroCopyY = useTransform(heroProgress, [0, 0.72], reduceMotion ? ["0%", "0%"] : ["0%", "-14%"]);
-  const proofImageY = useTransform(proofProgress, [0, 1], reduceMotion ? ["0%", "0%"] : ["-8%", "12%"]);
+  const heroCopyY = useTransform(heroProgress, [0, 0.72], reduceMotion ? ["0%", "0%"] : ["0%", `${-Math.round(14 * motionScale)}%`]);
+  const proofImageY = useTransform(proofProgress, [0, 1], reduceMotion ? ["0%", "0%"] : [`${-Math.round(8 * motionScale)}%`, `${Math.round(12 * motionScale)}%`]);
+  // El puntero separa las capas del hero: la foto va al contrario que el texto.
+  const { px, py } = usePointerParallax(heroRef, !reduceMotion);
+  const heroMediaX = useTransform(px, [-1, 1], [18 * motionScale, -18 * motionScale]);
+  const heroMediaY = useTransform(py, [-1, 1], [12 * motionScale, -12 * motionScale]);
+  const heroCopyPx = useTransform(px, [-1, 1], [-9 * motionScale, 9 * motionScale]);
+  const heroCopyPy = useTransform(py, [-1, 1], [-6 * motionScale, 6 * motionScale]);
   const heroIntro = (delay) => ({
     initial: { opacity: 0, y: reduceMotion ? 0 : 30 },
     animate: { opacity: 1, y: 0 },
@@ -397,8 +448,8 @@ function StudioLanding({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPriv
       </nav>
 
       <section ref={heroRef} className="studio-hero" id="landing-top">
-        <motion.div className="studio-hero-media" style={{ y: heroY, scale: heroScale }} initial={{ opacity: 0, scale: reduceMotion ? 1 : 1.14 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: reduceMotion ? 0.6 : 1.4, ease: studioEase }} aria-hidden="true"><img src="/assets/authentiq-hero-v1.webp" alt="" /><div className="studio-hero-shade" /></motion.div>
-        <motion.div className="studio-hero-copy" style={{ opacity: heroCopyOpacity, y: heroCopyY }}>
+        <motion.div className="studio-hero-media" style={{ y: heroY, scale: heroScale, x: heroMediaX, translateY: heroMediaY }} initial={{ opacity: 0, scale: reduceMotion ? 1 : 1.14 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: reduceMotion ? 0.6 : 1.4, ease: studioEase }} aria-hidden="true"><img src="/assets/authentiq-hero-v1.webp" alt="" /><div className="studio-hero-shade" /></motion.div>
+        <motion.div className="studio-hero-copy" style={{ opacity: heroCopyOpacity, y: heroCopyY, x: heroCopyPx, translateY: heroCopyPy }}>
           <motion.span className="studio-kicker" {...heroIntro(0.1)}>{t.hero.kicker}</motion.span>
           <StudioHeadline as="h1" lines={t.hero.lines} reduceMotion={reduceMotion} delay={0.22} intro />
           <motion.p {...heroIntro(0.6)}>{t.hero.body}</motion.p>
@@ -428,7 +479,7 @@ function StudioLanding({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPriv
 
       <StudioBrandMarquee brands={t.marqueeBrands} label={t.marqueeLabel} reduceMotion={reduceMotion} />
 
-      <StudioChapters reduceMotion={reduceMotion} onViewDemo={onViewDemo} chapters={t.chapters} />
+      <StudioChapters reduceMotion={reduceMotion} onViewDemo={onViewDemo} chapters={t.chapters} motionScale={motionScale} />
 
       <section className="studio-close">
         <StudioReveal as="span" className="studio-kicker" reduceMotion={reduceMotion}>{t.close.kicker}</StudioReveal>
@@ -440,11 +491,12 @@ function StudioLanding({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPriv
   );
 }
 
-function StudioChapterMedia({ src, alt, reduceMotion }) {
+function StudioChapterMedia({ src, alt, reduceMotion, motionScale = 1 }) {
   const ref = useRef(null);
   const { scrollYProgress } = useScroll({ target: ref, offset: ["start end", "end start"] });
-  const y = useTransform(scrollYProgress, [0, 1], reduceMotion ? ["0%", "0%"] : ["-7%", "7%"]);
-  const scale = useTransform(scrollYProgress, [0, 0.5, 1], reduceMotion ? [1, 1, 1] : [1.06, 1.01, 1.06]);
+  const reach = Math.round(7 * motionScale);
+  const y = useTransform(scrollYProgress, [0, 1], reduceMotion ? ["0%", "0%"] : [`-${reach}%`, `${reach}%`]);
+  const scale = useTransform(scrollYProgress, [0, 0.5, 1], reduceMotion ? [1, 1, 1] : [1 + 0.07 * motionScale, 1.01, 1 + 0.07 * motionScale]);
   return (
     <div className="studio-chapter-media" ref={ref}>
       <motion.img style={reduceMotion ? undefined : { y, scale }} src={src} alt={alt} loading="lazy" />
@@ -454,10 +506,11 @@ function StudioChapterMedia({ src, alt, reduceMotion }) {
 
 // Continuous drift as the element crosses the viewport, plus a one-time entrance.
 // The drift is what keeps the page feeling alive between reveals.
-function StudioDrift({ children, className, depth = 28, delay = 0, reduceMotion }) {
+function StudioDrift({ children, className, depth = 28, delay = 0, reduceMotion, motionScale = 1 }) {
   const ref = useRef(null);
   const { scrollYProgress } = useScroll({ target: ref, offset: ["start end", "end start"] });
-  const y = useTransform(scrollYProgress, [0, 1], reduceMotion ? [0, 0] : [depth, -depth]);
+  const reach = depth * motionScale;
+  const y = useTransform(scrollYProgress, [0, 1], reduceMotion ? [0, 0] : [reach, -reach]);
   return (
     <motion.div ref={ref} className="studio-drift" style={reduceMotion ? undefined : { y }}>
       <motion.div
@@ -492,13 +545,14 @@ function StudioThread({ reduceMotion }) {
   );
 }
 
-function StudioChapters({ reduceMotion, onViewDemo, chapters }) {
+function StudioChapters({ reduceMotion, onViewDemo, chapters, motionScale = 1 }) {
   const ref = useRef(null);
   const [publish, respond, close] = chapters;
   const { scrollYProgress } = useScroll({ target: ref, offset: ["start end", "end start"] });
-  const glowOneY = useTransform(scrollYProgress, [0, 1], reduceMotion ? ["0%", "0%"] : ["-14%", "26%"]);
-  const glowTwoY = useTransform(scrollYProgress, [0, 1], reduceMotion ? ["0%", "0%"] : ["18%", "-22%"]);
-  const glowThreeX = useTransform(scrollYProgress, [0, 1], reduceMotion ? ["0%", "0%"] : ["-8%", "10%"]);
+  const amp = (v) => `${Math.round(v * motionScale)}%`;
+  const glowOneY = useTransform(scrollYProgress, [0, 1], reduceMotion ? ["0%", "0%"] : [amp(-14), amp(26)]);
+  const glowTwoY = useTransform(scrollYProgress, [0, 1], reduceMotion ? ["0%", "0%"] : [amp(18), amp(-22)]);
+  const glowThreeX = useTransform(scrollYProgress, [0, 1], reduceMotion ? ["0%", "0%"] : [amp(-8), amp(10)]);
   const veilOpacity = useTransform(scrollYProgress, [0, 0.5, 1], reduceMotion ? [0.5, 0.5, 0.5] : [0.25, 0.6, 0.25]);
   return (
     <div className="studio-chapters" id="landing-product" ref={ref}>
@@ -515,10 +569,10 @@ function StudioChapters({ reduceMotion, onViewDemo, chapters }) {
           <StudioReveal as="p" delay={0.18} reduceMotion={reduceMotion}>{publish.body}</StudioReveal>
         </div>
         <div className="studio-chapter-panel">
-          <StudioDrift depth={34} delay={0.08} reduceMotion={reduceMotion}>
-            <StudioChapterMedia src="/assets/audi-etron-gt.jpg" alt={publish.mediaAlt} reduceMotion={reduceMotion} />
+          <StudioDrift depth={34} delay={0.08} reduceMotion={reduceMotion} motionScale={motionScale}>
+            <StudioChapterMedia src="/assets/audi-etron-gt.jpg" alt={publish.mediaAlt} reduceMotion={reduceMotion} motionScale={motionScale} />
           </StudioDrift>
-          <StudioDrift className="studio-card studio-card-float" depth={62} delay={0.2} reduceMotion={reduceMotion}>
+          <StudioDrift className="studio-card studio-card-float" depth={62} delay={0.2} reduceMotion={reduceMotion} motionScale={motionScale}>
             <div className="studio-card-top"><span>{publish.card.tag}</span><b>{publish.card.status}</b></div>
             <div className="studio-card-vehicle">
               <img src="/assets/taycan-turbo-s-2.webp" alt="" />
@@ -537,7 +591,7 @@ function StudioChapters({ reduceMotion, onViewDemo, chapters }) {
         <div className="studio-chapter-panel studio-chapter-thread">
           <StudioThread reduceMotion={reduceMotion} />
           {respond.steps.map((step, i) => (
-            <StudioDrift key={step.index} className="studio-card" depth={20 + i * 28} delay={0.06 + i * 0.08} reduceMotion={reduceMotion}>
+            <StudioDrift key={step.index} className="studio-card" depth={20 + i * 28} delay={0.06 + i * 0.08} reduceMotion={reduceMotion} motionScale={motionScale}>
               <span className="studio-card-index">{step.index}</span>
               <h3>{step.title}</h3>
               {step.quote ? <p className="studio-card-quote">{step.quote}</p> : <p>{step.body}</p>}
@@ -557,12 +611,12 @@ function StudioChapters({ reduceMotion, onViewDemo, chapters }) {
           </StudioReveal>
         </div>
         <div className="studio-chapter-panel">
-          <StudioDrift className="studio-card studio-card-appointment" depth={30} delay={0.06} reduceMotion={reduceMotion}>
+          <StudioDrift className="studio-card studio-card-appointment" depth={30} delay={0.06} reduceMotion={reduceMotion} motionScale={motionScale}>
             <div className="studio-card-top"><span>{close.appointment.tag}</span><b>{close.appointment.status}</b></div>
             <strong className="studio-card-time">{close.appointment.time}</strong>
             <span className="studio-card-meta">{close.appointment.meta}</span>
           </StudioDrift>
-          <StudioDrift className="studio-list" depth={58} delay={0.16} reduceMotion={reduceMotion}>
+          <StudioDrift className="studio-list" depth={58} delay={0.16} reduceMotion={reduceMotion} motionScale={motionScale}>
             {close.list.map((item) => <div key={item.title}><h3>{item.title}</h3><p>{item.body}</p></div>)}
           </StudioDrift>
         </div>
