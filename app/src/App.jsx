@@ -253,17 +253,37 @@ function LandingPage(props) {
 
 const studioEase = [0.22, 1, 0.36, 1];
 
+// Quien pide "reducir movimiento" quiere evitar desplazamientos amplios que
+// pueden marear (parallax, zooms, bucles continuos), no un desvanecido suave.
+// Apagarlo todo dejaba la página inerte para cualquiera con esa preferencia
+// activa — que en Windows a veces viene puesta sin que el usuario lo sepa.
+// Así que el movimiento amplio se retira y la aparición se conserva.
 function StudioReveal({ children, className, delay = 0, reduceMotion, as = "div" }) {
   const Tag = motion[as] || motion.div;
-  return <Tag className={className} initial={reduceMotion ? false : { opacity: 0, y: 26 }} whileInView={reduceMotion ? undefined : { opacity: 1, y: 0 }} viewport={{ once: true, amount: 0.4 }} transition={{ duration: 0.7, delay, ease: studioEase }}>{children}</Tag>;
+  return (
+    <Tag
+      className={className}
+      initial={{ opacity: 0, y: reduceMotion ? 0 : 26 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, amount: 0.4 }}
+      transition={{ duration: reduceMotion ? 0.45 : 0.7, delay, ease: studioEase }}
+    >
+      {children}
+    </Tag>
+  );
 }
 
 // Each line rises out of its own mask, so a headline resolves as a sequence
 // instead of one block fading in.
 function StudioHeadline({ lines, className, reduceMotion, delay = 0, as: Tag = "h2", intro = false }) {
   const anim = (i) => {
-    if (reduceMotion) return {};
-    const transition = { duration: 0.9, delay: delay + i * 0.085, ease: studioEase };
+    const transition = { duration: reduceMotion ? 0.5 : 0.9, delay: delay + i * (reduceMotion ? 0.05 : 0.085), ease: studioEase };
+    // Sin máscara vertical: la línea solo aparece, sin recorrido.
+    if (reduceMotion) {
+      return intro
+        ? { initial: { opacity: 0 }, animate: { opacity: 1 }, transition }
+        : { initial: { opacity: 0 }, whileInView: { opacity: 1 }, viewport: { once: true, amount: 0.45 }, transition };
+    }
     return intro
       ? { initial: { y: "112%" }, animate: { y: "0%" }, transition }
       : { initial: { y: "112%" }, whileInView: { y: "0%" }, viewport: { once: true, amount: 0.45 }, transition };
@@ -328,7 +348,11 @@ function StudioLanding({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPriv
   const heroCopyOpacity = useTransform(heroProgress, [0, 0.72], reduceMotion ? [1, 1] : [1, 0]);
   const heroCopyY = useTransform(heroProgress, [0, 0.72], reduceMotion ? ["0%", "0%"] : ["0%", "-14%"]);
   const proofImageY = useTransform(proofProgress, [0, 1], reduceMotion ? ["0%", "0%"] : ["-8%", "12%"]);
-  const heroIntro = (delay) => reduceMotion ? {} : { initial: { opacity: 0, y: 30 }, animate: { opacity: 1, y: 0 }, transition: { duration: 0.8, delay, ease: studioEase } };
+  const heroIntro = (delay) => ({
+    initial: { opacity: 0, y: reduceMotion ? 0 : 30 },
+    animate: { opacity: 1, y: 0 },
+    transition: { duration: reduceMotion ? 0.5 : 0.8, delay, ease: studioEase },
+  });
 
   return (
     <main className="studio-landing" key={lang}>
@@ -343,7 +367,7 @@ function StudioLanding({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPriv
       </nav>
 
       <section ref={heroRef} className="studio-hero" id="landing-top">
-        <motion.div className="studio-hero-media" style={{ y: heroY, scale: heroScale }} initial={reduceMotion ? false : { opacity: 0, scale: 1.14 }} animate={reduceMotion ? undefined : { opacity: 1, scale: 1 }} transition={{ duration: 1.4, ease: studioEase }} aria-hidden="true"><img src="/assets/authentiq-hero-v1.webp" alt="" /><div className="studio-hero-shade" /></motion.div>
+        <motion.div className="studio-hero-media" style={{ y: heroY, scale: heroScale }} initial={{ opacity: 0, scale: reduceMotion ? 1 : 1.14 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: reduceMotion ? 0.6 : 1.4, ease: studioEase }} aria-hidden="true"><img src="/assets/authentiq-hero-v1.webp" alt="" /><div className="studio-hero-shade" /></motion.div>
         <motion.div className="studio-hero-copy" style={{ opacity: heroCopyOpacity, y: heroCopyY }}>
           <motion.span className="studio-kicker" {...heroIntro(0.1)}>{t.hero.kicker}</motion.span>
           <StudioHeadline as="h1" lines={t.hero.lines} reduceMotion={reduceMotion} delay={0.22} intro />
@@ -361,7 +385,7 @@ function StudioLanding({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPriv
           <StudioReveal as="p" delay={0.16} reduceMotion={reduceMotion}>{t.proof.body}</StudioReveal>
           <StudioReveal delay={0.24} reduceMotion={reduceMotion}><button type="button" className="studio-text-action" onClick={onViewDemo}>{t.proof.action} <span>↗</span></button></StudioReveal>
         </div>
-        <motion.div className="studio-proof-stage" initial={reduceMotion ? false : { clipPath: "inset(8% 8% 8% 8% round 20px)", opacity: 0.4 }} whileInView={reduceMotion ? undefined : { clipPath: "inset(0% 0% 0% 0% round 20px)", opacity: 1 }} viewport={{ once: true, amount: 0.3 }} transition={{ duration: 1.1, ease: studioEase }}>
+        <motion.div className="studio-proof-stage" initial={reduceMotion ? { opacity: 0 } : { clipPath: "inset(8% 8% 8% 8% round 20px)", opacity: 0.4 }} whileInView={reduceMotion ? { opacity: 1 } : { clipPath: "inset(0% 0% 0% 0% round 20px)", opacity: 1 }} viewport={{ once: true, amount: 0.3 }} transition={{ duration: reduceMotion ? 0.5 : 1.1, ease: studioEase }}>
           <motion.img style={{ y: proofImageY }} src="/assets/taycan-turbo-s-2.jpg" alt={t.proof.imageAlt} />
           <div className="studio-proof-overlay">
             <span>{t.proof.overlayTag}</span>
@@ -406,10 +430,10 @@ function StudioDrift({ children, className, depth = 28, delay = 0, reduceMotion 
     <motion.div ref={ref} className="studio-drift" style={reduceMotion ? undefined : { y }}>
       <motion.div
         className={className}
-        initial={reduceMotion ? false : { opacity: 0, y: 30 }}
-        whileInView={reduceMotion ? undefined : { opacity: 1, y: 0 }}
+        initial={{ opacity: 0, y: reduceMotion ? 0 : 30 }}
+        whileInView={{ opacity: 1, y: 0 }}
         viewport={{ once: true, amount: 0.35 }}
-        transition={{ duration: 0.75, delay, ease: studioEase }}
+        transition={{ duration: reduceMotion ? 0.45 : 0.75, delay, ease: studioEase }}
       >
         {children}
       </motion.div>

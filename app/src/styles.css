@@ -4208,3 +4208,46 @@ html.lenis, html.lenis body { height: auto; }
 @media (prefers-reduced-motion: reduce) {
   .inventory-table tbody tr, .table-panel tbody tr { animation: none; }
 }
+
+/* ── Capa de acabado: reacciones al puntero y a la carga ──────────────────── */
+
+/* La marca del nav responde al puntero. */
+.studio-brand { display: inline-block; transition: transform 420ms var(--ease-out-quart, ease), letter-spacing 420ms ease; }
+.studio-brand:hover { letter-spacing: .14em; }
+
+/* Los enlaces del nav dibujan su subrayado en vez de encenderlo de golpe. */
+.studio-nav-links a, .studio-navlink { position: relative; }
+.studio-nav-links a::after, .studio-navlink::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: -5px; height: 1px;
+  background: var(--studio-gold); transform: scaleX(0); transform-origin: right center;
+  transition: transform 380ms var(--ease-out-quart, ease);
+}
+.studio-nav-links a:hover::after, .studio-navlink:hover::after,
+.studio-nav-links a:focus-visible::after, .studio-navlink:focus-visible::after { transform: scaleX(1); transform-origin: left center; }
+
+/* El botón principal barre una luz al pasar el cursor. */
+.studio-primary, .studio-cta { position: relative; overflow: hidden; }
+.studio-primary::after, .studio-cta::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(105deg, transparent 35%, rgba(255,255,255,.55) 50%, transparent 65%);
+  transform: translateX(-120%); transition: transform 720ms var(--ease-out-quart, ease); pointer-events: none;
+}
+.studio-primary:hover::after, .studio-cta:hover::after { transform: translateX(120%); }
+.studio-primary > span, .studio-cta > span { display: inline-block; transition: transform 340ms var(--ease-out-quart, ease); }
+.studio-primary:hover > span, .studio-cta:hover > span { transform: translate(3px, -3px); }
+
+/* La imagen del capítulo se acerca levemente bajo el cursor. */
+.studio-chapter-media { overflow: hidden; }
+.studio-chapter-media:hover img { transform: scale(1.03); }
+
+/* Las tarjetas del recorrido levantan su sombra y su borde. */
+.studio-card { will-change: transform; }
+.studio-card:hover { transform: translateY(-5px); }
+
+@media (prefers-reduced-motion: reduce) {
+  .studio-brand:hover { letter-spacing: .1em; }
+  .studio-primary::after, .studio-cta::after { display: none; }
+  .studio-primary:hover > span, .studio-cta:hover > span { transform: none; }
+  .studio-chapter-media:hover img { transform: none; }
+  .studio-card:hover { transform: none; }
+}
