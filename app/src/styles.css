@@ -4251,3 +4251,44 @@ html.lenis, html.lenis body { height: auto; }
   .studio-chapter-media:hover img { transform: none; }
   .studio-card:hover { transform: none; }
 }
+
+/* Barra de lectura: sitúa al visitante en una página larga. */
+.studio-progress {
+  position: fixed; z-index: 30; top: 0; left: 0; right: 0; height: 2px;
+  background: var(--studio-gold); transform-origin: 0 50%; transform: scaleX(0);
+  pointer-events: none;
+}
+
+/* Cinta de marcas. El track duplica su contenido y se desplaza exactamente la
+   mitad, así el punto de salto coincide y el bucle no se nota. */
+.studio-marquee {
+  overflow: hidden; padding: clamp(26px, 4vw, 44px) 0;
+  border-top: 1px solid rgba(248,245,237,.1); border-bottom: 1px solid rgba(248,245,237,.1);
+  background: #141817;
+}
+/* La máscara va en la cinta, no en la sección: aplicada al contenedor volvía
+   transparente también su fondo y asomaba el crema de la página en los bordes. */
+.studio-marquee-mask {
+  mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+}
+.studio-marquee-track {
+  display: flex; align-items: center; gap: clamp(34px, 5vw, 68px);
+  width: max-content; animation: studio-marquee 44s linear infinite;
+}
+.studio-marquee:hover .studio-marquee-track { animation-play-state: paused; }
+.studio-marquee-item {
+  color: rgba(248,245,237,.5); font-size: clamp(20px, 2.4vw, 32px); font-weight: 300;
+  letter-spacing: -.02em; white-space: nowrap; transition: color 320ms ease;
+}
+.studio-marquee-item:hover { color: var(--studio-gold); }
+@keyframes studio-marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+
+/* Sin desplazamiento continuo: la cinta se vuelve una fila legible y centrada. */
+.studio-marquee-track.is-static { animation: none; width: 100%; flex-wrap: wrap; justify-content: center; }
+.studio-marquee-track.is-static .studio-marquee-item[aria-hidden="true"] { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .studio-marquee-track { animation: none; width: 100%; flex-wrap: wrap; justify-content: center; }
+  .studio-marquee-track .studio-marquee-item[aria-hidden="true"] { display: none; }
+}

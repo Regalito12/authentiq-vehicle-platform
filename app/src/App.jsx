@@ -1,5 +1,5 @@
 import { Component, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { AnimatePresence, motion, useInView, useMotionValueEvent, useReducedMotion, useScroll, useTransform } from "motion/react";
+import { AnimatePresence, motion, useInView, useMotionValueEvent, useReducedMotion, useScroll, useSpring, useTransform } from "motion/react";
 import { LANDING_COPY, LANDING_LANGUAGES } from "./landingCopy.js";
 import { useSmoothScroll } from "./utils/useSmoothScroll.js";
 import { TurnstileField, turnstileSiteKey } from "./utils/turnstile.jsx";
@@ -299,6 +299,35 @@ function StudioHeadline({ lines, className, reduceMotion, delay = 0, as: Tag = "
   );
 }
 
+// Barra de lectura. En una página de ~6000px el visitante no sabe si le quedan
+// dos pantallas o diez, y esa incertidumbre es una razón común para abandonar.
+// Se dibuja con scaleX, así que no recalcula layout en ningún cuadro.
+function StudioReadingProgress({ reduceMotion }) {
+  const { scrollYProgress } = useScroll();
+  const width = useSpring(scrollYProgress, reduceMotion ? { duration: 0 } : { stiffness: 120, damping: 28, restDelta: 0.001 });
+  return <motion.div className="studio-progress" style={{ scaleX: width }} aria-hidden="true" />;
+}
+
+// Cinta de marcas en bucle. Un concesionario compite mostrando de qué firmas
+// tiene inventario; una rejilla estática de cuatro logos no comunica amplitud,
+// una cinta que sigue corriendo sí. El contenido se duplica para que el salto
+// del bucle sea invisible, y la copia va oculta a lectores de pantalla.
+function StudioBrandMarquee({ brands, label, reduceMotion }) {
+  if (!brands?.length) return null;
+  const loop = [...brands, ...brands];
+  return (
+    <section className="studio-marquee" aria-label={label}>
+      <div className="studio-marquee-mask">
+        <div className={`studio-marquee-track${reduceMotion ? " is-static" : ""}`}>
+          {loop.map((brand, i) => (
+            <span className="studio-marquee-item" key={`${brand}-${i}`} aria-hidden={i >= brands.length ? "true" : undefined}>{brand}</span>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function StudioLangToggle({ lang, onChange, label }) {
   const index = Math.max(0, LANDING_LANGUAGES.indexOf(lang));
   return (
@@ -356,6 +385,7 @@ function StudioLanding({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPriv
 
   return (
     <main className="studio-landing" key={lang}>
+      <StudioReadingProgress reduceMotion={reduceMotion} />
       <nav className={`studio-nav${navCondensed ? " is-condensed" : ""}`} aria-label={t.navAria}>
         <a className="studio-brand" href="#landing-top">AUTHENTIQ<span>°</span></a>
         <div className="studio-nav-links"><a href="#landing-story">{t.nav.experience}</a><a href="#landing-product">{t.nav.how}</a><button type="button" className="studio-navlink" onClick={onViewDemo}>{t.nav.demo}</button></div>
@@ -395,6 +425,8 @@ function StudioLanding({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPriv
         </motion.div>
       </section>
       </div>
+
+      <StudioBrandMarquee brands={t.marqueeBrands} label={t.marqueeLabel} reduceMotion={reduceMotion} />
 
       <StudioChapters reduceMotion={reduceMotion} onViewDemo={onViewDemo} chapters={t.chapters} />
 
