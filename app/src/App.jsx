@@ -371,6 +371,45 @@ function usePointerParallax(ref, enabled) {
   return { px: x, py: y };
 }
 
+// Recorrido horizontal: la sección se fija y su contenido viaja de derecha a
+// izquierda mientras el lector baja. A diferencia de una aparición, aquí los
+// elementos sí se desplazan de un lugar a otro de la pantalla, y como está
+// atado al progreso, al subir el recorrido se deshace.
+function StudioTravelRail({ items, heading, hint, reduceMotion, motionScale = 1 }) {
+  const ref = useRef(null);
+  const { scrollYProgress } = useScroll({ target: ref, offset: ["start start", "end end"] });
+  // Arranca fuera por la derecha y termina fuera por la izquierda.
+  const x = useTransform(scrollYProgress, [0, 1], ["8%", "-72%"]);
+  // Contrapunto: el título se desplaza al revés, más lento, para dar profundidad.
+  const headingX = useTransform(scrollYProgress, [0, 1], [`${6 * motionScale}%`, `${-10 * motionScale}%`]);
+  const progressScale = useTransform(scrollYProgress, [0, 1], [0, 1]);
+  if (!items?.length) return null;
+  return (
+    <section className="studio-rail" ref={ref} aria-label={heading}>
+      <div className="studio-rail-sticky">
+        <motion.div className="studio-rail-head" style={reduceMotion ? undefined : { x: headingX }}>
+          <h2>{heading}</h2>
+          <span>{hint}</span>
+        </motion.div>
+        <motion.div className="studio-rail-track" style={reduceMotion ? undefined : { x }}>
+          {items.map((item) => (
+            <article className="studio-rail-card" key={item.name}>
+              <img src={item.image} alt={item.alt} loading="lazy" />
+              <div>
+                <strong>{item.name}</strong>
+                <span>{item.meta}</span>
+              </div>
+            </article>
+          ))}
+        </motion.div>
+        <div className="studio-rail-progress" aria-hidden="true">
+          <motion.i style={reduceMotion ? { scaleX: 1 } : { scaleX: progressScale }} />
+        </div>
+      </div>
+    </section>
+  );
+}
+
 // Barra de lectura. En una página de ~6000px el visitante no sabe si le quedan
 // dos pantallas o diez, y esa incertidumbre es una razón común para abandonar.
 // Se dibuja con scaleX, así que no recalcula layout en ningún cuadro.
@@ -511,6 +550,8 @@ function StudioLanding({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPriv
       </div>
 
       <StudioBrandMarquee brands={t.marqueeBrands} label={t.marqueeLabel} reduceMotion={reduceMotion} />
+
+      <StudioTravelRail items={t.rail.items} heading={t.rail.heading} hint={t.rail.hint} reduceMotion={reduceMotion} motionScale={motionScale} />
 
       <StudioChapters reduceMotion={reduceMotion} onViewDemo={onViewDemo} chapters={t.chapters} motionScale={motionScale} />
 

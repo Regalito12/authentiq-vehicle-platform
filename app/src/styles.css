@@ -1605,8 +1605,12 @@ html[data-theme="dark"] .account-notification span { color: #9da39f; }
 
 /* Responsive comfort pass: keep wide components contained without shrinking the reading experience. */
 html, body, #root { max-width: 100%; }
-html { overflow-x: hidden; }
-body { overflow-x: hidden; }
+/* `overflow-x: hidden` obliga al eje vertical a calcularse como `auto`, y eso
+   convierte a html/body en contenedores de scroll que en realidad no scrollean:
+   cualquier `position: sticky` de la página deja de pegarse. `clip` recorta el
+   desbordamiento horizontal sin tocar el eje vertical. */
+html { overflow-x: clip; }
+body { overflow-x: clip; }
 img, video, canvas, iframe, svg { max-width: 100%; }
 button, input, select, textarea { max-width: 100%; }
 
@@ -4005,7 +4009,7 @@ button, input, select, textarea { font-size: 16px; }
 }
 
 /* Landing studio: cuatro capítulos con un solo lenguaje de movimiento. */
-.studio-landing { --studio-ink: #171a19; --studio-paper: #f1eee6; --studio-muted: #716f68; --studio-gold: #e2b95f; --studio-line: rgba(23,26,25,.18); overflow: clip; background: var(--studio-paper); color: var(--studio-ink); }
+.studio-landing { --studio-ink: #171a19; --studio-paper: #f1eee6; --studio-muted: #716f68; --studio-gold: #e2b95f; --studio-line: rgba(23,26,25,.18); overflow-x: clip; overflow-y: visible; background: var(--studio-paper); color: var(--studio-ink); }
 .studio-landing button, .studio-landing a { -webkit-tap-highlight-color: transparent; }
 .studio-nav { position: fixed; z-index: 20; top: 18px; right: 30px; left: 30px; display: flex; align-items: center; justify-content: space-between; gap: 22px; max-width: 1180px; margin: 0 auto; padding: 11px 14px 11px 19px; border: 1px solid rgba(248,245,237,.2); border-radius: 999px; background: rgba(17,20,19,.86); color: #f8f5ed; backdrop-filter: blur(12px); transform: translateZ(0); will-change: transform; contain: layout paint; transition: padding 400ms var(--ease-out-quart, ease), background-color 400ms ease, border-color 400ms ease, box-shadow 400ms ease; }
 .studio-nav.is-condensed { padding-top: 7px; padding-bottom: 7px; border-color: rgba(248,245,237,.14); background: rgba(14,17,16,.92); box-shadow: 0 14px 40px rgba(0,0,0,.34); }
@@ -4075,7 +4079,7 @@ button, input, select, textarea { font-size: 16px; }
 
 
 /* Chapters: editorial rows that keep flowing — giant headline left, evidence right. */
-.studio-chapters { position: relative; isolation: isolate; overflow: clip; background: #141817; }
+.studio-chapters { position: relative; isolation: isolate; overflow-x: clip; overflow-y: visible; background: #141817; }
 .studio-ambient { position: absolute; z-index: -1; inset: 0; pointer-events: none; }
 .studio-ambient span { position: absolute; display: block; border-radius: 50%; filter: blur(70px); will-change: transform; }
 .studio-ambient-one { top: 4%; right: -6%; width: 46vw; height: 46vw; max-width: 620px; max-height: 620px; background: radial-gradient(circle, rgba(226,185,95,.16), transparent 68%); }
@@ -4291,4 +4295,63 @@ html.lenis, html.lenis body { height: auto; }
 @media (prefers-reduced-motion: reduce) {
   .studio-marquee-track { animation: none; width: 100%; flex-wrap: wrap; justify-content: center; }
   .studio-marquee-track .studio-marquee-item[aria-hidden="true"] { display: none; }
+}
+
+/* ── Recorrido horizontal ────────────────────────────────────────────────────
+   La sección reserva alto para que el scroll vertical tenga qué consumir; el
+   contenido queda fijo dentro y viaja de derecha a izquierda. Es la diferencia
+   entre "aparecer" y "desplazarse de un lugar a otro". */
+.studio-rail { position: relative; height: 320vh; background: #141817; }
+.studio-rail-sticky {
+  position: sticky; top: 0; display: grid; grid-template-rows: auto 1fr auto;
+  gap: clamp(20px, 3vw, 38px); height: 100svh; overflow: hidden;
+  padding: clamp(80px, 11vh, 130px) 0 clamp(30px, 5vh, 54px);
+}
+.studio-rail-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 24px; flex-wrap: wrap;
+  padding: 0 max(30px, calc((100% - 1180px) / 2));
+}
+.studio-rail-head h2 {
+  margin: 0; max-width: 16ch; color: #fbf8f0;
+  font-size: clamp(30px, 4.4vw, 62px); font-weight: 300; letter-spacing: -.035em; line-height: .98;
+}
+.studio-rail-head span {
+  color: var(--studio-gold); font: 500 13px "IBM Plex Mono", monospace;
+  letter-spacing: .1em; text-transform: uppercase; white-space: nowrap;
+}
+.studio-rail-track {
+  display: flex; align-items: center; gap: clamp(18px, 2.4vw, 34px);
+  width: max-content; padding-left: max(30px, calc((100% - 1180px) / 2)); will-change: transform;
+}
+.studio-rail-card {
+  position: relative; flex: 0 0 auto; width: clamp(230px, 27vw, 400px);
+  overflow: hidden; border-radius: 20px; border: 1px solid rgba(248,245,237,.14);
+  background: #1c211f; transition: border-color .4s ease, transform .4s var(--ease-out-quart, ease);
+}
+.studio-rail-card:hover { border-color: rgba(226,185,95,.45); transform: translateY(-6px); }
+.studio-rail-card img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; }
+.studio-rail-card > div { display: grid; gap: 4px; padding: 16px 18px 20px; }
+.studio-rail-card strong { color: #fbf8f0; font-size: clamp(15px, 1.4vw, 19px); font-weight: 450; letter-spacing: -.02em; }
+.studio-rail-card span { color: rgba(248,245,237,.6); font: 500 13px "IBM Plex Mono", monospace; letter-spacing: .05em; }
+.studio-rail-progress {
+  height: 2px; margin: 0 max(30px, calc((100% - 1180px) / 2));
+  background: rgba(248,245,237,.14); overflow: hidden;
+}
+.studio-rail-progress i { display: block; height: 100%; background: var(--studio-gold); transform-origin: left center; }
+
+@media (max-width: 800px) {
+  .studio-rail { height: 300vh; }
+  .studio-rail-head { padding: 0 20px; }
+  .studio-rail-track { padding-left: 20px; }
+  .studio-rail-progress { margin: 0 20px; }
+}
+
+/* Sin desplazamiento: la sección deja de fijarse y se recorre como una fila
+   normal con scroll lateral, para que el contenido siga siendo alcanzable. */
+@media (prefers-reduced-motion: reduce) {
+  .studio-rail { height: auto; }
+  .studio-rail-sticky { position: relative; height: auto; padding: 70px 0; }
+  .studio-rail-track { width: auto; overflow-x: auto; padding-bottom: 10px; scroll-snap-type: x mandatory; }
+  .studio-rail-card { scroll-snap-align: start; }
+  .studio-rail-card:hover { transform: none; }
 }
