@@ -19,6 +19,7 @@
     "@google/model-viewer": "^4.3.1",
     "@phosphor-icons/react": "^2.1.10",
     "@sentry/react": "^10.70.0",
+    "@vercel/analytics": "^2.0.1",
     "@vitejs/plugin-react": "latest",
     "browser-image-compression": "^2.0.2",
     "cmdk": "^1.1.1",
