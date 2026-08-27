@@ -655,10 +655,14 @@ function StudioLangToggle({ lang, onChange, label }) {
 }
 
 function StudioLanding({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPrivacy, onOpenTerms, testimonials = [], whatsapp = "" }) {
-  const reduceMotion = useReducedMotion();
-  // El scroll suave es lo que hace que el parallax se lea como un movimiento
-  // continuo y no como saltos; sin él las animaciones van a tirones.
-  useSmoothScroll(!reduceMotion);
+  const prefersReducedMotion = useReducedMotion();
+  // El landing siempre conserva sus revelados y su profundidad visual para que
+  // no parezca una página rota cuando el sistema tiene activada esa preferencia.
+  // El scroll con inercia sí sigue siendo opcional: no secuestramos la rueda a
+  // quien pidió menos movimiento, pero el contenido continúa animándose con el
+  // scroll nativo y con una amplitud contenida.
+  const reduceMotion = false;
+  useSmoothScroll(!prefersReducedMotion);
   const [lang, setLang] = useState(() => {
     try {
       const saved = localStorage.getItem("authentiq_landing_lang");
