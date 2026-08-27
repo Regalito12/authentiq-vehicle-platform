@@ -8,6 +8,7 @@ import { contrastSafeShade } from "./utils/color.js";
 import { reportError } from "./utils/monitoring.js";
 import { AnimatedNumber, BlurFade, Disclosure, ProgressiveBlur, TextReveal } from "./ui/MotionPrimitives.jsx";
 import { AnimatedThemeTogglerStarDemo } from "./components/ui/animated-theme-toggler-star-demo.jsx";
+import { Analytics } from "@vercel/analytics/react";
 
 class SectionBoundary extends Component {
   constructor(props) { super(props); this.state = { failed: false }; }
@@ -2540,5 +2541,5 @@ class AppErrorBoundary extends Component {
 }
 
 export default function AppRoot() {
-  return <AppErrorBoundary><App /><CookieConsentBanner /></AppErrorBoundary>;
+  return <AppErrorBoundary><App /><CookieConsentBanner /><Analytics /></AppErrorBoundary>;
 }
