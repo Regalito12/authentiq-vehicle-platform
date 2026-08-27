@@ -140,11 +140,11 @@ async function seedDealer(dealer, sourceOrganizationId, passwordHash) {
 try {
   databaseClient = await pool.connect();
   await databaseClient.query("BEGIN");
-  const authentiq = await databaseClient.query("SELECT id FROM organizations WHERE slug='authentiq' FOR UPDATE");
-  if (!authentiq.rowCount) throw new Error("No existe la organización authentiq. Aplica primero las migraciones.");
+  const zevroa = await databaseClient.query("SELECT id FROM organizations WHERE slug='zevroa' FOR UPDATE");
+  if (!zevroa.rowCount) throw new Error("No existe la organización zevroa. Aplica primero las migraciones.");
   const passwordHash = await bcrypt.hash(demoPassword, 12);
   const dealers = [];
-  for (const dealer of demoDealers) dealers.push(await seedDealer(dealer, authentiq.rows[0].id, passwordHash));
+  for (const dealer of demoDealers) dealers.push(await seedDealer(dealer, zevroa.rows[0].id, passwordHash));
   await databaseClient.query("COMMIT");
   console.log(JSON.stringify({ ok: true, password: demoPassword, dealers }, null, 2));
 } catch (error) {

@@ -25,13 +25,14 @@ const DUMMY_PASSWORD_HASH = "$2b$12$3yFc1m.yll8R8pI6T9aqgu4sXMid7I.1bZhBHlNZOXFz
 const { Pool } = pg;
 const app = express();
 const serverDir = path.dirname(fileURLToPath(import.meta.url));
+const isVercelRuntime = Boolean(process.env.VERCEL);
 dotenv.config({ path: path.resolve(serverDir, "../.env") });
 const port = Number(process.env.PORT || 3001);
 const privacyPolicyVersion = process.env.PRIVACY_POLICY_VERSION || "2026-08-09";
 const jwtSecret = process.env.JWT_SECRET || "local-dev-secret-change-before-deploy";
 if (process.env.NODE_ENV === "production" && !process.env.JWT_SECRET) throw new Error("JWT_SECRET es obligatorio en producción");
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-const uploadsDir = path.resolve(serverDir, process.env.UPLOADS_DIR || "../uploads");
+const uploadsDir = path.resolve(serverDir, process.env.UPLOADS_DIR || (isVercelRuntime ? path.join(process.env.TMPDIR || process.env.TMP || "/tmp", "zevroa-uploads") : "../uploads"));
 const publicApiUrl = String(process.env.PUBLIC_API_URL || "").replace(/\/+$/, "");
 const publicSiteUrl = String(process.env.PUBLIC_SITE_URL || "").replace(/\/+$/, "");
 const frontendOrigin = String(process.env.FRONTEND_ORIGIN || "").trim();
@@ -55,7 +56,7 @@ const reservedSlugs = new Set([
   "assets", "uploads", "backoffice", "preview", "presentacion", "vehiculos", "blog", "cotizaciones",
   "privacidad", "terminos", "sitemap", "robots", "favicon", "manifest", "health", "status",
   // Palabras que confundirían a un comprador sobre quién le está hablando.
-  "authentiq", "plataforma", "platform", "soporte", "support", "ayuda", "help", "login", "cuenta", "account",
+  "authentiq", "zevroa", "plataforma", "platform", "soporte", "support", "ayuda", "help", "login", "cuenta", "account",
 ]);
 
 function isReservedSlug(slug) {
@@ -577,7 +578,7 @@ const PASSWORD_CHANGE_PATH = "/api/auth/change-password";
 const PASSWORD_RESET_REQUEST_PATH = "/api/auth/password-reset/request";
 const ADMIN_SESSION_COOKIE = "authentiq_admin_session";
 const CUSTOMER_SESSION_COOKIE = "authentiq_customer_session";
-const DEFAULT_ORGANIZATION_SLUG = String(process.env.DEFAULT_ORGANIZATION_SLUG || "authentiq").trim().toLowerCase();
+const DEFAULT_ORGANIZATION_SLUG = String(process.env.DEFAULT_ORGANIZATION_SLUG || "zevroa").trim().toLowerCase();
 
 function readCookie(req, name) {
   const cookies = String(req.headers.cookie || "").split(";").map((item) => item.trim().split("="));
@@ -643,6 +644,28 @@ async function verifyPublicForm(req, res, next) {
     console.error("Turnstile verification failed", error);
     return res.status(503).json({ error: "La verificación de seguridad no está disponible. Intenta más tarde." });
   }
+}
+
+// Paletas de arranque para concesionarios nuevos. Son parejas (color principal,
+// color de apoyo más oscuro) que funcionan sobre fondo claro y oscuro y que no son
+// el oro de la plataforma. La elección es determinista sobre el slug: el mismo
+// concesionario recibe siempre el mismo color.
+const DEALER_STARTER_PALETTES = [
+  ["#1f6f5c", "#17503f"], // verde profundo
+  ["#8c2f39", "#6a2029"], // granate
+  ["#2b5d8a", "#1d4363"], // azul acero
+  ["#a8582a", "#7d3f1e"], // terracota
+  ["#4a4f7a", "#343858"], // añil apagado
+  ["#5f7a2e", "#455a1f"], // oliva
+  ["#8a4f7d", "#653a5c"], // ciruela
+  ["#2f6f74", "#1f5054"], // verde azulado
+];
+
+function defaultDealerPalette(slug) {
+  const key = String(slug || "");
+  let hash = 0;
+  for (let index = 0; index < key.length; index += 1) hash = (hash * 31 + key.charCodeAt(index)) >>> 0;
+  return DEALER_STARTER_PALETTES[hash % DEALER_STARTER_PALETTES.length];
 }
 
 // Vista previa privada: el propio dealer autenticado puede ver su showroom aunque el
@@ -763,7 +786,7 @@ async function getOrganizationPlan(client, organizationId) {
 
 async function vehiclePlanGuard(client, organizationId, extraVehicles = 1) {
   const plan = await getOrganizationPlan(client, organizationId);
-  if (plan.status === "cancelled") return { code: "SUBSCRIPTION_INACTIVE", error: "La suscripción está cancelada. Contacta al administrador de AUTHENTIQ para reactivarla." };
+  if (plan.status === "cancelled") return { code: "SUBSCRIPTION_INACTIVE", error: "La suscripción está cancelada. Contacta al administrador de ZEVROA para reactivarla." };
   const current = await client.query("SELECT COUNT(*)::int AS count FROM vehicles WHERE organization_id=$1 AND status <> 'inactive'", [organizationId]);
   const count = Number(current.rows[0]?.count || 0);
   const limit = plan.vehicleLimit === null || plan.vehicleLimit === undefined ? null : Number(plan.vehicleLimit);
@@ -783,7 +806,7 @@ async function authenticate(req, res, next) {
     if (req.admin.role !== "platform_admin" && !organization.rows[0].organizationId) return res.status(403).json({ error: "La cuenta no tiene una organización activa asignada" });
     req.admin.organizationId = organization.rows[0].organizationId || null;
     if (Number(req.admin.sessionVersion || 0) !== Number(organization.rows[0].sessionVersion || 0)) return res.status(401).json({ error: "La sesión fue revocada. Inicia sesión nuevamente" });
-    if (req.admin.mustChangePassword && req.path !== PASSWORD_CHANGE_PATH) {
+    if (req.admin.mustChangePassword && ![PASSWORD_CHANGE_PATH, "/api/auth/me"].includes(req.path)) {
       return res.status(403).json({ error: "Debes definir una nueva contraseña antes de continuar", code: "MUST_CHANGE_PASSWORD" });
     }
     return next();
@@ -815,7 +838,7 @@ function authenticateCustomer(req, res, next) {
 
 function getOptionalCustomerId(req) {
   const header = req.headers.authorization || "";
-  const token = header.startsWith("Bearer ") ? header.slice(7) : null;
+  const token = header.startsWith("Bearer ") ? header.slice(7) : readCookie(req, CUSTOMER_SESSION_COOKIE);
   if (!token) return null;
   try {
     const customer = jwt.verify(token, jwtSecret);
@@ -1056,7 +1079,7 @@ app.patch("/api/admin/taxonomy/:kind/:id", authenticate, requireRoles("admin", "
   } catch (error) { console.error("Taxonomy update failed", error); res.status(error.code === "23505" ? 409 : 500).json({ error: error.code === "23505" ? "Ese nombre ya existe" : "No se pudo actualizar" }); }
 });
 
-// Sin paginación de catálogo en el frontend a propósito: AUTHENTIQ se posiciona como
+// Sin paginación de catálogo en el frontend a propósito: ZEVROA se posiciona como
 // selección curada ("no llenamos el catálogo, seleccionamos lo que merece ser conducido"),
 // no como un listado masivo. Este límite es solo una válvula de seguridad de escala:
 // evita que una consulta sin filtro devuelva miles de filas con imágenes y medios si el
@@ -1123,7 +1146,7 @@ async function issuePasswordReset({ accountType, accountId, email, req }) {
   const url = resetTokenUrl(req, rawToken, accountType);
   await sendTransactionalEmail({
     to: email,
-    subject: "Restablece tu contraseña · AUTHENTIQ",
+    subject: "Restablece tu contraseña · ZEVROA",
     text: `Usa este enlace en los próximos 30 minutos para crear una nueva contraseña: ${url}`,
     html: `<p>Solicitaste restablecer tu contraseña.</p><p><a href="${escapeHtml(url)}">Crear una nueva contraseña</a></p><p>El enlace vence en 30 minutos y solo se puede usar una vez.</p>`,
   });
@@ -1251,7 +1274,7 @@ async function syncAppointmentToGoogle(organizationId, appointmentId) {
     const endMinutes = hour * 60 + minute + duration;
     const end = `${date}T${String(Math.floor(endMinutes / 60)).padStart(2, "0")}:${String(endMinutes % 60).padStart(2, "0")}:00`;
     const vehicle = [appointment.brand, appointment.model, appointment.variant].filter(Boolean).join(" ") || "vehículo seleccionado";
-    const event = { summary: `Prueba de manejo · ${vehicle}`, description: [`Cliente: ${appointment.customerName}`, appointment.customerEmail && `Correo: ${appointment.customerEmail}`, appointment.customerPhone && `Teléfono: ${appointment.customerPhone}`, appointment.notes && `Notas: ${appointment.notes}`, "Creada desde AUTHENTIQ"].filter(Boolean).join("\n"), start: { dateTime: start, timeZone: appointment.timezone || access.timezone }, end: { dateTime: end, timeZone: appointment.timezone || access.timezone }, status: appointment.status === "cancelled" ? "cancelled" : appointment.status === "pending" ? "tentative" : "confirmed", extendedProperties: { private: { authentiqAppointmentId: String(appointment.id) } } };
+    const event = { summary: `Prueba de manejo · ${vehicle}`, description: [`Cliente: ${appointment.customerName}`, appointment.customerEmail && `Correo: ${appointment.customerEmail}`, appointment.customerPhone && `Teléfono: ${appointment.customerPhone}`, appointment.notes && `Notas: ${appointment.notes}`, "Creada desde ZEVROA"].filter(Boolean).join("\n"), start: { dateTime: start, timeZone: appointment.timezone || access.timezone }, end: { dateTime: end, timeZone: appointment.timezone || access.timezone }, status: appointment.status === "cancelled" ? "cancelled" : appointment.status === "pending" ? "tentative" : "confirmed", extendedProperties: { private: { authentiqAppointmentId: String(appointment.id) } } };
     const base = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(access.calendarId)}/events`;
     const method = appointment.googleEventId ? "PATCH" : "POST";
     const url = appointment.googleEventId ? `${base}/${encodeURIComponent(appointment.googleEventId)}` : base;
@@ -1319,7 +1342,7 @@ async function deliverAdminNotification({ organizationId, type = "lead", title, 
   if (emailDeliveryConfigured) {
     await Promise.allSettled([...new Set(admins.rows.map((row) => String(row.email || "").trim().toLowerCase()).filter(Boolean))].map((email) => sendTransactionalEmail({
       to: email,
-      subject: `[AUTHENTIQ] ${title}`,
+      subject: `[ZEVROA] ${title}`,
       text: body,
       html: `<p><strong>${escapeHtml(title)}</strong></p><p>${escapeHtml(body)}</p><p>Revisa el backoffice de tu showroom para continuar.</p>`,
     })));
@@ -1424,6 +1447,20 @@ app.post("/api/auth/login", async (req, res) => {
   }
 });
 
+app.get("/api/auth/me", authenticate, async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT id, full_name AS "name", email, role, organization_id AS "organizationId", must_change_password AS "mustChangePassword" FROM admin_users WHERE id=$1 AND is_active=TRUE LIMIT 1',
+      [req.admin.id],
+    );
+    if (!result.rowCount) return res.status(401).json({ error: "La cuenta administrativa no está activa" });
+    res.json({ user: result.rows[0] });
+  } catch (error) {
+    console.error("Admin session bootstrap failed", error);
+    res.status(500).json({ error: "No se pudo cargar la sesión" });
+  }
+});
+
 app.post("/api/auth/password-reset/request", async (req, res) => {
   const email = String(req.body?.email || "").trim().toLowerCase();
   try {
@@ -1516,12 +1553,17 @@ app.post("/api/auth/register-dealer", verifyPublicForm, async (req, res) => {
     );
     const organizationId = orgResult.rows[0].id;
 
+    // Cada concesionario abre con una paleta propia. Antes todos heredaban el oro de
+    // ZEVROA, así que el showroom de un dealer recién creado era indistinguible de la
+    // web de la plataforma. Se elige de forma estable a partir del slug para que el
+    // color no cambie entre despliegues; el dealer puede cambiarlo cuando quiera.
+    const [defaultPrimary, defaultAccent] = defaultDealerPalette(slug);
     await client.query(
       `INSERT INTO organization_settings (
         organization_id, business_name, phone, whatsapp, address, primary_color, accent_color,
         appointment_timezone, appointment_start, appointment_end, appointment_duration_minutes, appointment_capacity, appointment_days
-      ) VALUES ($1, $2, $3, $4, $5, '#c8a24b', '#b28b37', 'America/Santo_Domingo', '09:00', '18:00', 60, 1, ARRAY[1,2,3,4,5,6]::integer[])`,
-      [organizationId, dealershipName, phone, whatsapp, address]
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'America/Santo_Domingo', '09:00', '18:00', 60, 1, ARRAY[1,2,3,4,5,6]::integer[])`,
+      [organizationId, dealershipName, phone, whatsapp, address, defaultPrimary, defaultAccent]
     );
 
     await client.query(
@@ -1953,6 +1995,45 @@ app.post("/api/leads", verifyPublicForm, publicRequestIdempotency, async (req, r
     if (isOrganizationNotFound(error)) return sendOrganizationNotFound(res);
     console.error("Lead creation failed", error);
     res.status(500).json({ error: "No se pudo registrar el contacto" });
+  }
+});
+
+// Solicitud de demo desde el landing de la plataforma. Hasta ahora el único camino
+// era el autoservicio: quien quería hablar con alguien antes de registrarse no tenía
+// puerta. Aterriza como lead en la organización de la plataforma, así que se lee
+// desde el panel de ZEVROA igual que cualquier otro contacto.
+app.post("/api/public/demo-request", verifyPublicForm, publicRequestIdempotency, async (req, res) => {
+  const name = String(req.body.name || "").trim().slice(0, 120);
+  const email = String(req.body.email || "").trim().slice(0, 160);
+  const phone = String(req.body.phone || "").trim().slice(0, 40) || null;
+  const dealership = String(req.body.dealership || "").trim().slice(0, 160);
+  const inventorySize = String(req.body.inventorySize || "").trim().slice(0, 40);
+  const privacyConsent = req.body.privacyConsent === true;
+  if (!privacyConsent) return res.status(400).json({ error: "Debes aceptar la política de privacidad para enviar la solicitud" });
+  if (!name || !/^\S+@\S+\.\S+$/.test(email)) return res.status(400).json({ error: "Necesitamos tu nombre y un correo válido" });
+  try {
+    const platform = await pool.query("SELECT id FROM organizations WHERE slug=$1 LIMIT 1", [DEFAULT_ORGANIZATION_SLUG]);
+    if (!platform.rowCount) return res.status(503).json({ error: "El formulario no está disponible ahora mismo" });
+    const message = [
+      dealership ? `Concesionario: ${dealership}` : "",
+      inventorySize ? `Inventario aproximado: ${inventorySize}` : "",
+      String(req.body.message || "").trim().slice(0, 800),
+    ].filter(Boolean).join(String.fromCharCode(10));
+    const lead = await createLead({
+      organizationId: platform.rows[0].id, leadType: "contact", name, email, phone,
+      message: message || null, source: "platform-demo", privacyConsent,
+    });
+    await notifyAdmins({ organizationId: platform.rows[0].id, title: "Solicitud de demo", body: `${name}${dealership ? ` (${dealership})` : ""} pidió una demo desde el sitio.`, entityType: "lead", entityId: lead.id });
+    await sendTransactionalEmail({
+      to: email,
+      subject: "Recibimos tu solicitud de demo",
+      text: `Hola ${name}. Recibimos tu solicitud y te escribimos en menos de un día laborable para agendar la demo.`,
+      html: `<p>Hola <strong>${escapeHtml(name)}</strong>.</p><p>Recibimos tu solicitud y te escribimos en menos de un día laborable para agendar la demo.</p>`,
+    });
+    res.status(201).json({ data: { id: lead.id } });
+  } catch (error) {
+    console.error("Demo request failed", error);
+    res.status(500).json({ error: "No se pudo enviar la solicitud" });
   }
 });
 
@@ -2606,7 +2687,7 @@ app.patch("/api/admin/settings", authenticate, requireRoles("admin", "editor"), 
     }).filter((item) => requiredFields.every((field) => item[field]));
   };
   const settings = {
-    businessName: String(req.body.businessName || "AUTHENTIQ").trim(), logoUrl: String(req.body.logoUrl || "").trim() || null,
+    businessName: String(req.body.businessName || "ZEVROA").trim(), logoUrl: String(req.body.logoUrl || "").trim() || null,
     primaryColor: normalizeColor(req.body.primaryColor, "#c8a24b"), accentColor: normalizeColor(req.body.accentColor, "#b28b37"), faviconUrl: String(req.body.faviconUrl || "").trim() || null,
     phone: String(req.body.phone || "").trim() || null, whatsapp: String(req.body.whatsapp || "").trim() || null,
     email: String(req.body.email || "").trim() || null, address: String(req.body.address || "").trim() || null,
@@ -2976,7 +3057,7 @@ app.get("/api/admin/calendar.ics", authenticate, requireRoles("admin", "editor",
       ].join("\r\n");
     });
     const calendarName = settings.rows[0]?.businessName || "Agenda del showroom";
-    const content = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//AUTHENTIQ//Local showroom calendar//ES", "CALSCALE:GREGORIAN", `X-WR-CALNAME:${icsText(calendarName)}`, ...events, "END:VCALENDAR", ""].join("\r\n");
+    const content = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//ZEVROA//Local showroom calendar//ES", "CALSCALE:GREGORIAN", `X-WR-CALNAME:${icsText(calendarName)}`, ...events, "END:VCALENDAR", ""].join("\r\n");
     res.set({ "Content-Type": "text/calendar; charset=utf-8", "Content-Disposition": `attachment; filename=agenda-${String(calendarName).toLowerCase().replace(/[^a-z0-9]+/g, "-")}.ics` }).send(content);
   } catch (error) { console.error("Calendar export failed", error); res.status(500).json({ error: "No se pudo exportar la agenda" }); }
 });
@@ -3021,7 +3102,7 @@ app.post("/api/admin/billing/checkout", authenticate, requireRoles("admin"), asy
     const session = await stripeClient.checkout.sessions.create({
       mode: "subscription",
       customer_email: admin.rows[0]?.email || undefined,
-      line_items: [{ price_data: { currency: "usd", unit_amount: Math.round(Number(plan.rows[0].monthlyAmount) * 100), recurring: { interval: "month" }, product_data: { name: `AUTHENTIQ · ${plan.rows[0].name}` } }, quantity: 1 }],
+      line_items: [{ price_data: { currency: "usd", unit_amount: Math.round(Number(plan.rows[0].monthlyAmount) * 100), recurring: { interval: "month" }, product_data: { name: `ZEVROA · ${plan.rows[0].name}` } }, quantity: 1 }],
       metadata: { organizationId: adminOrganizationId(req), planCode },
       subscription_data: { metadata: { organizationId: adminOrganizationId(req), planCode } },
       success_url: `${origin}/backoffice?billing=success`,
@@ -3172,8 +3253,11 @@ app.post("/api/admin/social/drafts", authenticate, requireRoles("admin", "editor
 
 app.get("/api/admin/billing", authenticate, requireRoles("admin"), async (req, res) => {
   try {
-    const result = await pool.query("SELECT bs.provider, bs.mode, bs.plan_code AS \"planCode\", pp.name AS \"planName\", pp.vehicle_limit AS \"vehicleLimit\", bs.status, bs.monthly_amount AS \"monthlyAmount\", bs.currency, bs.current_period_end AS \"currentPeriodEnd\", bs.updated_at AS \"updatedAt\", (SELECT COUNT(*)::int FROM vehicles v WHERE v.organization_id=bs.organization_id AND v.status <> 'inactive') AS \"vehicleUsage\" FROM billing_subscriptions bs LEFT JOIN platform_plans pp ON pp.code=bs.plan_code WHERE bs.organization_id=$1", [adminOrganizationId(req)]);
-    res.json({ data: { ...(result.rows[0] || { provider: "local", mode: "local_demo", planCode: "starter", planName: "Starter", status: "trialing", monthlyAmount: 0, currency: "USD", vehicleLimit: 40, vehicleUsage: 0 }), checkoutReady: Boolean(stripeClient), providerConfigured: billingReady, provider: stripeClient ? "stripe" : billingProvider, message: stripeClient ? (stripeWebhookSecret ? "Stripe configurado; valida un webhook de prueba antes de producción." : "Stripe configurado para checkout; falta STRIPE_WEBHOOK_SECRET.") : "Modo local: conecta Stripe o el proveedor elegido antes de cobrar." } });
+    const [result, plans] = await Promise.all([
+      pool.query("SELECT bs.provider, bs.mode, bs.plan_code AS \"planCode\", pp.name AS \"planName\", pp.description, pp.vehicle_limit AS \"vehicleLimit\", bs.status, bs.monthly_amount AS \"monthlyAmount\", bs.currency, bs.current_period_end AS \"currentPeriodEnd\", bs.updated_at AS \"updatedAt\", (SELECT COUNT(*)::int FROM vehicles v WHERE v.organization_id=bs.organization_id AND v.status <> 'inactive') AS \"vehicleUsage\" FROM billing_subscriptions bs LEFT JOIN platform_plans pp ON pp.code=bs.plan_code WHERE bs.organization_id=$1", [adminOrganizationId(req)]),
+      pool.query("SELECT code, name, description, monthly_amount AS \"monthlyAmount\", vehicle_limit AS \"vehicleLimit\", features FROM platform_plans WHERE is_active=TRUE ORDER BY monthly_amount, code"),
+    ]);
+    res.json({ data: { ...(result.rows[0] || { provider: "local", mode: "local_demo", planCode: "starter", planName: "Starter", monthlyAmount: 0, currency: "USD", vehicleLimit: 40, vehicleUsage: 0 }), plans: plans.rows, checkoutReady: Boolean(stripeClient), providerConfigured: billingReady, provider: stripeClient ? "stripe" : billingProvider, message: stripeClient ? (stripeWebhookSecret ? "Stripe configurado; valida un webhook de prueba antes de producción." : "Stripe configurado para checkout; falta STRIPE_WEBHOOK_SECRET.") : "Modo local: conecta Stripe o el proveedor elegido antes de cobrar." } });
   } catch (error) { console.error("Billing query failed", error); res.status(500).json({ error: "No se pudo cargar la suscripción" }); }
 });
 
@@ -3434,7 +3518,7 @@ app.post("/api/admin/quotes", authenticate, requireRoles("admin", "editor", "sel
       RETURNING id, quote_number AS "quoteNumber", status, total_usd AS "totalUsd", created_at AS "createdAt"
     `, [adminOrganizationId(req), createQuoteNumber(), quote.leadId, quote.vehicleId, quote.customerName, quote.customerEmail, quote.customerPhone, quote.basePriceUsd, quote.discountUsd, quote.totalUsd, quote.currency || "USD", quote.validUntil, quote.notes, customerId, req.admin.id]);
     await writeAudit(req, "quote.create", "quote", result.rows[0].id, { leadId: quote.leadId, vehicleId: quote.vehicleId, totalUsd: quote.totalUsd });
-    if (customerId) await notifyCustomer({ customerId, type: "quote_created", title: "Nueva cotización disponible", body: `AUTHENTIQ preparó una cotización por $${Number(quote.totalUsd).toLocaleString("en-US")} USD.`, entityType: "quote", entityId: result.rows[0].id });
+    if (customerId) await notifyCustomer({ customerId, type: "quote_created", title: "Nueva cotización disponible", body: `ZEVROA preparó una cotización por $${Number(quote.totalUsd).toLocaleString("en-US")} USD.`, entityType: "quote", entityId: result.rows[0].id });
     res.status(201).json({ data: result.rows[0] });
   } catch (error) {
     console.error("Quote creation failed", error);
@@ -3572,7 +3656,7 @@ function metadataDescription(value, fallback) {
   return (normalized || fallback).slice(0, 180);
 }
 
-function publicNotFoundHtml({ businessName = "AUTHENTIQ", origin = "", title = "Página no encontrada", message = "Revisa el enlace o vuelve al showroom para continuar." } = {}) {
+function publicNotFoundHtml({ businessName = "ZEVROA", origin = "", title = "Página no encontrada", message = "Revisa el enlace o vuelve al showroom para continuar." } = {}) {
   const home = origin ? `${origin}/` : "/";
   return `<!doctype html><html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>${escapeHtml(title)} · ${escapeHtml(businessName)}</title><meta name="robots" content="noindex, nofollow"><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#101212;color:#f2efe9;font-family:Arial,sans-serif}main{width:min(560px,calc(100% - 40px));padding:40px;border:1px solid #c8a24b;background:#171a1a}small{letter-spacing:.12em;color:#c8a24b}p{color:#b8bdb8;line-height:1.6}a{display:inline-block;margin-top:18px;padding:13px 18px;background:#c8a24b;color:#101212;text-decoration:none;font-weight:700}</style></head><body><main><small>${escapeHtml(businessName)} · SHOWROOM</small><h1>${escapeHtml(title)}</h1><p>${escapeHtml(message)}</p><a href="${escapeHtml(home)}">Volver al showroom</a></main></body></html>`;
 }
@@ -3670,7 +3754,7 @@ async function sendTenantIndex(req, res, next) {
       'SELECT business_name AS "businessName", logo_url AS "logoUrl", phone, email, address, hours, currency, instagram_url AS "instagramUrl", facebook_url AS "facebookUrl" FROM organization_settings WHERE organization_id=$1',
       [organization.id],
     );
-    const businessName = String(settings.rows[0]?.businessName || organization.name || "AUTHENTIQ").trim().slice(0, 120) || "AUTHENTIQ";
+    const businessName = String(settings.rows[0]?.businessName || organization.name || "ZEVROA").trim().slice(0, 120) || "ZEVROA";
     const origin = publicOriginForOrganization(req, organization).replace(/\/$/, "");
     const canonicalPath = req.path === "/index.html" ? "/" : req.path;
     const canonical = `${origin}${canonicalPath}`;
@@ -3685,15 +3769,15 @@ async function sendTenantIndex(req, res, next) {
     const html = await fs.readFile(frontendIndex, "utf8");
     res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
     res.type("html").send(html
-      .replaceAll("<!--__AUTHENTIQ_PRERENDER__-->", prerender)
-      .replaceAll("<!--__AUTHENTIQ_JSONLD__-->", jsonLd)
-      .replaceAll("__AUTHENTIQ_TITLE__", escapeHtml(metadata.title))
-      .replaceAll("__AUTHENTIQ_DESCRIPTION__", escapeHtml(metadata.description))
-      .replaceAll("__AUTHENTIQ_IMAGE__", escapeHtml(metadata.image))
-      .replaceAll("__AUTHENTIQ_CANONICAL__", escapeHtml(canonical))
-      .replaceAll("__AUTHENTIQ_ROBOTS__", escapeHtml(metadata.robots))
-      .replaceAll("__AUTHENTIQ_OG_TYPE__", escapeHtml(metadata.ogType))
-      .replaceAll("__AUTHENTIQ_SITE_NAME__", escapeHtml(businessName)));
+      .replaceAll("<!--__ZEVROA_PRERENDER__-->", prerender)
+      .replaceAll("<!--__ZEVROA_JSONLD__-->", jsonLd)
+      .replaceAll("__ZEVROA_TITLE__", escapeHtml(metadata.title))
+      .replaceAll("__ZEVROA_DESCRIPTION__", escapeHtml(metadata.description))
+      .replaceAll("__ZEVROA_IMAGE__", escapeHtml(metadata.image))
+      .replaceAll("__ZEVROA_CANONICAL__", escapeHtml(canonical))
+      .replaceAll("__ZEVROA_ROBOTS__", escapeHtml(metadata.robots))
+      .replaceAll("__ZEVROA_OG_TYPE__", escapeHtml(metadata.ogType))
+      .replaceAll("__ZEVROA_SITE_NAME__", escapeHtml(businessName)));
   } catch (error) {
     if (isOrganizationNotFound(error)) {
       res.status(404).type("html").send(publicNotFoundHtml({ title: "Showroom no encontrado", message: "Revisa el enlace o vuelve al espacio principal para explorar los dealers disponibles." }));
@@ -3753,12 +3837,11 @@ initMonitoring();
 process.on("unhandledRejection", (reason) => { console.error("Unhandled promise rejection", reason); reportServerError(reason instanceof Error ? reason : new Error(String(reason)), { route: "unhandledRejection" }); });
 process.on("uncaughtException", (error) => { console.error("Uncaught exception", error); reportServerError(error, { route: "uncaughtException" }); });
 
-const isVercelRuntime = Boolean(process.env.VERCEL);
-const server = isVercelRuntime ? null : app.listen(port, () => console.log(`AUTHENTIQ API running on http://localhost:${port}`));
+const server = isVercelRuntime ? null : app.listen(port, () => console.log(`ZEVROA API running on http://localhost:${port}`));
 const reminderTimer = isVercelRuntime ? null : setInterval(() => dispatchAppointmentReminders().catch((error) => console.error("Appointment reminders failed", error)), 5 * 60 * 1000);
 if (!isVercelRuntime) dispatchAppointmentReminders().catch((error) => console.error("Initial appointment reminders failed", error));
 const shutdown = (signal) => {
-  console.log(`AUTHENTIQ API shutting down (${signal})`);
+  console.log(`ZEVROA API shutting down (${signal})`);
   if (reminderTimer) clearInterval(reminderTimer);
   if (!server) return;
   server.close(async () => {

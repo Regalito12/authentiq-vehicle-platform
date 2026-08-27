@@ -60,3 +60,35 @@ export function contrastSafeShade(hex, bgHex, minRatio = 4.55) {
   }
   return "#000000";
 }
+
+/**
+ * Tinta legible *encima* del color de marca. El sistema daba por hecho que el color
+ * del concesionario era claro (el oro de la plataforma) y escribía negro fijo sobre
+ * él; con una marca oscura —granate, añil, verde profundo— el botón bajaba a 3:1.
+ */
+export function readableInkOn(hex) {
+  if (!/^#[0-9a-f]{6}$/i.test(String(hex || ""))) return "#0a0a0a";
+  return contrastRatio(hex, "#0a0a0a") >= contrastRatio(hex, "#ffffff") ? "#0a0a0a" : "#ffffff";
+}
+
+/** Variante ligeramente más clara del color de marca, para estados hover. */
+export function lighten(hex, amount = 0.09) {
+  if (!/^#[0-9a-f]{6}$/i.test(String(hex || ""))) return hex;
+  const [h, sat, l] = rgbToHsl(...hexToRgb(hex));
+  return toHex(hslToRgb(h, sat, Math.min(1, l + amount)));
+}
+
+/**
+ * Espejo de `contrastSafeShade` para superficies oscuras: aclara el color de marca
+ * lo justo para pasar contraste sobre el fondo oscuro del hero y de la barra.
+ */
+export function contrastSafeTint(hex, bgHex, minRatio = 4.55) {
+  if (!/^#[0-9a-f]{6}$/i.test(String(hex || ""))) return hex;
+  if (contrastRatio(hex, bgHex) >= minRatio) return hex;
+  const [h, s, l] = rgbToHsl(...hexToRgb(hex));
+  for (let step = 1; step <= 100; step += 1) {
+    const candidate = toHex(hslToRgb(h, s, Math.min(1, l + step * 0.01)));
+    if (contrastRatio(candidate, bgHex) >= minRatio) return candidate;
+  }
+  return "#ffffff";
+}

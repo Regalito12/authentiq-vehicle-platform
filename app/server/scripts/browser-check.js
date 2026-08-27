@@ -169,6 +169,13 @@ async function main() {
         failedRequests.push(`${params.type} — ${params.errorText}`);
       }
       if (method === "Network.responseReceived" && params.response.status >= 400) {
+        // El showroom comprueba en segundo plano si existe una sesión de
+        // comprador basada en cookie HttpOnly. Para un visitante anónimo, el
+        // 401 de este endpoint privado es el resultado esperado, no un recurso
+        // roto; los 4xx/5xx de cualquier otra ruta sí deben hacer fallar el test.
+        const optionalCustomerBootstrap = params.response.status === 401
+          && /\/api\/customer\/(me|favorites|activity)(?:\?|$)/.test(params.response.url);
+        if (optionalCustomerBootstrap) return;
         failedRequests.push(`${params.response.status} ${params.response.url.slice(0, 140)}`);
       }
     });
@@ -395,14 +402,20 @@ async function main() {
     } else {
       const { token, user } = await session.json();
       console.log(`      sesión de verificación: ${user.role}`);
+      // La aplicación ya no lee tokens administrativos desde localStorage.
+      // Reutilizamos el handoff temporal que usa el centro de plataforma y que
+      // App.jsx elimina de la barra de direcciones al arrancar.
+      const authenticatedAppUrl = (pathname = "/") => {
+        const url = new URL(appUrl(pathname));
+        url.searchParams.set("impersonate", JSON.stringify({ token, user }));
+        return url.toString();
+      };
       const commonOperations = [["dashboard", "Resumen"], ["inventory", "Inventario"], ["taxonomy", "Marcas y categorías"], ["leads", "Clientes"], ["appointments", "Citas"], ["quotes", "Cotizaciones"], ["blog", "Contenido"], ["offers", "Ofertas"], ["reports", "Reportes"]];
-      const modules = user.role === "editor" ? [...commonOperations, ["settings", "Personalizar showroom"]] : user.role === "admin" ? [...commonOperations, ["audit", "Actividad"], ["users", "Usuarios"], ["integrations", "Conexiones"], ["settings", "Personalizar showroom"]] : commonOperations;
-      const moduleReadyText = { dashboard: "Prioridad", inventory: "inventario", taxonomy: "Marcas y categorías", leads: "Clientes", appointments: "Citas", quotes: "Cotizaciones", blog: "Contenido", offers: "Ofertas", reports: "Reportes", audit: "Actividad", users: "Usuarios", integrations: "Agenda", settings: "Tu showroom, a tu manera" };
+      const modules = user.role === "editor" ? [...commonOperations, ["settings", "Personalizar showroom"]] : user.role === "admin" ? [...commonOperations, ["audit", "Actividad"], ["users", "Usuarios"], ["subscription", "Plan y facturación"], ["integrations", "Conexiones"], ["settings", "Personalizar showroom"]] : commonOperations;
+      const moduleReadyText = { dashboard: "Prioridad", inventory: "inventario", taxonomy: "Marcas y categorías", leads: "Clientes", appointments: "Citas", quotes: "Cotizaciones", blog: "Contenido", offers: "Ofertas", reports: "Reportes", audit: "Actividad", users: "Usuarios", subscription: "Tu plan, claro desde el primer día.", integrations: "Agenda", settings: "Tu showroom, a tu manera" };
       for (const [width, height, label, mobile] of [[390, 844, "movil", true], [1280, 800, "escritorio", false]]) {
         await cdp.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile });
-        // Inyecta la sesión antes de cargar para entrar directo al backoffice.
-        await cdp.send("Page.addScriptToEvaluateOnNewDocument", { source: `try{localStorage.setItem('authentiq_admin_token',${JSON.stringify(token)});localStorage.setItem('authentiq_admin_user',${JSON.stringify(JSON.stringify(user))});}catch(e){}` });
-        await navigate(appUrl("/"), "document.querySelectorAll('.vehicle-card').length > 0");
+        await navigate(authenticatedAppUrl("/"), "document.querySelectorAll('.vehicle-card').length > 0");
         await cdp.evaluate(`(() => { const b=document.querySelector('.nav-backoffice-link') || [...document.querySelectorAll('button')].find(el=>/BACKOFFICE|PANEL\s+DE\s+CONTROL/i.test(el.textContent)); if(b) b.click(); return true; })()`);
         await wait(2500);
 

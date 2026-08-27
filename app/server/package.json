@@ -15,7 +15,7 @@
     "test:e2e": "node scripts/e2e-test.js",
     "migrate:3d": "node scripts/migrate-local-3d-to-supabase.mjs",
     "migrate:storefront-content": "node scripts/apply-migration.js 045_storefront_trust_content.sql",
-    "migrate:production": "node scripts/apply-migration.js 045_storefront_trust_content.sql && node scripts/apply-migration.js 046_password_recovery_and_sessions.sql && node scripts/apply-migration.js 047_billing_events_and_email_outbox.sql && node scripts/apply-migration.js 048_public_request_idempotency.sql",
+    "migrate:production": "node scripts/apply-migration.js 045_storefront_trust_content.sql && node scripts/apply-migration.js 046_password_recovery_and_sessions.sql && node scripts/apply-migration.js 047_billing_events_and_email_outbox.sql && node scripts/apply-migration.js 048_public_request_idempotency.sql && node scripts/apply-migration.js 049_rebrand_zevroa.sql",
     "check:components": "node scripts/check-components.js",
     "check:readability": "node scripts/check-readability.mjs",
     "test:browser": "node scripts/browser-check.js",

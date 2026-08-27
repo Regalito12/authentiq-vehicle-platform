@@ -9,7 +9,7 @@ import { formatPrice, publicVehiclePath, slugify } from "./format.js";
 
 export function WindowStickerModal({ vehicle, organization, settings, onClose }) {
   if (!vehicle) return null;
-  const slug = organization?.slug || "authentiq";
+  const slug = organization?.slug || "zevroa";
   const customDomain = organization?.customDomain;
   const normalizedCustomDomain = String(customDomain || "").replace(/^https?:\/\//i, "").replace(/\/+$/, "").toLowerCase();
   const customDomainReady = Boolean(normalizedCustomDomain && window.location.hostname.toLowerCase() === normalizedCustomDomain);
@@ -48,7 +48,7 @@ export function WindowStickerModal({ vehicle, organization, settings, onClose })
         <div className="sticker-sheet">
           <div className="sticker-header">
             <div className="sticker-dealer-info">
-              <h2>{settings?.businessName || organization?.name || "AUTHENTIQ MOTORS"}</h2>
+              <h2>{settings?.businessName || organization?.name || "ZEVROA MOTORS"}</h2>
               <p>{settings?.address || "Concesionario Autorizado"} {settings?.phone ? `· Tel: ${settings.phone}` : ""}</p>
             </div>
             <div style={{ textAlign: "right" }}>
@@ -140,7 +140,7 @@ export function WindowStickerModal({ vehicle, organization, settings, onClose })
           </div>
 
           <div className="sticker-footer">
-            <span>{settings?.businessName || organization?.name || "AUTHENTIQ"} · Inventario Verificado · Todos los derechos reservados</span>
+            <span>{settings?.businessName || organization?.name || "ZEVROA"} · Inventario Verificado · Todos los derechos reservados</span>
           </div>
         </div>
       </div>
@@ -215,7 +215,7 @@ export function SocialFlyerStudio({ vehicles = [], organization, settings }) {
       ctx.fillStyle = "#c8a24b";
       ctx.font = "bold 28px 'Inter Tight', sans-serif";
       ctx.textAlign = "left";
-      ctx.fillText((settings?.businessName || organization?.name || "AUTHENTIQ MOTORS").toUpperCase(), 60, format === "story" ? 140 : 80);
+      ctx.fillText((settings?.businessName || organization?.name || "ZEVROA MOTORS").toUpperCase(), 60, format === "story" ? 140 : 80);
 
       ctx.fillStyle = "#888888";
       ctx.font = "20px 'IBM Plex Mono', monospace";

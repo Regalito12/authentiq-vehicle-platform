@@ -19,9 +19,9 @@
 BEGIN;
 
 UPDATE business_settings
-SET privacy_text = $$AUTHENTIQ · Política de privacidad (borrador base — pendiente de revisión legal)
+SET privacy_text = $$ZEVROA · Política de privacidad (borrador base — pendiente de revisión legal)
 
-Esta política describe qué datos recopila AUTHENTIQ y cómo los trata. Es un borrador inicial redactado a partir del funcionamiento real de la plataforma; el negocio debe revisarla con asesoría legal antes de operar públicamente y puede editarla en cualquier momento desde el panel administrativo.
+Esta política describe qué datos recopila ZEVROA y cómo los trata. Es un borrador inicial redactado a partir del funcionamiento real de la plataforma; el negocio debe revisarla con asesoría legal antes de operar públicamente y puede editarla en cualquier momento desde el panel administrativo.
 
 1. Qué datos recopilamos
 - Formularios de contacto, interés y oferta: nombre, correo, teléfono y el mensaje que escribas.
@@ -36,7 +36,7 @@ Esta política describe qué datos recopila AUTHENTIQ y cómo los trata. Es un b
 - Cumplir obligaciones legales y de auditoría interna cuando corresponda.
 
 3. Con quién los compartimos
-No vendemos ni compartimos tus datos con terceros con fines publicitarios. Solo los ve el equipo comercial de AUTHENTIQ que necesita atenderte, y —únicamente si el negocio lo configura expresamente— un sistema interno de notificaciones para agilizar la respuesta.
+No vendemos ni compartimos tus datos con terceros con fines publicitarios. Solo los ve el equipo comercial de ZEVROA que necesita atenderte, y —únicamente si el negocio lo configura expresamente— un sistema interno de notificaciones para agilizar la respuesta.
 
 4. Cuánto tiempo los conservamos
 Mientras tu cuenta esté activa o mientras sea razonablemente necesario para la relación comercial (por ejemplo, para dar seguimiento a una oferta). Puedes solicitar la eliminación de tus datos en cualquier momento a través de los canales de contacto publicados en el sitio.
@@ -49,15 +49,15 @@ Si actualizamos esta política, la nueva versión y su fecha quedarán reflejada
 WHERE id = 1 AND (privacy_text IS NULL OR btrim(privacy_text) = '');
 
 UPDATE business_settings
-SET terms_text = $$AUTHENTIQ · Términos y condiciones (borrador base — pendiente de revisión legal)
+SET terms_text = $$ZEVROA · Términos y condiciones (borrador base — pendiente de revisión legal)
 
 Estos términos describen cómo funciona el sitio y qué implica usarlo. Es un borrador inicial pendiente de revisión legal; el negocio puede editarlo en cualquier momento desde el panel administrativo.
 
 1. Naturaleza del catálogo
-La información de precio, disponibilidad, especificaciones y condición de cada vehículo se muestra de buena fe pero está sujeta a confirmación e inspección. AUTHENTIQ puede corregir errores evidentes de precio o descripción sin previo aviso.
+La información de precio, disponibilidad, especificaciones y condición de cada vehículo se muestra de buena fe pero está sujeta a confirmación e inspección. ZEVROA puede corregir errores evidentes de precio o descripción sin previo aviso.
 
 2. Ofertas y cotizaciones
-Enviar una oferta o generar una cotización a través del sitio es una manifestación de interés, no una compra ni una reserva confirmada. Toda operación queda sujeta a disponibilidad del vehículo, verificación de la propuesta y aprobación comercial de AUTHENTIQ. Las cotizaciones generadas tienen una vigencia limitada, indicada en el propio documento.
+Enviar una oferta o generar una cotización a través del sitio es una manifestación de interés, no una compra ni una reserva confirmada. Toda operación queda sujeta a disponibilidad del vehículo, verificación de la propuesta y aprobación comercial de ZEVROA. Las cotizaciones generadas tienen una vigencia limitada, indicada en el propio documento.
 
 3. Cuenta de comprador
 Si creas una cuenta, eres responsable de mantener tu contraseña en privado y de la actividad que ocurra bajo tu sesión. Puedes cerrar tu cuenta o solicitar su eliminación en cualquier momento.
@@ -66,7 +66,7 @@ Si creas una cuenta, eres responsable de mantener tu contraseña en privado y de
 No está permitido usar el sitio para extraer datos de forma automatizada y masiva, interferir con su funcionamiento, ni enviar información falsa en los formularios de contacto u oferta.
 
 5. Disponibilidad del servicio
-AUTHENTIQ hace un esfuerzo razonable por mantener el sitio disponible, pero no garantiza operación ininterrumpida y puede realizar mantenimiento con o sin aviso previo.
+ZEVROA hace un esfuerzo razonable por mantener el sitio disponible, pero no garantiza operación ininterrumpida y puede realizar mantenimiento con o sin aviso previo.
 
 6. Cambios a estos términos
 Si actualizamos estos términos, la versión vigente será la publicada en este sitio en el momento de tu visita o solicitud.$$

@@ -74,7 +74,7 @@ await check("Portada entrega HTML real para buscadores", async () => {
   const { response, body } = await request("/");
   assert(response.ok, `respondió ${response.status}`);
   const html = String(body || "");
-  assert(!html.includes("__AUTHENTIQ_PRERENDER__"), "el marcador de prerender quedó sin reemplazar");
+  assert(!html.includes("__ZEVROA_PRERENDER__"), "el marcador de prerender quedó sin reemplazar");
   assert(/<div id="root"><main/.test(html), "no hay contenido dentro de #root");
   assert(/<h1>/.test(html), "falta el encabezado principal");
   assert(html.includes("application/ld+json") && html.includes("AutoDealer"), "falta el dato estructurado del concesionario");

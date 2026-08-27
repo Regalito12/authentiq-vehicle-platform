@@ -34,7 +34,7 @@ export async function initMonitoring() {
     client = Sentry;
     return Sentry;
   } catch (error) {
-    console.warn("[AUTHENTIQ] Monitoreo no disponible", error);
+    console.warn("[ZEVROA] Monitoreo no disponible", error);
     return null;
   }
 }

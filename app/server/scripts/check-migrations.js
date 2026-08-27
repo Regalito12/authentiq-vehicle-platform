@@ -27,6 +27,7 @@ const expectedFiles = [
   "046_password_recovery_and_sessions.sql",
   "047_billing_events_and_email_outbox.sql",
   "048_public_request_idempotency.sql",
+  "049_rebrand_zevroa.sql",
 ];
 const expectedTables = ["appointment_blocks", "organizations", "organization_members", "organization_settings", "organization_integrations", "social_drafts", "billing_subscriptions", "platform_plans", "vehicle_3d_jobs", "password_reset_tokens", "billing_webhook_events", "email_delivery_log", "public_request_idempotency"];
 const expectedColumns = [

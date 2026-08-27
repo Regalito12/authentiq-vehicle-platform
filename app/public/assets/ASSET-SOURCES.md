@@ -6,7 +6,7 @@
 - Autor publicado: Taryn Elliott
 - Licencia revisada: [Pexels License](https://www.pexels.com/license/)
 - Descargado: 2026-08-24
-- Uso: fondo visual de la landing de AUTHENTIQ. No representa patrocinio, afiliación ni inventario de una marca concreta.
+- Uso: fondo visual de la landing de ZEVROA. No representa patrocinio, afiliación ni inventario de una marca concreta.
 
 ## authentiq-cinematic-drive-poster.jpg
 

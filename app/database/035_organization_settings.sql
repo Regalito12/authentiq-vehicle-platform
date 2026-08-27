@@ -3,7 +3,7 @@
 -- utiliza esta tabla y nunca depende de un singleton global.
 CREATE TABLE IF NOT EXISTS organization_settings (
   organization_id UUID PRIMARY KEY REFERENCES organizations(id) ON DELETE CASCADE,
-  business_name VARCHAR(160) NOT NULL DEFAULT 'AUTHENTIQ',
+  business_name VARCHAR(160) NOT NULL DEFAULT 'ZEVROA',
   logo_url TEXT,
   phone VARCHAR(40),
   whatsapp VARCHAR(40),

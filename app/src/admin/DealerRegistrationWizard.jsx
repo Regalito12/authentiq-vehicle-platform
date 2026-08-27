@@ -12,6 +12,12 @@ export default function DealerRegistrationWizard({ onRegisterSuccess, onCancel, 
   const [error, setError] = useState("");
   const [registeredData, setRegisteredData] = useState(null);
   const [turnstileToken, setTurnstileToken] = useState("");
+  const [copyStatus, setCopyStatus] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+
+  // Al pasar de paso el formulario cambia por completo pero el navegador conserva
+  // el scroll: el dealer se queda mirando el pie de una pantalla que ya no existe.
+  useEffect(() => { window.scrollTo({ top: 0, behavior: "smooth" }); }, [step]);
 
   const [form, setForm] = useState({
     dealershipName: "",
@@ -136,11 +142,8 @@ export default function DealerRegistrationWizard({ onRegisterSuccess, onCancel, 
       if (!response.ok) {
         throw new Error(payload.error || "No se pudo registrar el concesionario");
       }
-      // Se guarda de inmediato: el botón "Vista previa privada" de esta misma pantalla
-      // abre una pestaña nueva que necesita el token en localStorage para autenticar
-      // su vista previa, y eso todavía no pasa hasta que se entra al backoffice.
-      localStorage.setItem("authentiq_admin_token", payload.token);
-      localStorage.setItem("authentiq_admin_user", JSON.stringify(payload.user));
+      // El API ya dejó la sesión en una cookie HttpOnly. El padre recibe el payload
+      // para continuar en esta pestaña, pero no persistimos credenciales en el navegador.
       setRegisteredData(payload);
       setStep(3);
     } catch (err) {
@@ -152,6 +155,9 @@ export default function DealerRegistrationWizard({ onRegisterSuccess, onCancel, 
 
   const origin = window.location.origin;
   const previewUrl = `${origin}/?preview=1`;
+  const platformDomain = (import.meta.env.VITE_PLATFORM_BASE_DOMAIN || "zevroa.com").replace(/^https?:\/\//i, "").replace(/\/$/, "");
+  const passwordLongEnough = form.adminPassword.length >= 8;
+  const passwordsMatch = Boolean(form.confirmPassword) && form.adminPassword === form.confirmPassword;
 
   if (step === 3 && registeredData) {
     return (
@@ -159,7 +165,7 @@ export default function DealerRegistrationWizard({ onRegisterSuccess, onCancel, 
         <span className="eyebrow">¡ENHORABUENA! · TU SHOWROOM ESTÁ EN REVISIÓN</span>
         <h1>¡Bienvenido a <em>{registeredData.organization?.name || form.dealershipName}!</em></h1>
         <p className="account-welcome">
-          Tu showroom fue creado con tu cuenta de administrador y tiene un periodo de prueba activo de 14 días. Todavía no es público: personalízalo con calma y se publicará cuando el equipo de AUTHENTIQ lo apruebe.
+          Tu showroom fue creado con tu cuenta de administrador y tiene un periodo de prueba activo de 14 días. Todavía no es público: personalízalo con calma y se publicará cuando el equipo de ZEVROA lo apruebe.
         </p>
 
         <div className="dealer-url-box" style={{ margin: "16px 0" }}>
@@ -167,14 +173,20 @@ export default function DealerRegistrationWizard({ onRegisterSuccess, onCancel, 
           <button
             className="dealer-copy-btn"
             type="button"
-            onClick={() => {
-              navigator.clipboard.writeText(registeredData.dealerUrl || previewUrl);
-              alert("¡Enlace copiado al portapapeles!");
+            onClick={async () => {
+              const url = registeredData.dealerUrl || previewUrl;
+              try {
+                await navigator.clipboard.writeText(url);
+                setCopyStatus("Enlace copiado al portapapeles.");
+              } catch {
+                setCopyStatus("No se pudo copiar automáticamente. Selecciona el enlace y cópialo manualmente.");
+              }
             }}
           >
             Copiar Enlace
           </button>
         </div>
+        {copyStatus && <p className="form-message" role="status" aria-live="polite">{copyStatus}</p>}
 
         {registeredData.futurePublicUrl && (
           <p className="account-welcome" style={{ margin: "-8px 0 16px", fontSize: "14px" }}>
@@ -204,12 +216,12 @@ export default function DealerRegistrationWizard({ onRegisterSuccess, onCancel, 
 
   return (
     <form className="admin-login dealer-register-form" onSubmit={step === 1 ? handleNextStep : handleSubmit}>
-      <span className="eyebrow">AUTHENTIQ · NUEVO SHOWROOM</span>
+      <span className="eyebrow">ZEVROA · NUEVO SHOWROOM</span>
       <h1>Crea tu <em>Showroom Digital.</em></h1>
       <p className="account-welcome">
         {step === 1
-          ? "Paso 1 de 2: Datos de tu Concesionario e Identificador Único."
-          : "Paso 2 de 2: Crea tu cuenta de Administrador."}
+          ? "Paso 1 de 2 · Los datos de tu concesionario y la dirección de tu showroom."
+          : "Paso 2 de 2 · Tu cuenta de administrador. Después entrarás al panel para personalizar el showroom."}
       </p>
 
       <div className="wizard-step-indicator" style={{ display: "flex", gap: "8px", marginBottom: "8px" }}>
@@ -239,11 +251,14 @@ export default function DealerRegistrationWizard({ onRegisterSuccess, onCancel, 
               onChange={handleSlugChange}
               required
             />
+            {/* La dirección real, escrita entera y en vivo: "/?dealer=slug" es una ruta
+                interna que no le dice nada al dealer sobre qué va a compartir. */}
+            <span className="slug-preview" aria-hidden="true">https://<b>{form.slug || "tu-concesionario"}</b>.{platformDomain}</span>
             <small className={`slug-availability${slugCheck?.state === "free" ? " is-free" : slugCheck?.state === "taken" ? " is-taken" : ""}`} aria-live="polite">
               {slugCheck?.state === "checking" && "Comprobando disponibilidad…"}
-              {slugCheck?.state === "free" && `Disponible. Tu showroom vivirá en /?dealer=${form.slug}`}
+              {slugCheck?.state === "free" && "Esta dirección está libre y será tuya."}
               {slugCheck?.state === "taken" && slugCheck.message}
-              {!slugCheck && "Será parte de la dirección de tu showroom. Usa minúsculas, números y guiones; podrás cambiarlo antes de publicar."}
+              {!slugCheck && "Esta será la dirección de tu showroom. Usa minúsculas, números y guiones; podrás cambiarla antes de publicar."}
             </small>
           </label>
 
@@ -316,29 +331,48 @@ export default function DealerRegistrationWizard({ onRegisterSuccess, onCancel, 
 
           <label>
             Contraseña
-            <input
-              type="password"
-              placeholder="Mínimo 8 caracteres"
-              value={form.adminPassword}
-              onChange={(e) => updateField("adminPassword", e.target.value)}
-              minLength={8}
-              required
-            />
+            {/* Las reglas se enseñan mientras escribe: antes solo aparecían como error
+                después de pulsar "Crear mi showroom", ya con el formulario entero lleno. */}
+            <span className="password-field">
+              <input
+                type={showPassword ? "text" : "password"}
+                placeholder="Mínimo 8 caracteres"
+                value={form.adminPassword}
+                onChange={(e) => updateField("adminPassword", e.target.value)}
+                minLength={8}
+                autoComplete="new-password"
+                required
+              />
+              <button type="button" onClick={() => setShowPassword((v) => !v)} aria-pressed={showPassword}>
+                {showPassword ? "Ocultar" : "Mostrar"}
+              </button>
+            </span>
+            <small className={`password-rule${passwordLongEnough ? " is-ok" : ""}`} aria-live="polite">
+              {passwordLongEnough ? "✓ Tiene 8 caracteres o más." : "Debe tener al menos 8 caracteres."}
+            </small>
           </label>
 
           <label>
             Confirmar Contraseña
             <input
-              type="password"
+              type={showPassword ? "text" : "password"}
               placeholder="Repite tu contraseña"
               value={form.confirmPassword}
               onChange={(e) => updateField("confirmPassword", e.target.value)}
               minLength={8}
+              autoComplete="new-password"
               required
             />
+            {form.confirmPassword.length > 0 && (
+              <small className={`password-rule${passwordsMatch ? " is-ok" : " is-bad"}`} aria-live="polite">
+                {passwordsMatch ? "✓ Las contraseñas coinciden." : "Todavía no coinciden."}
+              </small>
+            )}
           </label>
 
           <TurnstileField onTokenChange={setTurnstileToken} />
+
+          <p className="register-legal-note">Al crear tu showroom aceptas los términos del servicio y la política de privacidad de ZEVROA. La prueba dura 14 días y no pedimos tarjeta.</p>
 
           {error && <p className="state-message error">{error}</p>}
 

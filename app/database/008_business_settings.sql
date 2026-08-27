@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS business_settings (
   id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
-  business_name VARCHAR(160) NOT NULL DEFAULT 'AUTHENTIQ',
+  business_name VARCHAR(160) NOT NULL DEFAULT 'ZEVROA',
   logo_url TEXT,
   phone VARCHAR(40),
   whatsapp VARCHAR(40),

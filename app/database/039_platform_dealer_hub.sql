@@ -1,4 +1,4 @@
--- Centro central de AUTHENTIQ para administrar dealers, planes y suscripciones.
+-- Centro central de ZEVROA para administrar dealers, planes y suscripciones.
 -- El cobro real sigue fuera de esta migración: aquí solo vive el estado comercial.
 
 ALTER TABLE admin_users DROP CONSTRAINT IF EXISTS admin_users_role_check;

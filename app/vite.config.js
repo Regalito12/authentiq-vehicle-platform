@@ -18,8 +18,8 @@ export default defineConfig({
       navigateFallbackDenylist: [/^\/api/, /^\/uploads/, /^\/assets\//],
     },
     manifest: {
-      name: "AUTHENTIQ · Operación de showroom",
-      short_name: "AUTHENTIQ",
+      name: "ZEVROA · Operación de showroom",
+      short_name: "ZEVROA",
       description: "Inventario, clientes, citas y cotizaciones para tu concesionario.",
       theme_color: "#101212",
       background_color: "#101212",

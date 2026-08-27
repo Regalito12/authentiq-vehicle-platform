@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 const baseUrl = process.env.LOCAL_TEST_URL || "http://localhost:3001";
 const demoPassword = process.env.LOCAL_DEMO_ADMIN_PASSWORD || "12345678";
 const tenants = [
-  { host: "authentiq.localhost", businessName: "AUTHENTIQ" },
+  { host: "zevroa.localhost", businessName: "ZEVROA" },
   { host: "dealer-demo.localhost", businessName: "Aurea Motors", email: process.env.LOCAL_DEMO_ADMIN_EMAIL || "demo@dealer.local" },
   { host: "velocity-demo.localhost", businessName: "Velocity Motors", email: process.env.LOCAL_VELOCITY_ADMIN_EMAIL || "velocity@dealer.local" },
 ];

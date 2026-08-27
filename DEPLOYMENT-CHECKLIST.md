@@ -1,9 +1,13 @@
-# AUTHENTIQ · checklist de despliegue
+# ZEVROA · checklist de despliegue
 
 La aplicación está separada en dos servicios:
 
 - `app/`: frontend React/Vite. Se compila con `npm.cmd run build` y se sirve como archivos estáticos desde `app/dist`.
 - `app/server/`: API Express/PostgreSQL. Se inicia con `npm.cmd start` y necesita Node 22 LTS o compatible.
+
+## Arquitectura recomendada para producción
+
+El proyecto ahora incluye entrypoints de Vercel para el API Express (`api/index.js` si la raíz del proyecto es el repositorio y `app/api/index.js` si Root Directory es `app`). Así puede funcionar en un solo proyecto Vercel con Supabase como PostgreSQL y Storage. En modo serverless los recordatorios de proceso largo no se ejecutan como un servidor persistente y los archivos temporales viven en `/tmp`; por eso Supabase Storage y un cron externo o Vercel Cron siguen siendo obligatorios para producción. Como alternativa, el `render.yaml` conserva la topología de un servicio Node persistente.
 
 ## Variables del API
 
@@ -12,12 +16,12 @@ Copiar `app/server/.env.example` como `.env` en el servidor y configurar valores
 ```env
 NODE_ENV=production
 PORT=3001
-DATABASE_URL=postgresql://usuario:password@host:5432/authentiq
+DATABASE_URL=postgresql://usuario:password@host:5432/zevroa
 JWT_SECRET=una-clave-larga-aleatoria
 FRONTEND_ORIGIN=https://dominio-del-catalogo.com
 PUBLIC_API_URL=https://api.dominio-del-catalogo.com
 PUBLIC_SITE_URL=https://dominio-del-catalogo.com
-UPLOADS_DIR=/var/lib/authentiq/uploads
+UPLOADS_DIR=/var/lib/zevroa/uploads
 ```
 
 `UPLOADS_DIR` debe existir, ser escribible por el proceso del API y estar incluido en los backups. Si el hosting usa storage externo, se reemplaza el adaptador de uploads antes de producción.
@@ -30,7 +34,7 @@ UPLOADS_DIR=/var/lib/authentiq/uploads
 4. Crear el administrador con `npm.cmd run create-admin -- --email=...`.
 5. Confirmar `GET /api/health` antes de abrir el catálogo.
 
-Las migraciones más recientes que deben estar aplicadas son `021_vehicle_review_workflow.sql` hasta `025_customer_quotes.sql`.
+La base completa actual llega hasta `049_rebrand_zevroa.sql`. En una base nueva hay que aplicar las migraciones estructurales en el orden documentado por CI y excluir los cuatro archivos de demo. El comando `npm.cmd run migrate:production` aplica únicamente `045`–`049` porque está diseñado para una base de producción que ya tiene aplicado el baseline `001`–`044`; no sustituye la instalación inicial.
 
 ## Frontend
 
@@ -38,8 +42,8 @@ Crear `app/.env.production` con:
 
 ```env
 VITE_API_URL=https://api.dominio-del-catalogo.com
-# Opcional: video hero MP4/WebM. Si queda vacío se usa la portada local de AUTHENTIQ.
-VITE_HERO_VIDEO_URL=https://cdn.dominio.com/authentiq-hero.mp4
+# Opcional: video hero MP4/WebM. Si queda vacío se usa la portada local de ZEVROA.
+VITE_HERO_VIDEO_URL=https://cdn.dominio.com/zevroa-hero.mp4
 ```
 
 Después ejecutar:

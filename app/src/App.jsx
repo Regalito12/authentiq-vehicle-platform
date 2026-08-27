@@ -4,7 +4,7 @@ import { LANDING_COPY, LANDING_LANGUAGES } from "./landingCopy.js";
 import { useSmoothScroll } from "./utils/useSmoothScroll.js";
 import { TurnstileField, turnstileSiteKey } from "./utils/turnstile.jsx";
 import { flushSync } from "react-dom";
-import { contrastSafeShade } from "./utils/color.js";
+import { contrastSafeShade, contrastSafeTint, lighten, readableInkOn } from "./utils/color.js";
 import { reportError } from "./utils/monitoring.js";
 import { AnimatedNumber, BlurFade, Disclosure, ProgressiveBlur, TextReveal } from "./ui/MotionPrimitives.jsx";
 import { AnimatedThemeTogglerStarDemo } from "./components/ui/animated-theme-toggler-star-demo.jsx";
@@ -12,7 +12,7 @@ import { AnimatedThemeTogglerStarDemo } from "./components/ui/animated-theme-tog
 class SectionBoundary extends Component {
   constructor(props) { super(props); this.state = { failed: false }; }
   static getDerivedStateFromError() { return { failed: true }; }
-  componentDidCatch(error, info) { console.error(`[AUTHENTIQ] Fallo en la sección "${this.props.name || "desconocida"}"`, error, info); }
+  componentDidCatch(error, info) { console.error(`[ZEVROA] Fallo en la sección "${this.props.name || "desconocida"}"`, error, info); }
   render() {
     if (!this.state.failed) return this.props.children;
     if (this.props.silent) return null;
@@ -21,6 +21,7 @@ class SectionBoundary extends Component {
 }
 
 const Backoffice = lazy(() => import("./admin/Backoffice.jsx"));
+const AuthentiqEditorialObject = lazy(() => import("./landing/AuthentiqEditorialObject.jsx"));
 
 // Conserva el subdominio local del dealer (p. ej. dealer-demo.localhost). Así la
 // API puede resolver la organización por host también durante una demostración.
@@ -50,17 +51,15 @@ function fetch(input, options = {}) {
   let target = input;
   let mutated = false;
   if (/^[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?$/.test(localDemoTenant || "")) { headers.set("X-Authentiq-Tenant", localDemoTenant); mutated = true; }
-  if (isPreviewMode && !headers.has("Authorization")) {
-    const previewToken = localStorage.getItem("authentiq_admin_token") || "";
-    if (previewToken) { headers.set("X-Preview-Mode", "1"); headers.set("Authorization", `Bearer ${previewToken}`); mutated = true; }
-  }
+  if (isPreviewMode) { headers.set("X-Preview-Mode", "1"); mutated = true; }
   if (/^[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?$/.test(requestedDealerSlug) && typeof input === "string") {
     try {
       const url = new URL(input, window.location.href);
       if (url.pathname.startsWith("/api/") && !url.searchParams.has("dealer")) { url.searchParams.set("dealer", requestedDealerSlug); target = url.href; }
     } catch { /* El navegador resolverá el destino original si no es una URL válida. */ }
   }
-  return mutated || target !== input ? nativeFetch(target, { ...options, headers }) : nativeFetch(input, options);
+  const requestOptions = { ...options, credentials: options.credentials || "include", headers };
+  return mutated || target !== input ? nativeFetch(target, requestOptions) : nativeFetch(input, requestOptions);
 }
 
 // `activo` permite usarlo en diálogos que viven montados y solo se muestran al
@@ -120,7 +119,7 @@ function formatFinancePrice(value) {
   return `$${Number(value || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD`;
 }
 
-let publicBrandName = "AUTHENTIQ";
+let publicBrandName = "ZEVROA";
 function getBrandName() { return publicBrandName; }
 
 function ensurePreload(url, as = "fetch") {
@@ -244,7 +243,7 @@ function NotFoundPage({ onBack }) {
 }
 
 function TenantNotFoundPage() {
-  return <main className="article-page not-found-page"><span className="eyebrow">AUTHENTIQ · SHOWROOM</span><h1>Este showroom no existe.</h1><p>El enlace del dealer no es válido o el showroom todavía no está disponible. Revisa la dirección o vuelve al inicio.</p><a className="primary-action" href="/">Volver al inicio →</a></main>;
+  return <main className="article-page not-found-page"><span className="eyebrow">ZEVROA · SHOWROOM</span><h1>Este showroom no existe.</h1><p>El enlace del dealer no es válido o el showroom todavía no está disponible. Revisa la dirección o vuelve al inicio.</p><a className="primary-action" href="/">Volver al inicio →</a></main>;
 }
 
 function LandingPage(props) {
@@ -283,6 +282,195 @@ function StudioReveal({ children, className, delay = 0, reduceMotion, as = "div"
 
 // Cada línea sale de su propia máscara, escalonada a lo largo del recorrido del
 // scroll: al subir vuelven a esconderse en el mismo orden inverso.
+// "Te suena esto?" - el problema en las palabras del concesionario, no en las nuestras.
+// Cada fila enfrenta el dia de hoy con lo que cambia, sin adjetivos.
+function StudioPains({ copy, reduceMotion }) {
+  return (
+    <section className="studio-pains" id="landing-pains">
+      <div className="studio-pains-head">
+        <StudioReveal as="span" className="studio-kicker" reduceMotion={reduceMotion}>{copy.kicker}</StudioReveal>
+        <StudioReveal as="h2" delay={0.08} reduceMotion={reduceMotion}>{copy.heading}</StudioReveal>
+        <StudioReveal as="p" delay={0.16} reduceMotion={reduceMotion}>{copy.body}</StudioReveal>
+      </div>
+      <ul className="studio-pains-list">
+        {copy.items.map((item, index) => (
+          <StudioReveal as="li" key={item.before} delay={0.08 + index * 0.07} reduceMotion={reduceMotion}>
+            <b>{item.before}</b>
+            <span aria-hidden="true">→</span>
+            <i>{item.after}</i>
+          </StudioReveal>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+// Tabla comparativa. En movil cada fila se apila como una tarjeta con sus dos lados
+// etiquetados, en vez de forzar el scroll horizontal de una tabla de tres columnas.
+function StudioCompare({ copy, reduceMotion }) {
+  return (
+    <section className="studio-compare" id="landing-compare">
+      <div className="studio-compare-head">
+        <StudioReveal as="span" className="studio-kicker" reduceMotion={reduceMotion}>{copy.kicker}</StudioReveal>
+        <StudioReveal as="h2" delay={0.08} reduceMotion={reduceMotion}>{copy.heading}</StudioReveal>
+      </div>
+      <div className="studio-compare-table">
+        <div className="studio-compare-row is-head">
+          <span />
+          <span>{copy.manual}</span>
+          <span>{copy.withUs}</span>
+        </div>
+        {copy.rows.map((row, index) => (
+          <StudioReveal key={row.label} className="studio-compare-row" delay={0.05 + index * 0.05} reduceMotion={reduceMotion}>
+            <span className="studio-compare-label">{row.label}</span>
+            <span className="studio-compare-manual"><em>{copy.manual}</em>{row.manual}</span>
+            <span className="studio-compare-ours"><em>{copy.withUs}</em>{row.withUs}</span>
+          </StudioReveal>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+// Voces reales tomadas del panel de la plataforma. Si nadie ha cargado testimonios la
+// seccion no existe: preferimos un hueco a una cita inventada.
+function StudioVoices({ copy, items, reduceMotion }) {
+  const voices = (Array.isArray(items) ? items : []).filter((item) => item && item.quote && item.name);
+  if (!voices.length) return null;
+  return (
+    <section className="studio-voices" id="landing-voices">
+      <div className="studio-voices-head">
+        <StudioReveal as="span" className="studio-kicker" reduceMotion={reduceMotion}>{copy.kicker}</StudioReveal>
+        <StudioReveal as="h2" delay={0.08} reduceMotion={reduceMotion}>{copy.heading}</StudioReveal>
+      </div>
+      <div className="studio-voices-grid">
+        {voices.slice(0, 3).map((voice, index) => (
+          <StudioReveal as="figure" key={`${voice.name}-${index}`} className="studio-voice" delay={0.06 + index * 0.07} reduceMotion={reduceMotion}>
+            <blockquote>{voice.quote}</blockquote>
+            <figcaption><strong>{voice.name}</strong>{voice.detail && <span>{voice.detail}</span>}</figcaption>
+          </StudioReveal>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+// Solicitud de demo: la unica via para hablar con una persona antes de registrarse.
+function StudioDemoForm({ copy, reduceMotion, onCreateShowroom }) {
+  const [form, setForm] = useState({ name: "", email: "", phone: "", dealership: "", inventorySize: "", consent: false });
+  const [state, setState] = useState("idle");
+  const set = (field, value) => setForm((current) => ({ ...current, [field]: value }));
+  const submit = async (event) => {
+    event.preventDefault();
+    if (state === "sending") return;
+    setState("sending");
+    try {
+      const response = await fetch(`${apiUrl}/api/public/demo-request`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...form, privacyConsent: form.consent }),
+      });
+      setState(response.ok ? "done" : "error");
+    } catch { setState("error"); }
+  };
+  return (
+    <section className="studio-demo" id="landing-demo">
+      <div className="studio-demo-copy">
+        <StudioReveal as="span" className="studio-kicker" reduceMotion={reduceMotion}>{copy.kicker}</StudioReveal>
+        <StudioReveal as="h2" delay={0.08} reduceMotion={reduceMotion}>{copy.heading}</StudioReveal>
+        <StudioReveal as="p" delay={0.16} reduceMotion={reduceMotion}>{copy.body}</StudioReveal>
+        <StudioReveal delay={0.24} reduceMotion={reduceMotion}>
+          <button type="button" className="studio-text-action" onClick={onCreateShowroom}>{copy.alt}</button>
+        </StudioReveal>
+      </div>
+      {state === "done"
+        ? <p className="studio-demo-done" role="status">{copy.success}</p>
+        : <form className="studio-demo-form" onSubmit={submit}>
+            <label>{copy.fields.name}<input type="text" required value={form.name} onChange={(event) => set("name", event.target.value)} autoComplete="name" /></label>
+            <label>{copy.fields.email}<input type="email" required value={form.email} onChange={(event) => set("email", event.target.value)} autoComplete="email" /></label>
+            <label>{copy.fields.phone}<input type="tel" value={form.phone} onChange={(event) => set("phone", event.target.value)} autoComplete="tel" /></label>
+            <label>{copy.fields.dealership}<input type="text" value={form.dealership} onChange={(event) => set("dealership", event.target.value)} autoComplete="organization" /></label>
+            <label className="studio-demo-wide">{copy.fields.size}
+              <select value={form.inventorySize} onChange={(event) => set("inventorySize", event.target.value)}>
+                <option value="">--</option>
+                {copy.sizes.map((size) => <option key={size} value={size}>{size}</option>)}
+              </select>
+            </label>
+            <label className="studio-demo-consent studio-demo-wide">
+              <input type="checkbox" required checked={form.consent} onChange={(event) => set("consent", event.target.checked)} />
+              <span>{copy.consent}</span>
+            </label>
+            <button className="studio-primary studio-demo-wide" type="submit" disabled={state === "sending"}>{state === "sending" ? copy.sending : copy.submit}</button>
+            {state === "error" && <p className="studio-demo-error" role="alert">{copy.error}</p>}
+          </form>}
+    </section>
+  );
+}
+
+// Rejilla de integraciones. Sin logos de terceros: hotlinkear marcas ajenas rompe
+// (Chrome las bloquea por ORB) y ademas no son nuestras para redistribuir. El nombre
+// y lo que resuelve dicen mas que un icono.
+function StudioIntegrations({ copy, reduceMotion }) {
+  return (
+    <section className="studio-integrations" id="landing-integrations">
+      <div className="studio-integrations-head">
+        <StudioReveal as="span" className="studio-kicker" reduceMotion={reduceMotion}>{copy.kicker}</StudioReveal>
+        <StudioReveal as="h2" delay={0.08} reduceMotion={reduceMotion}>{copy.heading}</StudioReveal>
+        <StudioReveal as="p" delay={0.16} reduceMotion={reduceMotion}>{copy.body}</StudioReveal>
+      </div>
+      <ul className="studio-integrations-grid">
+        {copy.items.map((item, index) => (
+          <StudioReveal as="li" key={item.name} delay={0.04 + index * 0.04} reduceMotion={reduceMotion}>
+            <strong>{item.name}</strong>
+            <span>{item.detail}</span>
+          </StudioReveal>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+// Boton flotante de WhatsApp. Solo aparece si hay un numero configurado en los
+// ajustes de la plataforma: preferimos que no exista a inventarnos un contacto.
+function StudioWhatsApp({ number, label }) {
+  const digits = String(number || "").replace(/[^0-9]/g, "");
+  if (digits.length < 8) return null;
+  const href = `https://wa.me/${digits}?text=${encodeURIComponent(label)}`;
+  return (
+    <a className="studio-whatsapp" href={href} target="_blank" rel="noopener noreferrer" aria-label={label}>
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2 22l5.25-1.38a9.9 9.9 0 0 0 4.79 1.22h.01c5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.82 9.82 0 0 0 12.04 2Zm0 18.15h-.01a8.2 8.2 0 0 1-4.19-1.15l-.3-.18-3.12.82.83-3.04-.2-.31a8.19 8.19 0 0 1-1.26-4.38c0-4.54 3.7-8.24 8.25-8.24 2.2 0 4.27.86 5.83 2.42a8.19 8.19 0 0 1 2.41 5.83c0 4.54-3.7 8.23-8.24 8.23Zm4.52-6.17c-.25-.12-1.47-.72-1.69-.81-.23-.08-.39-.12-.56.13-.16.24-.64.8-.78.97-.14.16-.29.18-.54.06-.25-.12-1.05-.39-1.99-1.23-.74-.66-1.23-1.47-1.38-1.72-.14-.25-.01-.38.11-.5.11-.11.25-.29.37-.43.13-.15.17-.25.25-.41.08-.17.04-.31-.02-.43-.06-.12-.56-1.34-.76-1.84-.2-.48-.4-.42-.56-.43h-.48c-.16 0-.43.06-.65.31-.22.25-.85.83-.85 2.03s.87 2.35.99 2.51c.12.17 1.71 2.61 4.15 3.66.58.25 1.03.4 1.39.51.58.19 1.11.16 1.53.1.47-.07 1.47-.6 1.67-1.18.21-.58.21-1.07.15-1.18-.06-.11-.22-.17-.47-.29Z" /></svg>
+    </a>
+  );
+}
+
+// Acordeón de preguntas frecuentes. Una sola abierta a la vez y la respuesta
+// crece con `grid-template-rows`, que sí anima sin saltos de altura.
+function StudioFaq({ copy, reduceMotion }) {
+  const [openIndex, setOpenIndex] = useState(0);
+  return (
+    <section className="studio-faq" id="landing-faq">
+      <div className="studio-faq-head">
+        <StudioReveal as="span" className="studio-kicker" reduceMotion={reduceMotion}>{copy.kicker}</StudioReveal>
+        <StudioReveal as="h2" delay={0.08} reduceMotion={reduceMotion}>{copy.heading}</StudioReveal>
+      </div>
+      <div className="studio-faq-list">
+        {copy.items.map((item, index) => {
+          const open = openIndex === index;
+          return (
+            <StudioReveal key={item.q} className={`studio-faq-item${open ? " is-open" : ""}`} delay={0.05 + index * 0.05} reduceMotion={reduceMotion}>
+              <button type="button" aria-expanded={open} onClick={() => setOpenIndex(open ? -1 : index)}>
+                <span>{item.q}</span>
+                <i aria-hidden="true">{open ? "−" : "+"}</i>
+              </button>
+              <div className="studio-faq-answer" role="region" aria-hidden={!open}><div><p>{item.a}</p></div></div>
+            </StudioReveal>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 function StudioHeadline({ lines, className, reduceMotion, delay = 0, as: Tag = "h2", intro = false }) {
   const ref = useRef(null);
   const progress = useScrubbed(ref, { from: 0.95, to: 0.45 });
@@ -371,6 +559,18 @@ function usePointerParallax(ref, enabled) {
   return { px: x, py: y };
 }
 
+function updateSpotlight(event) {
+  if (event.pointerType === "touch") return;
+  const rect = event.currentTarget.getBoundingClientRect();
+  event.currentTarget.style.setProperty("--spotlight-x", `${((event.clientX - rect.left) / rect.width) * 100}%`);
+  event.currentTarget.style.setProperty("--spotlight-y", `${((event.clientY - rect.top) / rect.height) * 100}%`);
+}
+
+function clearSpotlight(event) {
+  event.currentTarget.style.removeProperty("--spotlight-x");
+  event.currentTarget.style.removeProperty("--spotlight-y");
+}
+
 // Recorrido horizontal: la sección se fija y su contenido viaja de derecha a
 // izquierda mientras el lector baja. A diferencia de una aparición, aquí los
 // elementos sí se desplazan de un lugar a otro de la pantalla, y como está
@@ -453,7 +653,7 @@ function StudioLangToggle({ lang, onChange, label }) {
   );
 }
 
-function StudioLanding({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPrivacy, onOpenTerms }) {
+function StudioLanding({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPrivacy, onOpenTerms, testimonials = [], whatsapp = "" }) {
   const reduceMotion = useReducedMotion();
   // El scroll suave es lo que hace que el parallax se lea como un movimiento
   // continuo y no como saltos; sin él las animaciones van a tirones.
@@ -510,8 +710,8 @@ function StudioLanding({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPriv
     <main className="studio-landing" key={lang}>
       <StudioReadingProgress reduceMotion={reduceMotion} />
       <nav className={`studio-nav${navCondensed ? " is-condensed" : ""}`} aria-label={t.navAria}>
-        <a className="studio-brand" href="#landing-top">AUTHENTIQ<span>°</span></a>
-        <div className="studio-nav-links"><a href="#landing-story">{t.nav.experience}</a><a href="#landing-product">{t.nav.how}</a><button type="button" className="studio-navlink" onClick={onViewDemo}>{t.nav.demo}</button></div>
+        <a className="studio-brand" href="#landing-top">ZEVROA<span>°</span></a>
+        <div className="studio-nav-links"><a href="#landing-story">{t.nav.experience}</a><a href="#landing-platform">{t.nav.platform}</a><a href="#landing-product">{t.nav.how}</a><a href="#landing-pricing">{t.pricing.kicker}</a><button type="button" className="studio-navlink" onClick={onViewDemo}>{t.nav.demo}</button></div>
         <div className="studio-nav-actions">
           <StudioLangToggle lang={lang} onChange={setLang} label={t.langAria} />
           <button type="button" className="studio-login" onClick={onDealerLogin}>{t.nav.login}</button>
@@ -521,6 +721,7 @@ function StudioLanding({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPriv
 
       <section ref={heroRef} className="studio-hero" id="landing-top">
         <motion.div className="studio-hero-media" style={{ y: heroY, scale: heroScale, x: heroMediaX, translateY: heroMediaY }} initial={{ opacity: 0, scale: reduceMotion ? 1 : 1.14 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: reduceMotion ? 0.6 : 1.4, ease: studioEase }} aria-hidden="true"><img src="/assets/authentiq-hero-v1.webp" alt="" /><div className="studio-hero-shade" /></motion.div>
+        <Suspense fallback={<div className="studio-hero-object studio-hero-object-loading" aria-hidden="true" />}><AuthentiqEditorialObject reduceMotion={reduceMotion} label={t.hero.objectLabel} /></Suspense>
         <motion.div className="studio-hero-copy" style={{ opacity: heroCopyOpacity, y: heroCopyY, x: heroCopyPx, translateY: heroCopyPy }}>
           <motion.span className="studio-kicker" {...heroIntro(0.1)}>{t.hero.kicker}</motion.span>
           <StudioHeadline as="h1" lines={t.hero.lines} reduceMotion={reduceMotion} delay={0.22} intro />
@@ -538,8 +739,10 @@ function StudioLanding({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPriv
           <StudioReveal as="p" delay={0.16} reduceMotion={reduceMotion}>{t.proof.body}</StudioReveal>
           <StudioReveal delay={0.24} reduceMotion={reduceMotion}><button type="button" className="studio-text-action" onClick={onViewDemo}>{t.proof.action} <span>↗</span></button></StudioReveal>
         </div>
-        <motion.div className="studio-proof-stage" style={{ clipPath: proofClip, opacity: proofOpacity }}>
-          <motion.img style={{ y: proofImageY }} src="/assets/taycan-turbo-s-2.jpg" alt={t.proof.imageAlt} />
+        {/* Aqui iba otra foto de coche. Un concesionario ya sabe como es un coche;
+            lo que necesita ver antes de decidir es la herramienta que va a usar. */}
+        <motion.div className="studio-proof-stage is-product" style={{ clipPath: proofClip, opacity: proofOpacity }}>
+          <motion.img style={{ y: proofImageY }} src="/assets/panel-inventario.webp" alt={t.proof.imageAlt} loading="lazy" decoding="async" width="1200" height="533" />
           <div className="studio-proof-overlay">
             <span>{t.proof.overlayTag}</span>
             <StudioHeadline as="strong" lines={t.proof.overlayLines} reduceMotion={reduceMotion} delay={0.3} />
@@ -549,19 +752,102 @@ function StudioLanding({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPriv
       </section>
       </div>
 
+      <StudioPains copy={t.pains} reduceMotion={reduceMotion} />
+      <StudioPlatformSection data={t.platform} reduceMotion={reduceMotion} onViewDemo={onViewDemo} motionScale={motionScale} />
+
       <StudioBrandMarquee brands={t.marqueeBrands} label={t.marqueeLabel} reduceMotion={reduceMotion} />
 
       <StudioTravelRail items={t.rail.items} heading={t.rail.heading} hint={t.rail.hint} reduceMotion={reduceMotion} motionScale={motionScale} />
 
       <StudioChapters reduceMotion={reduceMotion} onViewDemo={onViewDemo} chapters={t.chapters} motionScale={motionScale} />
 
+      {/* Precio y dudas. El landing enseñaba la experiencia pero no respondía las dos
+          preguntas con las que un concesionario decide: cuánto cuesta y qué pasa después.
+          Los importes son los mismos que el panel cobra en Plan y facturación. */}
+      <StudioIntegrations copy={t.integrations} reduceMotion={reduceMotion} />
+
+      <StudioCompare copy={t.compare} reduceMotion={reduceMotion} />
+      <StudioVoices copy={t.voices} items={testimonials} reduceMotion={reduceMotion} />
+
+      <section className="studio-pricing" id="landing-pricing">
+        <div className="studio-pricing-head">
+          <StudioReveal as="span" className="studio-kicker" reduceMotion={reduceMotion}>{t.pricing.kicker}</StudioReveal>
+          <StudioReveal as="h2" delay={0.08} reduceMotion={reduceMotion}>{t.pricing.heading}</StudioReveal>
+          <StudioReveal as="p" delay={0.16} reduceMotion={reduceMotion}>{t.pricing.body}</StudioReveal>
+        </div>
+        <div className="studio-plan-grid">
+          {t.pricing.plans.map((plan, index) => (
+            <StudioReveal key={plan.code} className={`studio-plan${plan.featured ? " is-featured" : ""}`} delay={0.1 + index * 0.08} reduceMotion={reduceMotion}>
+              <span className="studio-plan-name">{plan.name}</span>
+              <span className="studio-plan-price"><b>${plan.price}</b><i>{t.pricing.perMonth}</i></span>
+              <span className="studio-plan-limit">{plan.limit}</span>
+              <p>{plan.body}</p>
+              <ul>{plan.features.map((feature) => <li key={feature}>{feature}</li>)}</ul>
+              <button type="button" className={plan.featured ? "studio-primary" : "studio-plan-action"} onClick={onCreateShowroom}>{t.pricing.cta} <span>↗</span></button>
+            </StudioReveal>
+          ))}
+        </div>
+        <StudioReveal as="small" className="studio-pricing-note" delay={0.3} reduceMotion={reduceMotion}>{t.pricing.note}</StudioReveal>
+      </section>
+
+      <StudioFaq copy={t.faq} reduceMotion={reduceMotion} />
+
+      <StudioDemoForm copy={t.demo} reduceMotion={reduceMotion} onCreateShowroom={onCreateShowroom} />
+
       <section className="studio-close">
         <StudioReveal as="span" className="studio-kicker" reduceMotion={reduceMotion}>{t.close.kicker}</StudioReveal>
         <StudioHeadline lines={t.close.lines} reduceMotion={reduceMotion} delay={0.08} />
         <StudioReveal delay={0.3} reduceMotion={reduceMotion}><button type="button" className="studio-primary" onClick={onCreateShowroom}>{t.close.cta} <span>↗</span></button></StudioReveal>
       </section>
-      <footer className="studio-footer"><span>AUTHENTIQ°</span><span>{t.footer.tagline}</span><nav aria-label={t.footer.legalNav}><button type="button" onClick={onOpenPrivacy}>{t.footer.privacy}</button><button type="button" onClick={onOpenTerms}>{t.footer.terms}</button></nav></footer>
+      {/* El pie era una línea con dos enlaces legales. En móvil la barra oculta
+          navegación y acceso, así que este es el único sitio donde un dealer que ya
+          tiene cuenta puede entrar, o ver planes y preguntas. */}
+      <footer className="studio-footer">
+        <div className="studio-footer-brand"><span>ZEVROA°</span><small>{t.footer.tagline}</small></div>
+        <nav className="studio-footer-nav" aria-label={t.navAria}>
+          <a href="#landing-platform">{t.nav.platform}</a>
+          <a href="#landing-pricing">{t.pricing.kicker}</a>
+          <a href="#landing-faq">{t.faq.kicker}</a>
+          <button type="button" onClick={onViewDemo}>{t.nav.demo}</button>
+          <button type="button" onClick={onDealerLogin}>{t.nav.login}</button>
+        </nav>
+        <div className="studio-footer-end">
+          <nav className="studio-footer-legal" aria-label={t.footer.legalNav}>
+            <button type="button" onClick={onOpenPrivacy}>{t.footer.privacy}</button>
+            <button type="button" onClick={onOpenTerms}>{t.footer.terms}</button>
+          </nav>
+          {/* En pantallas estrechas la píldora superior solo tiene sitio para acceso
+              y CTA, así que el idioma se cambia desde aquí. */}
+          <div className="studio-footer-lang"><StudioLangToggle lang={lang} onChange={setLang} label={t.langAria} /></div>
+        </div>
+      </footer>
+      <StudioWhatsApp number={whatsapp} label={t.demo.kicker} />
     </main>
+  );
+}
+
+function StudioPlatformSection({ data, reduceMotion, onViewDemo, motionScale = 1 }) {
+  return (
+      <section className="studio-platform" id="landing-platform">
+      <div className="studio-platform-head">
+        <StudioReveal as="span" className="studio-kicker" reduceMotion={reduceMotion}>{data.kicker}</StudioReveal>
+        <StudioHeadline lines={data.lines} reduceMotion={reduceMotion} delay={0.05} />
+        <StudioReveal as="p" delay={0.16} reduceMotion={reduceMotion}>{data.body}</StudioReveal>
+      </div>
+      <div className="studio-platform-grid">
+        {data.items.map((item, index) => (
+          <StudioDrift key={item.index} className="studio-platform-card" depth={18 + index * 8} delay={0.04 + index * 0.06} reduceMotion={reduceMotion} motionScale={motionScale}>
+            <span className="studio-platform-index">{item.index}</span>
+            <h3>{item.title}</h3>
+            <p>{item.body}</p>
+            <span className="studio-platform-arrow" aria-hidden="true">↗</span>
+          </StudioDrift>
+        ))}
+      </div>
+      <StudioReveal delay={0.24} reduceMotion={reduceMotion}>
+        <button type="button" className="studio-text-action studio-platform-action" onClick={onViewDemo}>{data.action} <span>↗</span></button>
+      </StudioReveal>
+    </section>
   );
 }
 
@@ -594,7 +880,7 @@ function StudioDrift({ children, className, depth = 28, delay = 0, reduceMotion,
   const enterY = useTransform(enter, [0, 1], [reduceMotion ? 0 : 34, 0]);
   return (
     <motion.div ref={ref} className="studio-drift" style={reduceMotion ? undefined : { y }}>
-      <motion.div className={className} style={{ opacity, y: enterY }}>
+      <motion.div className={className} style={{ opacity, y: enterY }} onPointerMove={reduceMotion ? undefined : updateSpotlight} onPointerLeave={reduceMotion ? undefined : clearSpotlight}>
         {children}
       </motion.div>
     </motion.div>
@@ -1003,7 +1289,7 @@ function PublicQuotePage({ token }) {
   const [decisionState, setDecisionState] = useState("");
   const [decisionError, setDecisionError] = useState("");
   useEffect(() => { let cancelled = false; fetch(`${apiUrl}/api/public/quotes/${encodeURIComponent(token)}`).then(async (response) => { const payload = await response.json(); if (!response.ok) throw new Error(payload.error || "No se pudo abrir la cotización"); if (!cancelled) { setQuote(payload.data); setState("ready"); } }).catch(() => { if (!cancelled) setState("error"); }); return () => { cancelled = true; }; }, [token]);
-  useEffect(() => { document.title = quote ? `${quote.quoteNumber} · AUTHENTIQ` : "Cotización · AUTHENTIQ"; setRobots(false); }, [quote]);
+  useEffect(() => { document.title = quote ? `${quote.quoteNumber} · ZEVROA` : "Cotización · ZEVROA"; setRobots(false); }, [quote]);
   const submitDecision = async (nextDecision) => {
     setDecisionState("sending");
     setDecisionError("");
@@ -1020,9 +1306,9 @@ function PublicQuotePage({ token }) {
     }
   };
   if (state === "loading") return <main className="public-quote-page"><p className="state-message">Preparando tu cotización…</p></main>;
-  if (state === "error" || !quote) return <main className="public-quote-page"><section className="public-quote-error"><span className="eyebrow">AUTHENTIQ · PROPUESTA</span><h1>Este enlace ya no está disponible.</h1><p>La cotización pudo vencer, cancelarse o el enlace pudo expirar.</p></section></main>;
+  if (state === "error" || !quote) return <main className="public-quote-page"><section className="public-quote-error"><span className="eyebrow">ZEVROA · PROPUESTA</span><h1>Este enlace ya no está disponible.</h1><p>La cotización pudo vencer, cancelarse o el enlace pudo expirar.</p></section></main>;
   const accepted = quote.status === "accepted" || (decisionState === "success" && decision === "accepted");
-  return <main className="public-quote-page"><article className="public-quote-card"><header><span className="brand-mark">AUTHENTIQ°</span><span className="eyebrow">PROPUESTA COMERCIAL · {quote.quoteNumber}</span></header>{quote.imageUrl && <img className="public-quote-image" src={publicMediaUrl(quote.imageUrl)} alt={`${quote.brand || "Vehículo"} ${quote.model || ""}`} /> }<div className="public-quote-heading"><span className="eyebrow">PREPARADA PARA {quote.customerName}</span><h1>{quote.brand ? `${quote.brand} ${quote.model}` : "Tu vehículo seleccionado"}</h1><p>{quote.year ? `${quote.year} · ` : ""}{quote.variant || "Propuesta AUTHENTIQ"}</p></div><div className="public-quote-price"><span>Total propuesto</span><strong>{formatPrice(quote.totalUsd)}</strong>{quote.validUntil && <small>Válida hasta {dateLabel(quote.validUntil)}</small>}</div><div className="public-quote-specs"><span>Precio base <b>{formatPrice(quote.basePriceUsd)}</b></span><span>Descuento <b>{Number(quote.discountUsd) ? `-${formatPrice(quote.discountUsd)}` : "Sin descuento"}</b></span><span>Condición <b>{accepted ? "Aceptada" : "Enviada"}</b></span></div>{quote.notes && <p className="public-quote-notes">{quote.notes}</p>}{accepted ? <section className="public-quote-feedback success" aria-live="polite"><strong>✓ Cotización aceptada</strong><p>Gracias. Nuestro equipo continuará contigo para coordinar los próximos pasos.</p></section> : decisionState === "success" && decision === "changes" ? <section className="public-quote-feedback success" aria-live="polite"><strong>✓ Solicitud recibida</strong><p>Registramos tus cambios. Un asesor se pondrá en contacto contigo.</p></section> : <section className="public-quote-decisions" aria-label="Decidir sobre la cotización"><div><span className="eyebrow">SIGUIENTE PASO</span><h2>¿Cómo quieres continuar?</h2><p>Acepta la propuesta o indícanos qué te gustaría ajustar.</p></div><div className="public-quote-decision-actions"><button className="primary-action" type="button" onClick={() => submitDecision("accepted")} disabled={decisionState === "sending"}>✓ Aceptar cotización</button><button className="secondary-action" type="button" onClick={() => setDecisionState("writing")} disabled={decisionState === "sending"}>Solicitar cambios</button></div>{decisionState === "writing" && <div className="public-quote-change-form"><label htmlFor="quote-change-message">¿Qué te gustaría ajustar? <span>Opcional</span></label><textarea id="quote-change-message" value={decisionMessage} maxLength={500} onChange={(event) => setDecisionMessage(event.target.value)} placeholder="Ej. Me gustaría revisar el descuento o la forma de pago." /><div><small>{decisionMessage.length}/500</small><button className="primary-action" type="button" onClick={() => submitDecision("changes")} disabled={decisionState === "sending"}>{decisionState === "sending" ? "Enviando…" : "Enviar solicitud"}</button></div></div>}{decisionError && <p className="public-quote-decision-error" role="alert">{decisionError}</p>}</section>}<footer><span>Informativa y sujeta a disponibilidad, inspección y aprobación comercial.</span><button className="primary-action" type="button" onClick={() => window.print()}>Imprimir / guardar PDF</button></footer></article></main>;
+  return <main className="public-quote-page"><article className="public-quote-card"><header><span className="brand-mark">ZEVROA°</span><span className="eyebrow">PROPUESTA COMERCIAL · {quote.quoteNumber}</span></header>{quote.imageUrl && <img className="public-quote-image" src={publicMediaUrl(quote.imageUrl)} alt={`${quote.brand || "Vehículo"} ${quote.model || ""}`} /> }<div className="public-quote-heading"><span className="eyebrow">PREPARADA PARA {quote.customerName}</span><h1>{quote.brand ? `${quote.brand} ${quote.model}` : "Tu vehículo seleccionado"}</h1><p>{quote.year ? `${quote.year} · ` : ""}{quote.variant || "Propuesta ZEVROA"}</p></div><div className="public-quote-price"><span>Total propuesto</span><strong>{formatPrice(quote.totalUsd)}</strong>{quote.validUntil && <small>Válida hasta {dateLabel(quote.validUntil)}</small>}</div><div className="public-quote-specs"><span>Precio base <b>{formatPrice(quote.basePriceUsd)}</b></span><span>Descuento <b>{Number(quote.discountUsd) ? `-${formatPrice(quote.discountUsd)}` : "Sin descuento"}</b></span><span>Condición <b>{accepted ? "Aceptada" : "Enviada"}</b></span></div>{quote.notes && <p className="public-quote-notes">{quote.notes}</p>}{accepted ? <section className="public-quote-feedback success" aria-live="polite"><strong>✓ Cotización aceptada</strong><p>Gracias. Nuestro equipo continuará contigo para coordinar los próximos pasos.</p></section> : decisionState === "success" && decision === "changes" ? <section className="public-quote-feedback success" aria-live="polite"><strong>✓ Solicitud recibida</strong><p>Registramos tus cambios. Un asesor se pondrá en contacto contigo.</p></section> : <section className="public-quote-decisions" aria-label="Decidir sobre la cotización"><div><span className="eyebrow">SIGUIENTE PASO</span><h2>¿Cómo quieres continuar?</h2><p>Acepta la propuesta o indícanos qué te gustaría ajustar.</p></div><div className="public-quote-decision-actions"><button className="primary-action" type="button" onClick={() => submitDecision("accepted")} disabled={decisionState === "sending"}>✓ Aceptar cotización</button><button className="secondary-action" type="button" onClick={() => setDecisionState("writing")} disabled={decisionState === "sending"}>Solicitar cambios</button></div>{decisionState === "writing" && <div className="public-quote-change-form"><label htmlFor="quote-change-message">¿Qué te gustaría ajustar? <span>Opcional</span></label><textarea id="quote-change-message" value={decisionMessage} maxLength={500} onChange={(event) => setDecisionMessage(event.target.value)} placeholder="Ej. Me gustaría revisar el descuento o la forma de pago." /><div><small>{decisionMessage.length}/500</small><button className="primary-action" type="button" onClick={() => submitDecision("changes")} disabled={decisionState === "sending"}>{decisionState === "sending" ? "Enviando…" : "Enviar solicitud"}</button></div></div>}{decisionError && <p className="public-quote-decision-error" role="alert">{decisionError}</p>}</section>}<footer><span>Informativa y sujeta a disponibilidad, inspección y aprobación comercial.</span><button className="primary-action" type="button" onClick={() => window.print()}>Imprimir / guardar PDF</button></footer></article></main>;
 }
 
 function Vehicle3DViewer({ vehicle, media }) {
@@ -1221,7 +1507,7 @@ function Vehicle3DViewer({ vehicle, media }) {
   };
   if (!model || isProcedural) return null;
   return <section id="vehicle-3d-viewer" className="vehicle-3d-viewer" aria-label={`Modelo 3D de ${vehicle.brand} ${vehicle.model}`}>
-    <div className="vehicle-studio-heading"><div><span className="eyebrow">AUTHENTIQ / REAL 3D</span><h2>Explóralo en detalle.</h2></div><span className="vehicle-3d-status">{state === "ready" ? "MODELO LISTO" : state === "error" ? "NO DISPONIBLE" : "CARGANDO MODELO"}</span></div>
+    <div className="vehicle-studio-heading"><div><span className="eyebrow">ZEVROA / REAL 3D</span><h2>Explóralo en detalle.</h2></div><span className="vehicle-3d-status">{state === "ready" ? "MODELO LISTO" : state === "error" ? "NO DISPONIBLE" : "CARGANDO MODELO"}</span></div>
     <div ref={stageRef} className={`vehicle-3d-stage ${state === "loading" ? "is-loading" : ""}`}>
       <div className="vehicle-3d-backdrop" />
       <model-viewer ref={viewerRef} src={shouldLoad ? modelUrl : undefined} poster={poster} alt={model.altText || `${vehicle.brand} ${vehicle.model}, modelo 3D`} camera-controls auto-rotate auto-rotate-delay="1600" rotation-per-second="10deg" shadow-intensity="1" shadow-softness=".72" exposure="1" tone-mapping="aces" touch-action="pan-y" loading="eager" reveal="auto" ar ar-modes="webxr scene-viewer quick-look">
@@ -1251,7 +1537,7 @@ function VehicleVideo({ vehicle, media }) {
   useEffect(() => { setFailed(false); }, [video?.url]);
   // Un video roto no debe dejar un reproductor vacío en la ficha: la sección desaparece.
   if (!video || failed) return null;
-  return <section className="vehicle-video-showcase" aria-label={`Video de ${vehicle.brand} ${vehicle.model}`}><div className="vehicle-studio-heading"><div><span className="eyebrow">AUTHENTIQ / MOTION FILM</span><h2>Verlo en movimiento.</h2></div><span className="vehicle-3d-status">VIDEO OFICIAL</span></div><div className="vehicle-video-frame"><video controls playsInline preload="metadata" poster={publicMediaUrl(video.posterUrl || vehicle.images?.[0]?.url)} aria-label={`Video de ${vehicle.brand} ${vehicle.model}`} onError={() => setFailed(true)}><source src={publicMediaUrl(video.url)} onError={() => setFailed(true)} /></video></div></section>;
+  return <section className="vehicle-video-showcase" aria-label={`Video de ${vehicle.brand} ${vehicle.model}`}><div className="vehicle-studio-heading"><div><span className="eyebrow">ZEVROA / MOTION FILM</span><h2>Verlo en movimiento.</h2></div><span className="vehicle-3d-status">VIDEO OFICIAL</span></div><div className="vehicle-video-frame"><video controls playsInline preload="metadata" poster={publicMediaUrl(video.posterUrl || vehicle.images?.[0]?.url)} aria-label={`Video de ${vehicle.brand} ${vehicle.model}`} onError={() => setFailed(true)}><source src={publicMediaUrl(video.url)} onError={() => setFailed(true)} /></video></div></section>;
 }
 
 // Visor panorámico equirectangular. El backoffice ya permitía subir una "Vista 360"
@@ -1375,7 +1661,7 @@ function VehiclePanorama360({ vehicle, media }) {
 
   if (!panorama || state === "error") return null;
   return <section id="vehicle-360" className="vehicle-360-viewer" aria-label={`Vista 360 de ${vehicle.brand} ${vehicle.model}`}>
-    <div className="vehicle-studio-heading"><div><span className="eyebrow">AUTHENTIQ / VISTA 360</span><h2>Mira alrededor.</h2></div><span className="vehicle-3d-status">{state === "ready" ? "PANORAMA LISTO" : "CARGANDO VISTA"}</span></div>
+    <div className="vehicle-studio-heading"><div><span className="eyebrow">ZEVROA / VISTA 360</span><h2>Mira alrededor.</h2></div><span className="vehicle-3d-status">{state === "ready" ? "PANORAMA LISTO" : "CARGANDO VISTA"}</span></div>
     <div ref={containerRef} className="vehicle-360-stage" role="application" tabIndex="0" aria-label="Arrastra o usa las flechas para mirar alrededor" />
     <p className="vehicle-360-hint">Arrastra para mirar alrededor · usa las flechas del teclado</p>
   </section>;
@@ -1450,6 +1736,7 @@ function VehicleCard({ vehicle, onOpen, onToggleCompare, isCompared, isFavorite,
   const whatsappText = encodeURIComponent(`Mira este ${vehicle.brand} ${vehicle.model} en ${businessName}: ${window.location.origin}${vehiclePath(vehicle)}`);
   const whatsappHref = `https://wa.me/${whatsappNumber}${whatsappText ? `?text=${whatsappText}` : ""}`;
   const [shareStatus, setShareStatus] = useState("");
+  const reduceMotion = useReducedMotion();
   const shareVehicle = async (event) => { event.stopPropagation(); try { const result = await shareOrCopyUrl(`${window.location.origin}${vehiclePath(vehicle)}`, `${vehicle.brand} ${vehicle.model}`); setShareStatus(result === "copied" ? "URL copiada" : result === "shared" ? "Compartido" : "No disponible"); window.setTimeout(() => setShareStatus(""), 2200); } catch { setShareStatus(""); } };
   // La vista de ficha se registra al cambiar de ruta (cubre también los enlaces directos),
   // así que aquí no se emite un segundo vehicle_view para no duplicar la métrica.
@@ -1475,6 +1762,8 @@ function VehicleCard({ vehicle, onOpen, onToggleCompare, isCompared, isFavorite,
       whileHover={{ transform: "translateY(-4px)" }}
       whileTap={{ transform: "scale(.99)" }}
       transition={{ duration: 0.28, ease: [0.25, 1, 0.5, 1] }}
+      onPointerMove={reduceMotion ? undefined : updateSpotlight}
+      onPointerLeave={reduceMotion ? undefined : clearSpotlight}
     >
       <div className="vehicle-image-wrap" onPointerEnter={preloadDetail} onFocus={preloadDetail} onTouchStart={preloadDetail}>
         <button className="vehicle-card-image-button" type="button" onClick={open} aria-label={`Abrir ficha de ${vehicle.brand} ${vehicle.model}`}>
@@ -1662,9 +1951,9 @@ function BlogArticle({ slug, onBack }) {
     if (!post) { setRobots(status !== "error"); return; }
     const baseTitle = post.seoTitle || post.title;
     // El SEO title guardado a veces ya incluye la marca (dato heredado del seed):
-    // no se duplica el sufijo cuando ya termina en "AUTHENTIQ".
-    const title = /authentiq\s*$/i.test(baseTitle.trim()) ? baseTitle.trim() : `${baseTitle} · AUTHENTIQ`;
-    const description = post.seoDescription || post.summary || `${post.title} · Journal de AUTHENTIQ`;
+    // no se duplica el sufijo cuando ya termina en "ZEVROA".
+    const title = /zevroa\s*$/i.test(baseTitle.trim()) ? baseTitle.trim() : `${baseTitle} · ZEVROA`;
+    const description = post.seoDescription || post.summary || `${post.title} · Journal de ZEVROA`;
     const image = post.coverImageUrl || "/assets/hero-highway.webp";
     document.title = title;
     setMeta('meta[name="description"]', "description", description);
@@ -1686,14 +1975,14 @@ function BlogArticle({ slug, onBack }) {
       "@context": "https://schema.org", "@type": "Article",
       headline: post.title, description, image: [new URL(image, window.location.origin).href],
       datePublished: post.publishedAt || undefined,
-      publisher: { "@type": "Organization", name: "AUTHENTIQ" },
+      publisher: { "@type": "Organization", name: "ZEVROA" },
     }).replace(/</g, "\\u003c");
     document.head.appendChild(structured);
     return () => structured.remove();
   }, [post, status]);
   if (status === "loading") return <main className="article-page"><button className="back-button" onClick={onBack}>← Volver al catálogo</button><p className="state-message">Cargando artículo…</p></main>;
-  if (status === "error" || !post) return <main className="article-page"><button className="back-button" onClick={onBack}>← Volver al catálogo</button><section className="article-empty"><span className="eyebrow">AUTHENTIQ · JOURNAL</span><h1>Este artículo ya no está disponible.</h1><p>Puede haber sido archivado o la dirección puede haber cambiado.</p></section></main>;
-  return <main className="article-page"><button className="back-button" onClick={onBack}>← Volver al catálogo</button><article className="article-body"><header><span className="eyebrow">{post.publishedAt ? new Date(post.publishedAt).toLocaleDateString("es-DO", { day: "2-digit", month: "long", year: "numeric" }) : "AUTHENTIQ · JOURNAL"}</span><h1>{post.title}</h1>{post.summary && <p className="article-summary">{post.summary}</p>}</header>{post.coverImageUrl && <img className="article-cover" src={publicMediaUrl(post.coverImageUrl)} alt={post.title} /> }<div className="article-content">{post.content.split(/\r?\n/).map((paragraph, index) => paragraph.trim() ? <p key={`${post.id}-${index}`}>{paragraph}</p> : <br key={`${post.id}-space-${index}`} />)}</div></article></main>;
+  if (status === "error" || !post) return <main className="article-page"><button className="back-button" onClick={onBack}>← Volver al catálogo</button><section className="article-empty"><span className="eyebrow">ZEVROA · JOURNAL</span><h1>Este artículo ya no está disponible.</h1><p>Puede haber sido archivado o la dirección puede haber cambiado.</p></section></main>;
+  return <main className="article-page"><button className="back-button" onClick={onBack}>← Volver al catálogo</button><article className="article-body"><header><span className="eyebrow">{post.publishedAt ? new Date(post.publishedAt).toLocaleDateString("es-DO", { day: "2-digit", month: "long", year: "numeric" }) : "ZEVROA · JOURNAL"}</span><h1>{post.title}</h1>{post.summary && <p className="article-summary">{post.summary}</p>}</header>{post.coverImageUrl && <img className="article-cover" src={publicMediaUrl(post.coverImageUrl)} alt={post.title} /> }<div className="article-content">{post.content.split(/\r?\n/).map((paragraph, index) => paragraph.trim() ? <p key={`${post.id}-${index}`}>{paragraph}</p> : <br key={`${post.id}-space-${index}`} />)}</div></article></main>;
 }
 
 function DetailTrustStrip({ vehicle, onTradeIn }) {
@@ -1922,7 +2211,7 @@ function VehicleDetail({ vehicle, vehicles = [], onBack, isFavorite = false, onT
 
 const institutionalContent = {
   contact: {
-    eyebrow: "AUTHENTIQ · CONTACTO",
+    eyebrow: "ZEVROA · CONTACTO",
     title: <>Hablemos de tu <em>próximo vehículo.</em></>,
     intro: "Nuestro equipo está disponible para orientarte sobre inventario y ofertas.",
     sections: [
@@ -1931,19 +2220,19 @@ const institutionalContent = {
     ],
   },
   location: {
-    eyebrow: "AUTHENTIQ · UBICACIÓN",
+    eyebrow: "ZEVROA · UBICACIÓN",
     title: <>Encuéntranos <em>en persona.</em></>,
-    intro: "La experiencia AUTHENTIQ está pensada para conocer cada vehículo con calma y confianza.",
+    intro: "La experiencia ZEVROA está pensada para conocer cada vehículo con calma y confianza.",
     sections: [["Showroom", "La dirección del showroom, el mapa y el horario serán agregados cuando el negocio confirme esos datos."]],
   },
   privacy: {
-    eyebrow: "AUTHENTIQ · PRIVACIDAD",
+    eyebrow: "ZEVROA · PRIVACIDAD",
     title: <>Tus datos, tratados con <em>respeto.</em></>,
-    intro: "Esta página resume el compromiso de AUTHENTIQ con la protección de la información de sus clientes.",
+    intro: "Esta página resume el compromiso de ZEVROA con la protección de la información de sus clientes.",
     sections: [["Aviso importante", "El texto legal definitivo, la entidad responsable y los canales de privacidad están pendientes de aprobación antes del lanzamiento público."], ["Mientras tanto", "Solo solicitamos los datos necesarios para responder consultas y ofertas."]],
   },
   terms: {
-    eyebrow: "AUTHENTIQ · TÉRMINOS",
+    eyebrow: "ZEVROA · TÉRMINOS",
     title: <>Una experiencia clara, de principio a <em>fin.</em></>,
     intro: "La información del catálogo está sujeta a confirmación comercial y disponibilidad.",
     sections: [["Aviso importante", "Los términos y condiciones definitivos, incluyendo jurisdicción, reservas y políticas de compra, están pendientes de aprobación antes del lanzamiento público."], ["Disponibilidad", "Enviar una oferta no constituye una compra ni una reserva confirmada."]],
@@ -1956,7 +2245,7 @@ function InstitutionalPage({ type, settings = {}, onBack }) {
   const configuredSections = type === "location" ? [["Showroom", settings.address || "La dirección del showroom será publicada cuando el negocio confirme esos datos."], ["Horario", settings.hours || "Horario pendiente de confirmación."]] : type === "privacy" ? [["Política vigente", settings.privacyText || content.sections[0][1]]] : type === "terms" ? [["Términos vigentes", settings.termsText || content.sections[0][1]]] : content.sections;
   return <motion.main className="institutional-page" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .24, ease: "easeOut" }}>
     <button className="back-button" onClick={onBack}>← Volver al catálogo</button>
-    <section className="institutional-hero"><span className="eyebrow">{content.eyebrow.replace(/AUTHENTIQ/g, brand)}</span><h1>{content.title}</h1><p>{content.intro.replace(/AUTHENTIQ/g, brand)}</p></section>
+    <section className="institutional-hero"><span className="eyebrow">{content.eyebrow.replace(/ZEVROA/g, brand)}</span><h1>{content.title}</h1><p>{content.intro.replace(/ZEVROA/g, brand)}</p></section>
     <section className="institutional-sections">{configuredSections.map(([heading, text]) => <article key={heading}><span className="eyebrow">{heading}</span><p>{text}</p></article>)}</section>
   </motion.main>;
 }
@@ -2040,7 +2329,7 @@ function NavIcon({ name }) {
   return <svg className="nav-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d={paths[name] || paths.inventory} /></svg>;
 }
 
-function ShowroomNav({ theme, setTheme, customer, onAccount, onBackoffice, onRegisterDealer, businessName = "AUTHENTIQ", logoUrl = "" }) {
+function ShowroomNav({ theme, setTheme, customer, onAccount, onBackoffice, onRegisterDealer, businessName = "ZEVROA", logoUrl = "" }) {
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   useEffect(() => {
@@ -2058,7 +2347,7 @@ function ShowroomNav({ theme, setTheme, customer, onAccount, onBackoffice, onReg
    return <nav className={`top-nav showroom-nav ${scrolled ? "is-scrolled" : ""}`} aria-label="Navegación principal"><a className="brand-mark showroom-nav-brand" href="#top" onClick={closeMenu}>{resolvedLogo ? <img src={resolvedLogo} alt={businessName} /> : businessName}<span>°</span></a><div className={`showroom-nav-links ${menuOpen ? "is-open" : ""}`}>{links.map(([icon, label, href]) => <a key={href} href={href} onClick={closeMenu}><NavIcon name={icon} /><span>{label}</span></a>)}<AnimatedThemeTogglerStarDemo theme={theme} onToggle={() => { setTheme((current) => current === "dark" ? "light" : "dark"); closeMenu(); }} /><button className="nav-admin-link account-launch" type="button" onClick={() => { onAccount(); closeMenu(); }}>{customer ? `CUENTA · ${customer.name.split(" ")[0].toUpperCase()}` : "MI CUENTA"}</button><button className="nav-admin-link nav-dealer-badge" type="button" onClick={() => { onRegisterDealer?.(); closeMenu(); }}>¿ERES CONCESIONARIO?</button><button className="nav-admin-link nav-backoffice-link" type="button" onClick={() => { onBackoffice(); closeMenu(); }}>PANEL DE CONTROL →</button></div><button className="showroom-nav-toggle" type="button" aria-label={menuOpen ? "Cerrar menú" : "Abrir menú"} aria-expanded={menuOpen} onClick={() => setMenuOpen((current) => !current)}><NavIcon name={menuOpen ? "explore" : "menu"} /></button></nav>;
 }
 
-function PresentationMode({ vehicles, loading, onExit, onOpenVehicle, businessName = "AUTHENTIQ", logoUrl = "" }) {
+function PresentationMode({ vehicles, loading, onExit, onOpenVehicle, businessName = "ZEVROA", logoUrl = "" }) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [paused, setPaused] = useState(false);
   const reduceMotion = useReducedMotion();
@@ -2132,12 +2421,10 @@ function PasswordResetPage({ kind = "customer" }) {
       const response = await fetch(`${apiUrl}${isCustomer ? "/api/customer/auth/password-reset/confirm" : "/api/auth/password-reset/confirm"}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, newPassword: password }) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "No se pudo restablecer la contraseña");
-      if (payload.token) localStorage.setItem(isCustomer ? "authentiq_customer_token" : "authentiq_admin_token", payload.token);
-      if (payload.user) localStorage.setItem(isCustomer ? "authentiq_customer_user" : "authentiq_admin_user", JSON.stringify(payload.user));
       setState({ loading: false, error: "", success: true });
     } catch (error) { setState({ loading: false, error: error.message, success: false }); }
   };
-  return <main className="admin-page admin-login-page"><form className="admin-login" onSubmit={submit}><span className="eyebrow">AUTHENTIQ · SEGURIDAD</span><h1>Crea tu <em>nueva contraseña.</em></h1>{state.success ? <><p className="state-message success">Contraseña actualizada. Ya puedes volver a iniciar sesión.</p><button className="primary-action" type="button" onClick={() => { window.history.pushState({}, "", isCustomer ? "/" : "/backoffice"); window.location.reload(); }}>Continuar</button></> : <><p className="account-welcome">El enlace vence en 30 minutos y solo funciona una vez.</p><label>Nueva contraseña<input type="password" autoComplete="new-password" minLength="8" value={password} onChange={(event) => setPassword(event.target.value)} required /></label><label>Repite la contraseña<input type="password" autoComplete="new-password" minLength="8" value={confirm} onChange={(event) => setConfirm(event.target.value)} required /></label>{state.error && <p className="state-message error" role="alert">{state.error}</p>}<button className="primary-action" type="submit" disabled={state.loading}>{state.loading ? "Guardando…" : "Guardar contraseña"}</button></>}</form></main>;
+  return <main className="admin-page admin-login-page"><form className="admin-login" onSubmit={submit}><span className="eyebrow">ZEVROA · SEGURIDAD</span><h1>Crea tu <em>nueva contraseña.</em></h1>{state.success ? <><p className="state-message success">Contraseña actualizada. Ya puedes volver a iniciar sesión.</p><button className="primary-action" type="button" onClick={() => { window.history.pushState({}, "", isCustomer ? "/" : "/backoffice"); window.location.reload(); }}>Continuar</button></> : <><p className="account-welcome">El enlace vence en 30 minutos y solo funciona una vez.</p><label>Nueva contraseña<input type="password" autoComplete="new-password" minLength="8" value={password} onChange={(event) => setPassword(event.target.value)} required /></label><label>Repite la contraseña<input type="password" autoComplete="new-password" minLength="8" value={confirm} onChange={(event) => setConfirm(event.target.value)} required /></label>{state.error && <p className="state-message error" role="alert">{state.error}</p>}<button className="primary-action" type="submit" disabled={state.loading}>{state.loading ? "Guardando…" : "Guardar contraseña"}</button></>}</form></main>;
 }
 
 function App() {
@@ -2148,8 +2435,8 @@ function App() {
   const [favoriteIds, setFavoriteIds] = useState(() => { try { return JSON.parse(localStorage.getItem("authentiq_favorite_vehicles") || "[]"); } catch { return []; } });
   const [recentVehicleIds, setRecentVehicleIds] = useState(() => { try { return JSON.parse(localStorage.getItem("authentiq_recent_vehicles") || "[]"); } catch { return []; } });
   const [favoritesOnly, setFavoritesOnly] = useState(false);
-  const [customerToken, setCustomerToken] = useState(() => localStorage.getItem("authentiq_customer_token") || "");
-  const [customer, setCustomer] = useState(() => { try { return JSON.parse(localStorage.getItem("authentiq_customer_user") || "null"); } catch { return null; } });
+  const [customerToken, setCustomerToken] = useState("");
+  const [customer, setCustomer] = useState(null);
   const [accountOpen, setAccountOpen] = useState(false);
   const [accountMode, setAccountMode] = useState("login");
   const [accountForm, setAccountForm] = useState({ name: "", email: "", phone: "", password: "" });
@@ -2180,13 +2467,13 @@ function App() {
   const [showDemoCatalog, setShowDemoCatalog] = useState(false);
   const [adminInitialMode, setAdminInitialMode] = useState("login");
   const [posts, setPosts] = useState([]);
-  const [businessSettings, setBusinessSettings] = useState({ businessName: "AUTHENTIQ", logoUrl: "", primaryColor: "#c8a24b", accentColor: "#b28b37", faviconUrl: "", phone: "", whatsapp: "", email: "", address: "", hours: "", instagramUrl: "", facebookUrl: "", privacyText: "", termsText: "", heroHeadline: "", heroSubheadline: "", heroImageUrl: "" });
+  const [businessSettings, setBusinessSettings] = useState({ businessName: "ZEVROA", logoUrl: "", primaryColor: "#c8a24b", accentColor: "#b28b37", faviconUrl: "", phone: "", whatsapp: "", email: "", address: "", hours: "", instagramUrl: "", facebookUrl: "", privacyText: "", termsText: "", heroHeadline: "", heroSubheadline: "", heroImageUrl: "" });
   // Evita el destello de contenido incorrecto en "/": hasta que /api/settings confirme si
   // este host es la landing de la plataforma o el showroom de un dealer, no hay forma de
   // saber qué renderizar. Sin esta bandera se veía brevemente el catálogo por defecto.
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [theme, setTheme] = useState(() => localStorage.getItem("authentiq_theme") || "light");
-  publicBrandName = businessSettings.businessName || "AUTHENTIQ";
+  publicBrandName = businessSettings.businessName || "ZEVROA";
   useEffect(() => {
     const root = document.documentElement;
     const normalizeColor = (value, fallback) => /^#[0-9a-f]{6}$/i.test(String(value || "")) ? value : fallback;
@@ -2199,6 +2486,11 @@ function App() {
     // tono original vía su propio override de esta misma variable — ver styles.css.
     root.style.setProperty("--tenant-primary-ink", contrastSafeShade(primaryColor, "#f5f1e9"));
     root.style.setProperty("--tenant-accent-ink", contrastSafeShade(accentColor, "#f5f1e9"));
+    root.style.setProperty("--tenant-on-primary", readableInkOn(primaryColor));
+    root.style.setProperty("--tenant-primary-hover", lighten(primaryColor));
+    // El hero y la barra sin scroll son oscuros: ahí el tono de marca se aclara
+    // en vez de oscurecerse, o una marca granate o añil queda ilegible.
+    root.style.setProperty("--tenant-primary-on-dark", contrastSafeTint(primaryColor, "#111315"));
     let favicon = document.querySelector("link[data-authentiq-favicon]");
     if (!favicon) { favicon = document.createElement("link"); favicon.rel = "icon"; favicon.dataset.authentiqFavicon = "true"; document.head.appendChild(favicon); }
     favicon.href = businessSettings.faviconUrl || "/favicon.svg";
@@ -2213,12 +2505,12 @@ function App() {
     style.textContent = css;
   }, [businessSettings.customCss]);
   useEffect(() => {
-    const brand = businessSettings.businessName || "AUTHENTIQ";
-    document.title = document.title.replace(/AUTHENTIQ/g, brand);
+    const brand = businessSettings.businessName || "ZEVROA";
+    document.title = document.title.replace(/AUTHENTIQ/g, brand).replace(/ZEVROA/g, brand);
   }, [businessSettings.businessName]);
 
   const customerRequest = async (path, options = {}) => {
-    const response = await fetch(`${apiUrl}${path}`, { ...options, credentials: "include", headers: { "Content-Type": "application/json", Authorization: `Bearer ${customerToken}`, ...(options.headers || {}) } });
+    const response = await fetch(`${apiUrl}${path}`, { ...options, credentials: "include", headers: { "Content-Type": "application/json", ...(customerToken ? { Authorization: `Bearer ${customerToken}` } : {}), ...(options.headers || {}) } });
     const payload = response.status === 204 ? null : await response.json();
     if (!response.ok) throw new Error(payload?.error || "La operación no pudo completarse");
     return payload;
@@ -2252,14 +2544,17 @@ function App() {
   useEffect(() => { localStorage.setItem("authentiq_recent_vehicles", JSON.stringify(recentVehicleIds)); }, [recentVehicleIds]);
   useEffect(() => { localStorage.setItem("authentiq_catalog_view", catalogView); }, [catalogView]);
   useEffect(() => {
-    if (!customerToken) return undefined;
     let cancelled = false;
     (async () => {
       try {
-        const [profile, favorites, activity] = await Promise.all([customerRequest("/api/customer/me"), customerRequest("/api/customer/favorites"), customerRequest("/api/customer/activity")]);
+        // Primero comprobamos la sesión. La cookie HttpOnly puede existir aunque
+        // no tengamos token en memoria; si el visitante es anónimo evitamos dos
+        // consultas privadas adicionales que siempre acabarían en 401.
+        const profile = await customerRequest("/api/customer/me");
+        if (cancelled) return;
+        const [favorites, activity] = await Promise.all([customerRequest("/api/customer/favorites"), customerRequest("/api/customer/activity")]);
         if (cancelled) return;
         setCustomer(profile.data);
-        localStorage.setItem("authentiq_customer_user", JSON.stringify(profile.data));
         setCustomerActivity(activity.data || { offers: [], quotes: [], notifications: [] });
         const serverIds = favorites.data || [];
         const localIds = JSON.parse(localStorage.getItem("authentiq_favorite_vehicles") || "[]");
@@ -2267,7 +2562,7 @@ function App() {
         setFavoriteIds(mergedIds);
         await Promise.all(localIds.filter((id) => !serverIds.includes(id)).map((id) => customerRequest(`/api/customer/favorites/${id}`, { method: "PUT" }).catch(() => null)));
       } catch {
-        if (!cancelled) { localStorage.removeItem("authentiq_customer_token"); localStorage.removeItem("authentiq_customer_user"); setCustomerToken(""); setCustomer(null); setCustomerActivity({ offers: [], quotes: [], notifications: [] }); }
+        if (!cancelled) { setCustomerToken(""); setCustomer(null); setCustomerActivity({ offers: [], quotes: [], notifications: [] }); }
       }
     })();
     return () => { cancelled = true; };
@@ -2323,7 +2618,7 @@ function App() {
     // Los artículos del blog publican sus propios metadatos (BlogArticle). Los efectos del
     // hijo corren antes que los del padre, así que aquí hay que apartarse o los pisaríamos.
     if (pathname.startsWith("/blog/")) return;
-    const brandName = businessSettings.businessName || "AUTHENTIQ";
+    const brandName = businessSettings.businessName || "ZEVROA";
     const replaceDefaultBrand = (value) => String(value || "").replace(/AUTHENTIQ/gi, brandName);
     const title = activeVehicle
       ? replaceDefaultBrand(activeVehicle.seoTitle || `${activeVehicle.brand} ${activeVehicle.model} · ${brandName}`)
@@ -2413,13 +2708,11 @@ function App() {
       if (!response.ok) throw new Error(payload.error || "No se pudo completar la cuenta");
       setCustomerToken(payload.token);
       setCustomer(payload.user);
-      localStorage.setItem("authentiq_customer_token", payload.token);
-      localStorage.setItem("authentiq_customer_user", JSON.stringify(payload.user));
       setAccountForm({ name: "", email: "", phone: "", password: "" });
       setAccountStatus({ loading: false, error: "" });
     } catch (requestError) { setAccountStatus({ loading: false, error: requestError.message }); }
   };
-  const logoutCustomer = () => { fetch(`${apiUrl}/api/customer/auth/logout`, { method: "POST", credentials: "include" }).catch(() => {}); localStorage.removeItem("authentiq_customer_token"); localStorage.removeItem("authentiq_customer_user"); setCustomerToken(""); setCustomer(null); setCustomerActivity({ offers: [], quotes: [], notifications: [] }); setAccountStatus({ loading: false, error: "" }); };
+  const logoutCustomer = async () => { await fetch(`${apiUrl}/api/customer/auth/logout`, { method: "POST", credentials: "include" }).catch(() => {}); setCustomerToken(""); setCustomer(null); setCustomerActivity({ offers: [], quotes: [], notifications: [] }); setAccountStatus({ loading: false, error: "" }); };
   const submitCustomerRecovery = async (event) => { event.preventDefault(); setCustomerRecoveryStatus({ loading: true, message: "", error: "" }); try { const response = await fetch(`${apiUrl}/api/customer/auth/password-reset/request`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: accountForm.email }) }); const payload = await response.json(); if (!response.ok) throw new Error(payload.error || "No se pudo preparar la recuperación"); setCustomerRecoveryStatus({ loading: false, message: payload.message, error: "" }); } catch (error) { setCustomerRecoveryStatus({ loading: false, message: "", error: error.message }); } };
   const markCustomerNotificationsRead = async () => { try { await customerRequest("/api/customer/notifications/read", { method: "PATCH" }); setCustomerActivity((current) => ({ ...current, notifications: (current.notifications || []).map((item) => ({ ...item, readAt: new Date().toISOString() })) })); } catch (requestError) { setAccountStatus({ loading: false, error: requestError.message }); } };
   const toggleFavorite = (vehicle) => {
@@ -2443,34 +2736,62 @@ function App() {
   if (tenantNotFound) return <TenantNotFoundPage />;
   if (pathname === "/presentacion") return <PresentationMode vehicles={vehicles} loading={loading} businessName={businessSettings.businessName} logoUrl={businessSettings.logoUrl} onExit={() => { if (requestedDealerSlug) navigate(`/?dealer=${encodeURIComponent(requestedDealerSlug)}`); else { setShowDemoCatalog(true); navigate("/"); } }} onOpenVehicle={(vehicle) => navigate(vehiclePath(vehicle))} />;
   if (pathname.startsWith("/cotizaciones/") && pathname.slice("/cotizaciones/".length)) return <PublicQuotePage token={pathname.slice("/cotizaciones/".length)} />;
-  if (pathname === "/preview") return previewVehicle ? <VehicleDetail vehicle={{ ...previewVehicle, status: "draft" }} onBack={() => navigate("/")} /> : <main className="article-page"><button className="back-button" onClick={() => navigate("/")}>← Volver al catálogo</button><section className="article-empty"><span className="eyebrow">AUTHENTIQ · VISTA PREVIA</span><h1>No hay una ficha para previsualizar.</h1><p>Regresa al panel, completa el formulario y vuelve a abrir la vista previa.</p></section></main>;
+  if (pathname === "/preview") return previewVehicle ? <VehicleDetail vehicle={{ ...previewVehicle, status: "draft" }} onBack={() => navigate("/")} /> : <main className="article-page"><button className="back-button" onClick={() => navigate("/")}>← Volver al catálogo</button><section className="article-empty"><span className="eyebrow">ZEVROA · VISTA PREVIA</span><h1>No hay una ficha para previsualizar.</h1><p>Regresa al panel, completa el formulario y vuelve a abrir la vista previa.</p></section></main>;
   if (pathname.startsWith("/blog/")) return <BlogArticle slug={pathname.slice("/blog/".length)} onBack={() => navigate("/")} />;
   if (pathname.startsWith("/vehiculos/") && loading) return <main className="article-page"><p className="state-message">Cargando vehículo…</p></main>;
-  if (pathname.startsWith("/vehiculos/") && !routeVehicle) return <main className="article-page"><button className="back-button" onClick={() => navigate("/")}>← Volver al catálogo</button><section className="article-empty"><span className="eyebrow">AUTHENTIQ · INVENTARIO</span><h1>Este vehículo no está disponible.</h1><p>Puede haber sido vendido, archivado o la dirección puede haber cambiado.</p></section></main>;
+  if (pathname.startsWith("/vehiculos/") && !routeVehicle) return <main className="article-page"><button className="back-button" onClick={() => navigate("/")}>← Volver al catálogo</button><section className="article-empty"><span className="eyebrow">ZEVROA · INVENTARIO</span><h1>Este vehículo no está disponible.</h1><p>Puede haber sido vendido, archivado o la dirección puede haber cambiado.</p></section></main>;
   const knownPath = pathname === "/" || pathname === "/presentacion" || pathname === "/preview" || pathname === "/backoffice/restablecer-contrasena" || pathname === "/cuenta/restablecer-contrasena" || pathname.startsWith("/cotizaciones/") || pathname.startsWith("/blog/") || pathname.startsWith("/vehiculos/");
   if (!knownPath) return <NotFoundPage onBack={() => navigate("/")} />;
   if (["contact", "location", "privacy", "terms"].includes(screen)) return <InstitutionalPage type={screen} settings={businessSettings} onBack={() => setScreen("catalog")} />;
   if (activeVehicle) return <VehicleDetail vehicle={activeVehicle} vehicles={vehicles} onBack={() => navigate("/")} isFavorite={favoriteIds.includes(activeVehicle.id)} onToggleFavorite={toggleFavorite} customerToken={customerToken} compareVehicles={compareVehicles} favoriteIds={favoriteIds} onOpenVehicle={(vehicle) => navigate(vehiclePath(vehicle))} onToggleCompare={toggleCompare} whatsapp={businessSettings.whatsapp} />;
   if (pathname === "/" && !settingsLoaded && !showDemoCatalog && !requestedDealerSlug) return <main className="app-boot-shell" aria-hidden="true" />;
-  if (pathname === "/" && (businessSettings.isPlatformHome || previewPlatformLanding) && !showDemoCatalog && !requestedDealerSlug) return <LandingPage onCreateShowroom={() => { setAdminInitialMode("register"); setScreen("admin"); }} onDealerLogin={() => { setAdminInitialMode("login"); setScreen("admin"); }} onViewDemo={() => setShowDemoCatalog(true)} onOpenPrivacy={() => setScreen("privacy")} onOpenTerms={() => setScreen("terms")} />;
+  if (pathname === "/" && (businessSettings.isPlatformHome || previewPlatformLanding) && !showDemoCatalog && !requestedDealerSlug) return <LandingPage testimonials={businessSettings.testimonials} whatsapp={businessSettings.whatsapp} onCreateShowroom={() => { setAdminInitialMode("register"); setScreen("admin"); }} onDealerLogin={() => { setAdminInitialMode("login"); setScreen("admin"); }} onViewDemo={() => setShowDemoCatalog(true)} onOpenPrivacy={() => setScreen("privacy")} onOpenTerms={() => setScreen("terms")} />;
 
   const heroVideoUrl = String(import.meta.env.VITE_HERO_VIDEO_URL || "").trim();
+  // El showroom de un concesionario no debe presumir de lo que no tiene ni pedir
+  // prestada la foto de la plataforma. Todo lo que sigue sale de su propio inventario.
+  const heroFallbackVehicleImage = vehicles.find((vehicle) => vehicle.images?.[0]?.url)?.images?.[0]?.url || "";
+  const heroImage = publicMediaUrl(businessSettings.heroImageUrl) || publicMediaUrl(heroFallbackVehicleImage) || "";
+  const showroomCity = String(businessSettings.address || "").split(",").map((part) => part.trim()).filter(Boolean).pop() || "";
+  const heroBrandCount = new Set(vehicles.map((vehicle) => vehicle.brand).filter(Boolean)).size;
+  const hasInventory = vehicles.length > 0;
   return (
     <><a className="skip-link" href="#top">Saltar al contenido</a><main id="top">
       <ShowroomNav theme={theme} setTheme={setTheme} customer={customer} businessName={businessSettings.businessName} logoUrl={businessSettings.logoUrl} onAccount={() => { setAccountOpen(true); setAccountStatus({ loading: false, error: "" }); }} onBackoffice={() => { setAdminInitialMode("login"); setScreen("admin"); }} onRegisterDealer={() => { setAdminInitialMode("register"); setScreen("admin"); }} />
       <section className="hero">
-        {heroVideoUrl ? <video className="hero-background hero-video" autoPlay={!prefersReducedMotion} muted loop playsInline preload="metadata" poster={businessSettings.heroImageUrl || "/assets/authentiq-hero-v1.webp"} aria-label="Vehículo premium en movimiento"><source src={heroVideoUrl} /></video> : <img src={publicMediaUrl(businessSettings.heroImageUrl) || "/assets/authentiq-hero-v1.webp"} alt={`Vehículo destacado de ${getBrandName()}`} className="hero-background" loading="eager" fetchPriority="high" decoding="async" />}
+        {heroVideoUrl
+          ? <video className="hero-background hero-video" autoPlay={!prefersReducedMotion} muted loop playsInline preload="metadata" poster={heroImage || undefined} aria-label={`Vehículo de ${getBrandName()}`}><source src={heroVideoUrl} /></video>
+          : heroImage
+            ? <img src={heroImage} alt={`Vehículo destacado de ${getBrandName()}`} className="hero-background" loading="eager" fetchPriority="high" decoding="async" />
+            : <div className="hero-background hero-background-blank" aria-hidden="true" />}
         <div className="hero-overlay" />
         <div className="hero-content">
-          <span className="eyebrow">{getBrandName()} / CURATED MOTION</span>
+          <span className="eyebrow">{showroomCity ? `${getBrandName()} · ${showroomCity}` : getBrandName()}</span>
           {businessSettings.heroHeadline ? <h1>{businessSettings.heroHeadline}</h1> : <h1>Elige lo que <em>te mueve.</em></h1>}
           <p>{businessSettings.heroSubheadline || "Vehículos con carácter, información clara y una atención diseñada alrededor de tu próxima historia."}</p>
           <div className="hero-actions"><a href="#catalog" className="hero-link primary-action hero-primary-action">Explorar inventario ↓</a><a href={`/presentacion${requestedDealerSlug ? `?dealer=${encodeURIComponent(requestedDealerSlug)}` : ""}`} className="hero-link hero-secondary-action">Ver presentación →</a><button type="button" className="hero-link hero-tertiary-action" onClick={() => setBuyerRequestKind("trade-in")}>¿Tienes vehículo? Valóralo →</button></div>
         </div>
-        <div className="hero-proof" aria-label={`Pilares de ${getBrandName()}`}><span><strong><AnimatedMetric value={1} suffix="" /></strong> selección con criterio</span><span><strong><AnimatedMetric value={100} suffix="%" /></strong> inventario verificado</span><span><strong><AnimatedMetric value={1} suffix=":1" /></strong> atención privada</span></div>
+        {hasInventory && <div className="hero-proof" aria-label={`Inventario de ${getBrandName()}`}>
+          <span><strong><AnimatedMetric value={vehicles.length} suffix="" /></strong> {vehicles.length === 1 ? "vehículo disponible" : "vehículos disponibles"}</span>
+          {heroBrandCount > 0 && <span><strong><AnimatedMetric value={heroBrandCount} suffix="" /></strong> {heroBrandCount === 1 ? "marca" : "marcas"}</span>}
+          {businessSettings.hours && <span>{businessSettings.hours}</span>}
+        </div>}
         <a className="hero-scroll-cue" href="#catalog" aria-label="Bajar al catálogo"><span /> SCROLL</a>
       </section>
-      <Reveal className="showroom-signal"><div className="showroom-signal-inner"><span className="showroom-signal-label">{getBrandName()} / PRIVATE SELECTION</span><p>No llenamos el catálogo. Seleccionamos lo que merece ser conducido.</p><a href="#catalog">Entrar a la selección <span>→</span></a></div></Reveal>
+      {/* Antes esta franja imponía a todo concesionario la misma pose de boutique
+        ("PRIVATE SELECTION / no llenamos el catálogo"). Ahora dice lo que el comprador
+        necesita saber de *este* concesionario, y desaparece si no hay nada que contar. */}
+      {(businessSettings.address || businessSettings.hours || hasInventory) && <Reveal className="showroom-signal"><div className="showroom-signal-inner">
+        <span className="showroom-signal-label">{businessSettings.address ? `${getBrandName()} · Dónde estamos` : getBrandName()}</span>
+        <p>{businessSettings.address
+          ? `${businessSettings.address}${businessSettings.hours ? ` · ${businessSettings.hours}` : ""}`
+          : hasInventory
+            ? `${vehicles.length} ${vehicles.length === 1 ? "vehículo disponible" : "vehículos disponibles"} con ficha completa, fotos y precio a la vista.`
+            : ""}</p>
+        {businessSettings.address
+          ? <button type="button" onClick={() => setScreen("location")}>Cómo llegar <span>→</span></button>
+          : <a href="#catalog">Ver el inventario <span>→</span></a>}
+      </div></Reveal>}
       <IntentRail categories={categories} conditions={conditions} fuelTypes={fuelTypes} onChoose={chooseIntent} />
       <CompareDock vehicles={compareVehicles} onRemove={(id) => setCompareVehicles((current) => current.filter((item) => item.id !== id))} onClear={() => setCompareVehicles([])} />
 
@@ -2511,7 +2832,7 @@ function App() {
         {businessSettings.showBlog !== false && <BlogSection posts={posts} />}
         <footer className="site-footer">
           {(businessSettings.phone || businessSettings.whatsapp || businessSettings.email || businessSettings.instagramUrl || businessSettings.facebookUrl) && <div className="site-footer-contact">{businessSettings.phone && <a href={`tel:${businessSettings.phone}`}>{businessSettings.phone}</a>}{businessSettings.whatsapp && <a href={`https://wa.me/${businessSettings.whatsapp.replace(/\D/g, "")}`} target="_blank" rel="noreferrer" onClick={() => trackEvent("whatsapp_click")}>WhatsApp</a>}{businessSettings.email && <a href={`mailto:${businessSettings.email}`}>{businessSettings.email}</a>}{businessSettings.instagramUrl && <a href={businessSettings.instagramUrl} target="_blank" rel="noreferrer">Instagram ↗</a>}{businessSettings.facebookUrl && <a href={businessSettings.facebookUrl} target="_blank" rel="noreferrer">Facebook ↗</a>}</div>}
-          <div><span className="brand-mark">{businessSettings.businessName || "AUTHENTIQ"}</span><p>Vehículos premium · inventario verificado.</p></div>
+          <div><span className="brand-mark">{businessSettings.businessName || "ZEVROA"}</span><p>Vehículos premium · inventario verificado.</p></div>
           <nav aria-label="Enlaces institucionales">
             <button onClick={() => setScreen("contact")}>Contacto</button>
             <button onClick={() => setScreen("location")}>Ubicación</button>
@@ -2532,7 +2853,7 @@ function App() {
 class AppErrorBoundary extends Component {
   constructor(props) { super(props); this.state = { failed: false }; }
   static getDerivedStateFromError() { return { failed: true }; }
-  componentDidCatch(error, info) { console.error("[AUTHENTIQ] Error global de interfaz", error, info); reportError(error, { componentStack: info?.componentStack }); }
+  componentDidCatch(error, info) { console.error("[ZEVROA] Error global de interfaz", error, info); reportError(error, { componentStack: info?.componentStack }); }
   render() {
     if (!this.state.failed) return this.props.children;
     return <main className="app-error-boundary"><span className="eyebrow">{getBrandName()}</span><h1>Estamos afinando esta experiencia.</h1><p>La página encontró un problema inesperado. Puedes volver a cargarla para continuar.</p><button className="primary-action" type="button" onClick={() => window.location.reload()}>Recargar página</button></main>;
