@@ -202,13 +202,18 @@ function TaxonomyModule({ taxonomy: externalTaxonomy, loading: externalLoading =
 function AdminNav({ activeModule, onChange, onBack, onLogout, role, unreadNotifications, notifications, onReadNotifications, onPreview, onOpenOnboarding, theme, onToggleTheme, vehicles = [], businessName = "ZEVROA" }) {
   const [showNotifications, setShowNotifications] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
-  const [advancedOpen, setAdvancedOpen] = useState(true);
+  // El trabajo diario debe ser la primera lectura. Las herramientas avanzadas
+  // siguen disponibles, pero no deben ocupar el panel antes de necesitarlas.
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
   const visibleItems = navItemsWithAppointments(role);
   const primaryKeys = ["dashboard", "inventory", "leads", "appointments", "quotes"];
   const primaryItems = visibleItems.filter(([key]) => primaryKeys.includes(key));
   const advancedItems = visibleItems.filter(([key]) => !primaryKeys.includes(key));
   const moduleContext = { dashboard: ["Resumen", "Mira lo importante y decide la siguiente acción."], inventory: ["Inventario", "Mantén cada ficha lista para vender."], taxonomy: ["Marcas y categorías", "Controla el catálogo que usa tu equipo."], leads: ["Clientes", "Prioriza conversaciones y próximos pasos."], quotes: ["Cotizaciones", "Convierte una propuesta en una decisión."], blog: ["Contenido", "Cuenta mejor la historia de cada vehículo."], offers: ["Ofertas", "Responde rápido a las oportunidades."], reports: ["Reportes", "Lee el negocio antes de moverlo."], audit: ["Actividad", "Revisa lo que está pasando en el sistema."], users: ["Usuarios", "Administra acceso y responsabilidades."], subscription: ["Plan y facturación", "Entiende lo que incluye tu cuenta y decide cuándo crecer."], integrations: ["Conexiones", "Calendario, redes y cobros en un solo lugar."], settings: ["Personalización", "Ajusta la identidad y operación del showroom."] }[activeModule] || ["Panel de control", `Operación ${businessName}`];
+  useEffect(() => {
+    if (advancedItems.some(([key]) => key === activeModule)) setAdvancedOpen(true);
+  }, [activeModule, advancedItems.length]);
   useEffect(() => {
     const onKeyDown = (event) => {
       const target = event.target;

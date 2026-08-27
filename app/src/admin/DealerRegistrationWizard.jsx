@@ -22,9 +22,6 @@ export default function DealerRegistrationWizard({ onRegisterSuccess, onCancel, 
   const [form, setForm] = useState({
     dealershipName: "",
     slug: "",
-    phone: "",
-    whatsapp: "",
-    address: "",
     adminName: "",
     adminEmail: "",
     adminPassword: "",
@@ -129,9 +126,6 @@ export default function DealerRegistrationWizard({ onRegisterSuccess, onCancel, 
         body: JSON.stringify({
           dealershipName: form.dealershipName.trim(),
           slug: form.slug.trim(),
-          phone: form.phone.trim(),
-          whatsapp: form.whatsapp.trim() || form.phone.trim(),
-          address: form.address.trim(),
           adminName: form.adminName.trim(),
           adminEmail: form.adminEmail.trim().toLowerCase(),
           adminPassword: form.adminPassword,
@@ -220,7 +214,7 @@ export default function DealerRegistrationWizard({ onRegisterSuccess, onCancel, 
       <h1>Crea tu <em>Showroom Digital.</em></h1>
       <p className="account-welcome">
         {step === 1
-          ? "Paso 1 de 2 · Los datos de tu concesionario y la dirección de tu showroom."
+          ? "Paso 1 de 2 · El nombre y la dirección pública de tu showroom."
           : "Paso 2 de 2 · Tu cuenta de administrador. Después entrarás al panel para personalizar el showroom."}
       </p>
 
@@ -260,36 +254,6 @@ export default function DealerRegistrationWizard({ onRegisterSuccess, onCancel, 
               {slugCheck?.state === "taken" && slugCheck.message}
               {!slugCheck && "Esta será la dirección de tu showroom. Usa minúsculas, números y guiones; podrás cambiarla antes de publicar."}
             </small>
-          </label>
-
-          <label>
-            Teléfono de Contacto
-            <input
-              type="tel"
-              placeholder="Ej. +1 (809) 555-0199"
-              value={form.phone}
-              onChange={(e) => updateField("phone", e.target.value)}
-            />
-          </label>
-
-          <label>
-            WhatsApp Comercial
-            <input
-              type="tel"
-              placeholder="Ej. +1 (809) 555-0199 (opcional)"
-              value={form.whatsapp}
-              onChange={(e) => updateField("whatsapp", e.target.value)}
-            />
-          </label>
-
-          <label>
-            Dirección / Ubicación Física
-            <input
-              type="text"
-              placeholder="Ej. Av. Winston Churchill #102, Santo Domingo"
-              value={form.address}
-              onChange={(e) => updateField("address", e.target.value)}
-            />
           </label>
 
           {error && <p className="state-message error">{error}</p>}

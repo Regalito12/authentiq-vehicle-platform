@@ -9,8 +9,8 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const rl = readline.createInterface({ input, output });
 
 try {
-  const email = (process.argv.find((arg) => arg.startsWith("--email=")) || "--email=platform@authentiq.local").slice(8).trim().toLowerCase();
-  const fullName = process.argv.find((arg) => arg.startsWith("--name="))?.slice(7).trim() || "AUTHENTIQ Platform";
+  const email = (process.argv.find((arg) => arg.startsWith("--email=")) || "--email=platform@zevroa.com").slice(8).trim().toLowerCase();
+  const fullName = process.argv.find((arg) => arg.startsWith("--name="))?.slice(7).trim() || "ZEVROA Platform";
   const password = await rl.question(`Contraseña para ${email}: `);
   if (password.length < 8) throw new Error("La contraseña debe tener al menos 8 caracteres");
   const passwordHash = await bcrypt.hash(password, 12);
