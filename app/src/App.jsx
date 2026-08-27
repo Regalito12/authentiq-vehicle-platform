@@ -22,7 +22,6 @@ class SectionBoundary extends Component {
 }
 
 const Backoffice = lazy(() => import("./admin/Backoffice.jsx"));
-const AuthentiqEditorialObject = lazy(() => import("./landing/AuthentiqEditorialObject.jsx"));
 
 // Conserva el subdominio local del dealer (p. ej. dealer-demo.localhost). Así la
 // API puede resolver la organización por host también durante una demostración.
@@ -726,7 +725,6 @@ function StudioLanding({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPriv
 
       <section ref={heroRef} className="studio-hero" id="landing-top">
         <motion.div className="studio-hero-media" style={{ y: heroY, scale: heroScale, x: heroMediaX, translateY: heroMediaY }} initial={{ opacity: 0, scale: reduceMotion ? 1 : 1.14 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: reduceMotion ? 0.6 : 1.4, ease: studioEase }} aria-hidden="true"><img src="/assets/authentiq-hero-v1.webp" alt="" /><div className="studio-hero-shade" /></motion.div>
-        <Suspense fallback={<div className="studio-hero-object studio-hero-object-loading" aria-hidden="true" />}><AuthentiqEditorialObject reduceMotion={reduceMotion} label={t.hero.objectLabel} /></Suspense>
         <motion.div className="studio-hero-copy" style={{ opacity: heroCopyOpacity, y: heroCopyY, x: heroCopyPx, translateY: heroCopyPy }}>
           <motion.span className="studio-kicker" {...heroIntro(0.1)}>{t.hero.kicker}</motion.span>
           <StudioHeadline as="h1" lines={t.hero.lines} reduceMotion={reduceMotion} delay={0.22} intro />
