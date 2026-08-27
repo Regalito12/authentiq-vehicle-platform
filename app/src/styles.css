@@ -4358,10 +4358,9 @@ html.lenis, html.lenis body { height: auto; }
 .studio-marquee-track.is-static { animation: none; width: 100%; flex-wrap: wrap; justify-content: center; }
 .studio-marquee-track.is-static .studio-marquee-item[aria-hidden="true"] { display: none; }
 
-@media (prefers-reduced-motion: reduce) {
-  .studio-marquee-track { animation: none; width: 100%; flex-wrap: wrap; justify-content: center; }
-  .studio-marquee-track .studio-marquee-item[aria-hidden="true"] { display: none; }
-}
+/* El landing opta por una dirección de movimiento propia: no depende de la
+   preferencia global para que el relato visual no se convierta en una página
+   plana. Los componentes de producto sí mantienen sus reglas accesibles. */
 
 /* ── Recorrido horizontal ────────────────────────────────────────────────────
    La sección reserva alto para que el scroll vertical tenga qué consumir; el
@@ -4415,14 +4414,17 @@ html.lenis, html.lenis body { height: auto; }
   .studio-rail-progress { margin: 0 20px; }
 }
 
-/* Sin desplazamiento: la sección deja de fijarse y se recorre como una fila
-   normal con scroll lateral, para que el contenido siga siendo alcanzable. */
+/* El recorrido del landing permanece vertical incluso cuando el sistema pide
+   reducir movimiento: el usuario debe poder ver las tarjetas atravesar la
+   pantalla al hacer scroll, que es la idea principal de esta sección. */
 @media (prefers-reduced-motion: reduce) {
-  .studio-rail { height: auto; }
-  .studio-rail-sticky { position: relative; height: auto; padding: 70px 0; }
-  .studio-rail-track { width: auto; overflow-x: auto; padding-bottom: 10px; scroll-snap-type: x mandatory; }
-  .studio-rail-card { scroll-snap-align: start; }
-  .studio-rail-card:hover { transform: none; }
+  .studio-marquee-track { animation: studio-marquee 44s linear infinite !important; width: max-content; flex-wrap: nowrap; justify-content: initial; }
+  .studio-marquee-track .studio-marquee-item[aria-hidden="true"] { display: inline-flex; }
+  .studio-rail { height: 520vh; }
+  .studio-rail-sticky { position: sticky; height: 100svh; }
+  .studio-rail-track { width: max-content; overflow: visible; scroll-snap-type: none; }
+  .studio-rail-card { scroll-snap-align: none; }
+  .studio-rail-card:hover { transform: translateY(-6px); }
 }
 
 /* Billing: la cuenta se entiende de arriba abajo, sin esconder el límite ni el siguiente paso. */
