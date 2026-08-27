@@ -8,6 +8,7 @@ import { contrastSafeShade, contrastSafeTint, lighten, readableInkOn } from "./u
 import { reportError } from "./utils/monitoring.js";
 import { AnimatedNumber, BlurFade, Disclosure, ProgressiveBlur, TextReveal } from "./ui/MotionPrimitives.jsx";
 import { AnimatedThemeTogglerStarDemo } from "./components/ui/animated-theme-toggler-star-demo.jsx";
+import { ArrowUpRightIcon, CalendarBlankIcon, CarSimpleIcon, FileTextIcon, SquaresFourIcon, UsersThreeIcon } from "@phosphor-icons/react";
 
 class SectionBoundary extends Component {
   constructor(props) { super(props); this.state = { failed: false }; }
@@ -589,7 +590,7 @@ function StudioTravelRail({ items, heading, hint, reduceMotion, motionScale = 1 
       <div className="studio-rail-sticky">
         <motion.div className="studio-rail-head" style={reduceMotion ? undefined : { x: headingX }}>
           <h2>{heading}</h2>
-          <span>{hint}</span>
+          <span><ArrowUpRightIcon size={16} weight="light" aria-hidden="true" />{hint}</span>
         </motion.div>
         <motion.div className="studio-rail-track" style={reduceMotion ? undefined : { x }}>
           {items.map((item) => (
@@ -837,10 +838,10 @@ function StudioPlatformSection({ data, reduceMotion, onViewDemo, motionScale = 1
       <div className="studio-platform-grid">
         {data.items.map((item, index) => (
           <StudioDrift key={item.index} className="studio-platform-card" depth={18 + index * 8} delay={0.04 + index * 0.06} reduceMotion={reduceMotion} motionScale={motionScale}>
-            <span className="studio-platform-index">{item.index}</span>
+            <div className="studio-platform-card-top"><span className="studio-platform-index">{item.index}</span><LandingPlatformIcon index={index} /></div>
             <h3>{item.title}</h3>
             <p>{item.body}</p>
-            <span className="studio-platform-arrow" aria-hidden="true">↗</span>
+            <ArrowUpRightIcon className="studio-platform-arrow" size={21} weight="light" aria-hidden="true" />
           </StudioDrift>
         ))}
       </div>
@@ -849,6 +850,12 @@ function StudioPlatformSection({ data, reduceMotion, onViewDemo, motionScale = 1
       </StudioReveal>
     </section>
   );
+}
+
+function LandingPlatformIcon({ index }) {
+  const icons = [CarSimpleIcon, UsersThreeIcon, CalendarBlankIcon, FileTextIcon];
+  const Icon = icons[index] || SquaresFourIcon;
+  return <span className="studio-platform-icon" aria-hidden="true"><Icon size={24} weight="light" /></span>;
 }
 
 function StudioChapterMedia({ src, alt, reduceMotion, motionScale = 1 }) {

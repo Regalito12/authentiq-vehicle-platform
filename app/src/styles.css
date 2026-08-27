@@ -4386,7 +4386,7 @@ html.lenis, html.lenis body { height: auto; }
 }
 .studio-rail-head span {
   color: var(--studio-gold); font: 500 14px "IBM Plex Mono", monospace;
-  letter-spacing: .1em; text-transform: uppercase; white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 8px; letter-spacing: .1em; text-transform: uppercase; white-space: nowrap;
 }
 .studio-rail-track {
   display: flex; align-items: center; gap: clamp(18px, 2.4vw, 34px);
@@ -4500,10 +4500,14 @@ html.lenis, html.lenis body { height: auto; }
 .studio-platform-card { position: relative; display: grid; align-content: start; min-height: 270px; gap: 18px; padding: 28px 24px 30px; border-right: 1px solid var(--studio-line); background: transparent; transition: background-color 260ms ease, transform 420ms var(--ease-out-quart, ease); }
 .studio-platform-card:first-child { border-left: 1px solid var(--studio-line); }
 .studio-platform-card:hover { background: rgba(226,185,95,.12); }
+.studio-platform-card-top { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.studio-platform-icon { display: grid; place-items: center; width: 44px; height: 44px; border: 1px solid rgba(140,112,55,.38); border-radius: 50%; color: #8c7037; transition: transform 360ms var(--ease-out-quart, ease), background-color 260ms ease, color 260ms ease; }
+.studio-platform-card:hover .studio-platform-icon { transform: rotate(-8deg) scale(1.08); background: var(--studio-gold); color: var(--studio-ink); }
 .studio-platform-index { color: #8c7037; font: 500 14px "IBM Plex Mono", monospace; letter-spacing: .1em; }
-.studio-platform-card h3 { margin: 42px 0 0; color: var(--studio-ink); font-size: clamp(22px, 2.2vw, 32px); font-weight: 400; letter-spacing: -.035em; }
+.studio-platform-card h3 { margin: 18px 0 0; color: var(--studio-ink); font-size: clamp(22px, 2.2vw, 32px); font-weight: 400; letter-spacing: -.035em; }
 .studio-platform-card p { max-width: 22ch; margin: 0; color: var(--studio-muted); font-size: 15px; line-height: 1.55; }
-.studio-platform-arrow { position: absolute; right: 24px; bottom: 28px; color: #8c7037; font: 500 20px "IBM Plex Mono", monospace; }
+.studio-platform-arrow { position: absolute; right: 24px; bottom: 28px; color: #8c7037; transition: transform 360ms var(--ease-out-quart, ease); }
+.studio-platform-card:hover .studio-platform-arrow { transform: translate(4px, -4px); }
 .studio-platform-action { margin-top: 36px; color: var(--studio-ink); border-color: rgba(23,26,25,.45); }
 .studio-platform-action:hover { color: #6c5b35; border-color: #6c5b35; }
 @media (max-width: 900px) {
