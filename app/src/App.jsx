@@ -1,5 +1,6 @@
 import { Component, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion, useInView, useMotionTemplate, useMotionValueEvent, useReducedMotion, useScroll, useSpring, useTransform } from "motion/react";
+import { SpeedInsights } from "@vercel/speed-insights/react";
 import { LANDING_COPY, LANDING_LANGUAGES } from "./landingCopy.js";
 import { useSmoothScroll } from "./utils/useSmoothScroll.js";
 import { TurnstileField, turnstileSiteKey } from "./utils/turnstile.jsx";
@@ -2540,5 +2541,5 @@ class AppErrorBoundary extends Component {
 }
 
 export default function AppRoot() {
-  return <AppErrorBoundary><App /><CookieConsentBanner /></AppErrorBoundary>;
+  return <AppErrorBoundary><App /><CookieConsentBanner /><SpeedInsights /></AppErrorBoundary>;
 }
