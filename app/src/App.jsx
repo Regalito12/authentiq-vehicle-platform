@@ -9,6 +9,7 @@ import { reportError } from "./utils/monitoring.js";
 import { AnimatedNumber, BlurFade, Disclosure, ProgressiveBlur, TextReveal } from "./ui/MotionPrimitives.jsx";
 import { AnimatedThemeTogglerStarDemo } from "./components/ui/animated-theme-toggler-star-demo.jsx";
 import { ArrowUpRightIcon, CalendarBlankIcon, CarSimpleIcon, FileTextIcon, SquaresFourIcon, UsersThreeIcon } from "@phosphor-icons/react";
+import { SpeedInsights } from "@vercel/speed-insights/react";
 
 class SectionBoundary extends Component {
   constructor(props) { super(props); this.state = { failed: false }; }
@@ -2870,5 +2871,5 @@ class AppErrorBoundary extends Component {
 }
 
 export default function AppRoot() {
-  return <AppErrorBoundary><App /><CookieConsentBanner /></AppErrorBoundary>;
+  return <AppErrorBoundary><App /><CookieConsentBanner /><SpeedInsights /></AppErrorBoundary>;
 }
