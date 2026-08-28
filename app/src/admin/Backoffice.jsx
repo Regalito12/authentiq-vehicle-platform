@@ -456,13 +456,21 @@ function DashboardView({ data, vehicles = [], leads, offers, appointments, loadi
     pendingOffers: Math.max(Number(summary.pendingOffers) || 0, safeOffers.filter((offer) => offer.status === "pending").length),
   };
   const statusData = (data.byStatus || []).map((item) => ({ ...item, label: item.status === "published" ? "Publicados" : item.status === "pending_review" ? "En revisión" : item.status === "draft" ? "Borradores" : item.status === "sold" ? "Vendidos" : "Inactivos" }));
+  // Un showroom sin vehículos todavía no necesita compartir enlaces, gráficos
+  // ni métricas vacías. Su siguiente decisión debe ser única y evidente.
+  if (snapshot.totalVehicles === 0) return <section className="dashboard-content dashboard-first-run">
+    <div className="dashboard-intro"><div><span className="eyebrow">ZEVROA · PRIMEROS PASOS</span><h2>Vamos a poner tu showroom en marcha.</h2></div><p>Completa una ficha y luego iremos sumando el resto de la operación.</p></div>
+    {organization?.approvalStatus === "pending" && <div className="dashboard-approval-banner"><strong>Tu showroom está en revisión.</strong><p>Puedes configurarlo en privado mientras preparas tu primer vehículo.</p></div>}
+    {organization?.approvalStatus === "rejected" && <div className="dashboard-approval-banner is-rejected"><strong>Tu showroom necesita una revisión.</strong><p>Prepara el inventario y contacta al equipo de ZEVROA cuando esté listo.</p></div>}
+    <DealerFirstRunCard onNavigate={onNavigate} />
+  </section>;
   return (
     <section className="dashboard-content">
       <div className="dashboard-intro"><div><span className="eyebrow">OPERACIÓN · EN TIEMPO REAL</span><h2>Una vista clara del negocio.</h2></div><p>Todo lo que tu equipo necesita para responder, publicar y vender.</p></div>
       {organization?.approvalStatus === "pending" && <div className="dashboard-approval-banner"><strong>Tu showroom está en revisión.</strong><p>Puedes personalizarlo todo desde aquí — se publicará en tu dominio cuando el equipo de ZEVROA lo apruebe. Mientras tanto, solo tú puedes verlo con "{"Vista previa privada"}".</p></div>}
       {organization?.approvalStatus === "rejected" && <div className="dashboard-approval-banner is-rejected"><strong>Tu showroom no fue aprobado.</strong><p>Contacta al equipo de ZEVROA para conocer los motivos y volver a enviarlo a revisión.</p></div>}
       <DealerShareCard organization={organization} settings={settings} onNavigate={onNavigate} />
-      {snapshot.totalVehicles === 0 ? <DealerFirstRunCard onNavigate={onNavigate} /> : <DashboardSetupCard onboarding={onboarding} onOpenOnboarding={onOpenOnboarding} onOpenPublic={onOpenPublic} />}
+      <DashboardSetupCard onboarding={onboarding} onOpenOnboarding={onOpenOnboarding} onOpenPublic={onOpenPublic} />
       <div className="stats-grid">
         <StatCard label="Vehículos" numericValue={snapshot.totalVehicles} note={`${snapshot.publishedVehicles} publicados`} />
         <StatCard label="Stock disponible" numericValue={snapshot.availableStock} note="Unidades publicadas" />
