@@ -410,9 +410,9 @@ async function main() {
         url.searchParams.set("impersonate", JSON.stringify({ token, user }));
         return url.toString();
       };
-      const commonOperations = [["dashboard", "Resumen"], ["inventory", "Inventario"], ["taxonomy", "Marcas y categorías"], ["leads", "Clientes"], ["appointments", "Citas"], ["quotes", "Cotizaciones"], ["blog", "Contenido"], ["offers", "Ofertas"], ["reports", "Reportes"]];
-      const modules = user.role === "editor" ? [...commonOperations, ["settings", "Personalizar showroom"]] : user.role === "admin" ? [...commonOperations, ["audit", "Actividad"], ["users", "Usuarios"], ["subscription", "Plan y facturación"], ["integrations", "Conexiones"], ["settings", "Personalizar showroom"]] : commonOperations;
-      const moduleReadyText = { dashboard: "Prioridad", inventory: "inventario", taxonomy: "Marcas y categorías", leads: "Clientes", appointments: "Citas", quotes: "Cotizaciones", blog: "Contenido", offers: "Ofertas", reports: "Reportes", audit: "Actividad", users: "Usuarios", subscription: "Tu plan, claro desde el primer día.", integrations: "Agenda", settings: "Tu showroom, a tu manera" };
+      const commonOperations = [["dashboard", "Inicio"], ["inventory", "Mi inventario"], ["taxonomy", "Marcas y categorías"], ["leads", "Clientes"], ["appointments", "Citas"], ["quotes", "Cotizaciones"], ["blog", "Contenido"], ["offers", "Ofertas"], ["reports", "Estadísticas"]];
+      const modules = user.role === "editor" ? [...commonOperations, ["settings", "Perfil y ajustes"]] : user.role === "admin" ? [...commonOperations, ["audit", "Actividad"], ["users", "Usuarios"], ["subscription", "Plan y facturación"], ["integrations", "Conexiones"], ["settings", "Perfil y ajustes"]] : commonOperations;
+      const moduleReadyText = { dashboard: "Prioridad", inventory: "inventario", taxonomy: "Marcas y categorías", leads: "Clientes", appointments: "Citas", quotes: "Cotizaciones", blog: "Contenido", offers: "Ofertas", reports: "Estadísticas", audit: "Actividad", users: "Usuarios", subscription: "Tu plan, claro desde el primer día.", integrations: "Agenda", settings: "Tu showroom, a tu manera" };
       for (const [width, height, label, mobile] of [[390, 844, "movil", true], [1280, 800, "escritorio", false]]) {
         await cdp.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile });
         await navigate(authenticatedAppUrl("/"), "document.querySelectorAll('.vehicle-card').length > 0");

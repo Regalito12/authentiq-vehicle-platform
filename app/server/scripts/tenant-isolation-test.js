@@ -1,5 +1,6 @@
 import "dotenv/config";
 import assert from "node:assert/strict";
+import pg from "pg";
 
 const baseUrl = process.env.LOCAL_TEST_URL || "http://localhost:3001";
 const demoPassword = process.env.LOCAL_DEMO_ADMIN_PASSWORD || "12345678";
@@ -79,22 +80,31 @@ async function assertCustomerScoping() {
   const password = "Iso-Authentiq-2026!";
   const [a, b] = publicData;
   if (!a || !b) return;
+  try {
+    const signup = await request(a.host, "/api/customer/auth/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fullName: "Comprador Aislamiento", email, password }) });
+    const token = signup.token;
+    assert.ok(token, "no se pudo crear la cuenta de comprador para la prueba");
+    const auth = { Authorization: `Bearer ${token}` };
 
-  const signup = await request(a.host, "/api/customer/auth/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fullName: "Comprador Aislamiento", email, password }) });
-  const token = signup.token;
-  assert.ok(token, "no se pudo crear la cuenta de comprador para la prueba");
-  const auth = { Authorization: `Bearer ${token}` };
+    const vehicleA = a.vehicles[0];
+    const vehicleB = b.vehicles[0];
+    assert.ok(vehicleA && vehicleB, "hacen falta vehículos publicados en ambos concesionarios");
 
-  const vehicleA = a.vehicles[0];
-  const vehicleB = b.vehicles[0];
-  assert.ok(vehicleA && vehicleB, "hacen falta vehículos publicados en ambos concesionarios");
+    await request(a.host, `/api/customer/favorites/${vehicleA.id}`, { method: "PUT", headers: auth });
+    const cruzado = await fetch(`${baseUrl}/api/customer/favorites/${vehicleB.id}`, { method: "PUT", headers: { "X-Forwarded-Host": a.host, ...auth } });
+    assert.equal(cruzado.status, 404, `se pudo guardar como favorito un vehículo de ${b.host} desde ${a.host} (respondió ${cruzado.status})`);
 
-  await request(a.host, `/api/customer/favorites/${vehicleA.id}`, { method: "PUT", headers: auth });
-  const cruzado = await fetch(`${baseUrl}/api/customer/favorites/${vehicleB.id}`, { method: "PUT", headers: { "X-Forwarded-Host": a.host, ...auth } });
-  assert.equal(cruzado.status, 404, `se pudo guardar como favorito un vehículo de ${b.host} desde ${a.host} (respondió ${cruzado.status})`);
-
-  const favoritos = await request(a.host, "/api/customer/favorites", { headers: auth });
-  assert.equal((favoritos.data || []).includes(vehicleB.id), false, `los favoritos de ${a.host} incluyen un vehículo de ${b.host}`);
+    const favoritos = await request(a.host, "/api/customer/favorites", { headers: auth });
+    assert.equal((favoritos.data || []).includes(vehicleB.id), false, `los favoritos de ${a.host} incluyen un vehículo de ${b.host}`);
+  } finally {
+    const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+    try {
+      await pool.query("DELETE FROM vehicle_favorites WHERE customer_id IN (SELECT id FROM customer_accounts WHERE email = $1)", [email]);
+      await pool.query("DELETE FROM customer_accounts WHERE email = $1", [email]);
+    } finally {
+      await pool.end();
+    }
+  }
 }
 
 await assertCustomerScoping();
