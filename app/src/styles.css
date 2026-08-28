@@ -2893,14 +2893,8 @@ html[data-theme="dark"] .quote-financing-summary { color: #9da39f; }
 .dealer-first-run-copy h3 { margin: 8px 0 5px; color: var(--auth-ink); font-size: clamp(22px, 2.5vw, 30px); font-weight: 400; letter-spacing: -.04em; }
 .dealer-first-run-copy p { max-width: 650px; margin: 0; color: var(--auth-muted); font-size: 14px; line-height: 1.5; }
 .dealer-first-run .primary-action { white-space: nowrap; }
-.welcome-first-vehicle-callout { display: flex; align-items: center; gap: 16px; margin: 8px 0 24px; padding: 16px; border: 1px solid var(--auth-line); background: var(--auth-soft); }
-.welcome-first-vehicle-callout > div:last-child { display: grid; gap: 5px; }
-.welcome-first-vehicle-callout strong { color: var(--auth-ink); font-size: 20px; font-weight: 500; }
-.welcome-first-vehicle-callout p { margin: 0; color: var(--auth-muted); font-size: 14px; line-height: 1.45; }
 html[data-theme="dark"] .dealer-first-run { background: #171b1b; border-color: #303638; border-top-color: #e5c36d; }
 html[data-theme="dark"] .dealer-first-run-copy h3 { color: #f2efe9; }
-html[data-theme="dark"] .welcome-first-vehicle-callout { background: #1d2222; }
-html[data-theme="dark"] .welcome-first-vehicle-callout strong { color: #f2efe9; }
 @media (max-width: 760px) { .dealer-first-run { grid-template-columns: auto minmax(0, 1fr); } .dealer-first-run .primary-action { grid-column: 1 / -1; justify-self: start; } }
 @media (max-width: 480px) { .dealer-first-run { grid-template-columns: 1fr; padding: 18px; } .dealer-first-run-mark { width: 48px; height: 48px; } .dealer-first-run .primary-action { width: 100%; } }
 .dashboard-setup-card { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(250px, .75fr); gap: 0; margin: 0 0 12px; border: 1px solid var(--auth-line); border-top: 3px solid var(--auth-gold); background: var(--auth-surface); }

@@ -210,13 +210,13 @@ function AdminNav({ activeModule, onChange, onBack, onLogout, role, unreadNotifi
   // Cuatro accesos bastan para el trabajo diario. El resto sigue disponible
   // en Administración y mediante Ctrl/Cmd + K, sin desaparecer ni duplicarse.
   const primaryKeysByRole = {
-    admin: ["dashboard", "inventory", "reports", "settings"],
-    editor: ["dashboard", "inventory", "reports", "settings"],
+    admin: ["settings", "dashboard", "inventory", "reports"],
+    editor: ["settings", "dashboard", "inventory", "reports"],
     seller: ["dashboard", "leads", "quotes", "reports"],
     content_editor: ["dashboard", "blog"],
   };
   const primaryKeys = primaryKeysByRole[role] || primaryKeysByRole.seller;
-  const primaryItems = visibleItems.filter(([key]) => primaryKeys.includes(key));
+  const primaryItems = primaryKeys.flatMap((key) => visibleItems.filter(([itemKey]) => itemKey === key));
   const advancedItems = visibleItems.filter(([key]) => !primaryKeys.includes(key));
   const moduleContext = { dashboard: ["Inicio", "Mira lo importante y decide la siguiente acción."], inventory: ["Mi inventario", "Mantén cada ficha lista para vender."], taxonomy: ["Marcas y categorías", "Controla el catálogo que usa tu equipo."], leads: ["Clientes", "Prioriza conversaciones y próximos pasos."], quotes: ["Cotizaciones", "Convierte una propuesta en una decisión."], blog: ["Contenido", "Cuenta mejor la historia de cada vehículo."], offers: ["Ofertas", "Responde rápido a las oportunidades."], reports: ["Estadísticas", "Lee el negocio antes de moverlo."], audit: ["Actividad", "Revisa lo que está pasando en el sistema."], users: ["Usuarios", "Administra acceso y responsabilidades."], subscription: ["Plan y facturación", "Entiende lo que incluye tu cuenta y decide cuándo crecer."], integrations: ["Conexiones", "Calendario, redes y cobros en un solo lugar."], settings: ["Perfil y ajustes", "Ajusta la identidad y operación del showroom."] }[activeModule] || ["Panel de control", `Operación ${businessName}`];
   useEffect(() => {
@@ -1124,7 +1124,6 @@ function WelcomeOnboarding({ onboarding, organization, onNavigate, onDismiss, on
   const selected = displaySteps.find((step) => step.id === selectedId) || firstPending || displaySteps[0];
   const selectedIndex = Math.max(0, displaySteps.findIndex((step) => step.id === selected?.id));
   const isComplete = ready;
-  const needsFirstVehicle = !onboarding?.steps?.some((step) => step.id === "catalog" && step.done);
   useEffect(() => {
     document.body.style.overflow = "hidden";
     const closeOnEscape = (event) => { if (event.key === "Escape") onDismiss(); };
@@ -1133,13 +1132,6 @@ function WelcomeOnboarding({ onboarding, organization, onNavigate, onDismiss, on
   }, [onDismiss]);
   const openSelected = () => { onDismiss(); onNavigate?.(selected.destination); };
   const pendingInSelected = selected ? selected.essentialTotal - selected.essentialDone : 0;
-  if (needsFirstVehicle) return <motion.div className="welcome-onboarding-backdrop" role="presentation" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-    <motion.section className="welcome-onboarding welcome-first-vehicle" role="dialog" aria-modal="true" aria-labelledby="welcome-first-vehicle-title" initial={{ opacity: 0, y: 18, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 12, scale: .98 }} transition={{ duration: .28, ease: [0.22, 1, 0.36, 1] }}>
-      <header className="welcome-onboarding-header"><div><span className="eyebrow">ZEVROA · BIENVENIDO</span><h2 id="welcome-first-vehicle-title">Tu showroom<br /><em>empieza con un vehículo.</em></h2><p>Primero crea una ficha con marca, modelo, precio y fotos. Después podrás completar la identidad, agenda y demás ajustes sin perderte.</p></div><button className="welcome-onboarding-close" type="button" onClick={onDismiss} aria-label="Cerrar bienvenida">×</button></header>
-      <div className="welcome-first-vehicle-callout"><div className="dealer-first-run-mark" aria-hidden="true"><CarSimpleIcon size={30} weight="duotone" /></div><div><span className="eyebrow">PRIMER PASO</span><strong>Publica tu primer vehículo.</strong><p>El asistente te guía etapa por etapa y puedes guardarlo como borrador.</p></div></div>
-      <div className="welcome-onboarding-actions"><button className="primary-action" type="button" onClick={() => { onDismiss(); onNavigate?.("inventory"); }}>Publicar mi primer vehículo →</button><button className="text-button" type="button" onClick={onDismiss}>Explorar el panel</button></div>
-    </motion.section>
-  </motion.div>;
   return <motion.div className="welcome-onboarding-backdrop" role="presentation" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
     <motion.section className="welcome-onboarding" role="dialog" aria-modal="true" aria-labelledby="welcome-onboarding-title" initial={{ opacity: 0, y: 18, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 12, scale: .98 }} transition={{ duration: .28, ease: [0.22, 1, 0.36, 1] }}>
       <header className="welcome-onboarding-header">
@@ -1612,11 +1604,14 @@ export default function Backoffice({ onBack, onVehiclesChanged, initialMode = "l
   useEffect(() => { if (!sessionResolved || !currentUser) return; const role = currentUser.role; loadDashboard(); loadNotifications(); if (["admin", "editor", "seller"].includes(role)) { loadVehicles(); loadOffers(); loadQuotes(); loadAnalytics(); loadLeads(); loadAppointments(); loadUsers(); } if (["admin", "editor"].includes(role)) { loadAppointmentBlocks(); loadTaxonomy(); loadSettings(); loadOnboarding(); } if (["admin", "editor", "content_editor"].includes(role)) { loadBlog(); loadSocialDrafts(); } if (role === "admin") { loadAudit(); loadManagedUsers(); loadOrganization(); loadIntegrations(); } }, [sessionResolved, currentUser?.role]);
   const onboardingStorageKey = currentUser?.id ? `authentiq_onboarding_seen_${currentUser.id}` : "";
   useEffect(() => {
-    if (!token || currentUser?.role !== "admin" || !onboarding || onboarding.progress >= 100 || !onboardingStorageKey) { setWelcomeOnboardingOpen(false); return undefined; }
+    if (!currentUser || currentUser?.role !== "admin" || !onboarding || onboarding.progress >= 100 || !onboardingStorageKey) { setWelcomeOnboardingOpen(false); return undefined; }
     if (localStorage.getItem(onboardingStorageKey) === "1") return undefined;
-    const timer = window.setTimeout(() => setWelcomeOnboardingOpen(true), 420);
+    const timer = window.setTimeout(() => {
+      setActiveModule("settings");
+      setWelcomeOnboardingOpen(true);
+    }, 420);
     return () => window.clearTimeout(timer);
-  }, [token, currentUser?.role, onboarding?.progress, onboardingStorageKey]);
+  }, [currentUser?.id, currentUser?.role, onboarding?.progress, onboardingStorageKey]);
   const handleLogin = async (event) => { event.preventDefault(); setLoginError(""); try { const response = await fetch(`${apiUrl}/api/auth/login`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify(login) }); const payload = await response.json(); if (!response.ok) throw new Error(payload.error || "No se pudo iniciar sesión"); setCurrentUser(payload.user); setToken(payload.token || ""); setSessionResolved(true); } catch (error) { setLoginError(error.message); } };
   const submitRecovery = async (event) => { event.preventDefault(); setRecoveryState({ loading: true, message: "", error: "" }); try { const response = await fetch(`${apiUrl}/api/auth/password-reset/request`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: recoveryEmail }) }); const payload = await response.json(); if (!response.ok) throw new Error(payload.error || "No se pudo preparar la recuperación"); setRecoveryState({ loading: false, message: payload.message, error: "" }); } catch (error) { setRecoveryState({ loading: false, message: "", error: error.message }); } };
   // window.close() solo funciona si el navegador reconoce que esta pestaña se abrió
@@ -1668,7 +1663,7 @@ export default function Backoffice({ onBack, onVehiclesChanged, initialMode = "l
   const archiveBlog = async (id) => { if (!window.confirm("¿Archivar este artículo?")) return; try { await request(`/api/admin/blog/${id}`, { method: "DELETE" }); await loadBlog(); } catch (error) { setMessage(error.message); } };
   const logout = async () => { if (!confirmDiscardAdminDraft()) return; await fetch(`${apiUrl}/api/auth/logout`, { method: "POST", credentials: "include" }).catch(() => {}); setCurrentUser(null); setToken(""); setSessionResolved(true); };
   const handleBack = () => { if (confirmDiscardAdminDraft()) onBack(); };
-  const openOnboarding = () => { if (onboardingStorageKey) localStorage.removeItem(onboardingStorageKey); setWelcomeOnboardingOpen(true); };
+  const openOnboarding = () => { if (onboardingStorageKey) localStorage.removeItem(onboardingStorageKey); setActiveModule("settings"); setWelcomeOnboardingOpen(true); };
   const dismissOnboarding = () => { if (onboardingStorageKey) localStorage.setItem(onboardingStorageKey, "1"); setWelcomeOnboardingOpen(false); };
   const [passwordChangeError, setPasswordChangeError] = useState("");
   const [passwordChangeLoading, setPasswordChangeLoading] = useState(false);
@@ -1719,6 +1714,7 @@ export default function Backoffice({ onBack, onVehiclesChanged, initialMode = "l
               setCurrentUser(payload.user);
               setToken(payload.token || "");
               setSessionResolved(true);
+              setActiveModule("settings");
               setAuthMode("login");
             }}
           />
