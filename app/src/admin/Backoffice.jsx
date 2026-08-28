@@ -1116,6 +1116,7 @@ function WelcomeOnboarding({ onboarding, organization, onNavigate, onDismiss, on
   const selected = displaySteps.find((step) => step.id === selectedId) || firstPending || displaySteps[0];
   const selectedIndex = Math.max(0, displaySteps.findIndex((step) => step.id === selected?.id));
   const isComplete = ready;
+  const needsFirstVehicle = !onboarding?.steps?.some((step) => step.id === "catalog" && step.done);
   useEffect(() => {
     document.body.style.overflow = "hidden";
     const closeOnEscape = (event) => { if (event.key === "Escape") onDismiss(); };
@@ -1124,6 +1125,13 @@ function WelcomeOnboarding({ onboarding, organization, onNavigate, onDismiss, on
   }, [onDismiss]);
   const openSelected = () => { onDismiss(); onNavigate?.(selected.destination); };
   const pendingInSelected = selected ? selected.essentialTotal - selected.essentialDone : 0;
+  if (needsFirstVehicle) return <motion.div className="welcome-onboarding-backdrop" role="presentation" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+    <motion.section className="welcome-onboarding welcome-first-vehicle" role="dialog" aria-modal="true" aria-labelledby="welcome-first-vehicle-title" initial={{ opacity: 0, y: 18, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 12, scale: .98 }} transition={{ duration: .28, ease: [0.22, 1, 0.36, 1] }}>
+      <header className="welcome-onboarding-header"><div><span className="eyebrow">ZEVROA · BIENVENIDO</span><h2 id="welcome-first-vehicle-title">Tu showroom<br /><em>empieza con un vehículo.</em></h2><p>Primero crea una ficha con marca, modelo, precio y fotos. Después podrás completar la identidad, agenda y demás ajustes sin perderte.</p></div><button className="welcome-onboarding-close" type="button" onClick={onDismiss} aria-label="Cerrar bienvenida">×</button></header>
+      <div className="welcome-first-vehicle-callout"><div className="dealer-first-run-mark" aria-hidden="true"><CarSimpleIcon size={30} weight="duotone" /></div><div><span className="eyebrow">PRIMER PASO</span><strong>Publica tu primer vehículo.</strong><p>El asistente te guía etapa por etapa y puedes guardarlo como borrador.</p></div></div>
+      <div className="welcome-onboarding-actions"><button className="primary-action" type="button" onClick={() => { onDismiss(); onNavigate?.("inventory"); }}>Publicar mi primer vehículo →</button><button className="text-button" type="button" onClick={onDismiss}>Explorar el panel</button></div>
+    </motion.section>
+  </motion.div>;
   return <motion.div className="welcome-onboarding-backdrop" role="presentation" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
     <motion.section className="welcome-onboarding" role="dialog" aria-modal="true" aria-labelledby="welcome-onboarding-title" initial={{ opacity: 0, y: 18, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 12, scale: .98 }} transition={{ duration: .28, ease: [0.22, 1, 0.36, 1] }}>
       <header className="welcome-onboarding-header">
