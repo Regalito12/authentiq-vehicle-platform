@@ -3,7 +3,7 @@
 // Sin SENTRY_DSN todo esto es un no-op: ni carga el SDK ni envía nada. El
 // servidor arranca igual con o sin cuenta de Sentry.
 //
-// Para activarlo: pon SENTRY_DSN en las variables de entorno de Render.
+// Para activarlo: pon SENTRY_DSN en las variables de entorno del despliegue.
 
 const dsn = process.env.SENTRY_DSN || "";
 let client = null;

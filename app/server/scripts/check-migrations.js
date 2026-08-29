@@ -3,10 +3,13 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import pg from "pg";
 import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
 
 const { Pool } = pg;
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const databaseDir = path.resolve(scriptDir, "../../database");
+const manifestCheck = spawnSync(process.execPath, [path.join(scriptDir, "check-migration-manifest.mjs")], { stdio: "inherit" });
+if (manifestCheck.status !== 0) process.exit(manifestCheck.status || 1);
 const expectedFiles = [
   "029_appointments_foundation.sql",
   "030_appointment_blocks.sql",
@@ -28,8 +31,10 @@ const expectedFiles = [
   "047_billing_events_and_email_outbox.sql",
   "048_public_request_idempotency.sql",
   "049_rebrand_zevroa.sql",
+  "050_rebrand_public_seo.sql",
+  "051_tenant_safe_customer_notifications.sql",
 ];
-const expectedTables = ["appointment_blocks", "organizations", "organization_members", "organization_settings", "organization_integrations", "social_drafts", "billing_subscriptions", "platform_plans", "vehicle_3d_jobs", "password_reset_tokens", "billing_webhook_events", "email_delivery_log", "public_request_idempotency"];
+const expectedTables = ["appointment_blocks", "organizations", "organization_members", "organization_settings", "organization_integrations", "social_drafts", "billing_subscriptions", "platform_plans", "vehicle_3d_jobs", "password_reset_tokens", "billing_webhook_events", "email_delivery_log", "public_request_idempotency", "customer_notifications"];
 const expectedColumns = [
   ["organizations", "custom_domain"],
   ["business_settings", "appointment_capacity"],
@@ -62,6 +67,7 @@ const expectedColumns = [
   ["organization_settings", "testimonials"],
   ["admin_users", "session_version"],
   ["customer_accounts", "session_version"],
+  ["customer_notifications", "organization_id"],
 ];
 
 const missingFiles = [];
