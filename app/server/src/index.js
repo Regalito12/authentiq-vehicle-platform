@@ -86,6 +86,7 @@ const resendFromEmail = String(process.env.RESEND_FROM_EMAIL || "").trim();
 const emailDeliveryConfigured = Boolean(resendApiKey && resendFromEmail);
 const botProtectionRequired = String(process.env.BOT_PROTECTION_REQUIRED || "false").trim().toLowerCase() === "true";
 const turnstileSecretKey = String(process.env.TURNSTILE_SECRET_KEY || "").trim();
+const turnstileSiteKey = String(process.env.VITE_TURNSTILE_SITE_KEY || "").trim();
 const billingProvider = String(process.env.BILLING_PROVIDER || "none").trim().toLowerCase();
 const billingCheckoutUrl = String(process.env.BILLING_CHECKOUT_URL || "").trim();
 const stripeSecretKey = String(process.env.STRIPE_SECRET_KEY || "").trim();
@@ -102,6 +103,7 @@ if (process.env.NODE_ENV === "production") {
   if (!publicApiUrl || !publicSiteUrl || !frontendOrigin || /localhost|127\.0\.0\.1/i.test(`${publicApiUrl} ${publicSiteUrl} ${frontendOrigin}`)) throw new Error("PUBLIC_API_URL, PUBLIC_SITE_URL y FRONTEND_ORIGIN deben apuntar al dominio de producción");
   if (!remoteStorageEnabled) throw new Error("Supabase Storage es obligatorio en producción; no se permite almacenamiento temporal");
   if (botProtectionRequired && !turnstileSecretKey) throw new Error("TURNSTILE_SECRET_KEY es obligatorio cuando BOT_PROTECTION_REQUIRED=true");
+  if (turnstileSecretKey && !turnstileSiteKey) throw new Error("VITE_TURNSTILE_SITE_KEY es obligatorio cuando TURNSTILE_SECRET_KEY está configurado");
   if (googleCalendarConfigured && !googleCalendarTokenKey) throw new Error("GOOGLE_CALENDAR_TOKEN_ENCRYPTION_KEY es obligatorio cuando Google Calendar está configurado");
 }
 app.set("trust proxy", 1);
@@ -471,6 +473,13 @@ app.use((_req, res, next) => {
   next();
 });
 app.use(cors({ origin: frontendOrigin ? frontendOrigin.split(",").map((value) => value.trim()) : true, credentials: true }));
+// El dominio canónico de ZEVROA es el apex. Mantener `www` como alias de
+// contenido crea dos versiones indexables y complica la resolución de dealers.
+// El 308 conserva método y querystring.
+app.use((req, res, next) => {
+  if (requestHostname(req) !== "www.zevroa.com") return next();
+  return res.redirect(308, `https://zevroa.com${req.originalUrl || req.url}`);
+});
 app.use("/api/webhooks/stripe", express.raw({ type: "application/json", limit: "1mb" }));
 app.use(express.json({ limit: "1mb" }));
 app.use("/uploads", express.static(uploadsDir, {
@@ -1043,7 +1052,14 @@ function validateQuote(quote) {
 }
 
 function createQuoteNumber() {
-  return `AUTH-${new Date().getFullYear()}-${Date.now()}`;
+  return `ZEV-${new Date().getFullYear()}-${crypto.randomBytes(5).toString("hex").toUpperCase()}`;
+}
+
+function sessionResponse(user, token) {
+  // En producción la cookie HttpOnly es el canal normal. Solo los entornos no
+  // productivos exponen el token para que las suites locales reutilicen sesión
+  // sin implementar un cookie jar.
+  return process.env.NODE_ENV === "production" ? { user } : { token, user };
 }
 
 async function upsertTaxonomy(client, table, name, logoUrl = null, organizationId = null) {
@@ -1478,7 +1494,7 @@ app.post("/api/auth/login", async (req, res) => {
     // el token es de vida corta y obliga a definir una contraseña propia antes de operar.
     const token = jwt.sign({ id: admin.id, email: admin.email, role: admin.role, name: admin.full_name, organizationId: admin.organizationId, mustChangePassword: admin.mustChangePassword, sessionVersion: admin.sessionVersion || 0 }, jwtSecret, { expiresIn: admin.mustChangePassword ? "15m" : "8h" });
     setSessionCookie(res, ADMIN_SESSION_COOKIE, token, admin.mustChangePassword ? 900 : 28800);
-    res.json({ token, user: { id: admin.id, name: admin.full_name, email: admin.email, role: admin.role, organizationId: admin.organizationId, mustChangePassword: admin.mustChangePassword } });
+    res.json(sessionResponse({ id: admin.id, name: admin.full_name, email: admin.email, role: admin.role, organizationId: admin.organizationId, mustChangePassword: admin.mustChangePassword }, token));
   } catch (error) {
     if (isOrganizationNotFound(error)) return sendOrganizationNotFound(res);
     console.error("Admin login failed", error);
@@ -1526,7 +1542,7 @@ app.post("/api/auth/password-reset/confirm", async (req, res) => {
     const admin = account.rows[0];
     const sessionToken = jwt.sign({ id: admin.id, email: admin.email, name: admin.name, role: admin.role, organizationId: admin.organizationId, sessionVersion: admin.sessionVersion, mustChangePassword: false }, jwtSecret, { expiresIn: "8h" });
     setSessionCookie(res, ADMIN_SESSION_COOKIE, sessionToken, 28800);
-    res.json({ token: sessionToken, user: { id: admin.id, name: admin.name, email: admin.email, role: admin.role, organizationId: admin.organizationId, mustChangePassword: false } });
+    res.json(sessionResponse({ id: admin.id, name: admin.name, email: admin.email, role: admin.role, organizationId: admin.organizationId, mustChangePassword: false }, sessionToken));
   } catch (error) { await client.query("ROLLBACK").catch(() => {}); console.error("Admin password reset confirmation failed", error); res.status(500).json({ error: "No se pudo restablecer la contraseña" }); } finally { client.release(); }
 });
 
@@ -1699,7 +1715,7 @@ app.post("/api/customer/auth/register", verifyPublicForm, async (req, res) => {
     const account = result.rows[0];
     const token = jwt.sign({ id: account.id, email: account.email, name: account.full_name, kind: "customer", sessionVersion: account.session_version || 0 }, jwtSecret, { expiresIn: "30d" });
     setSessionCookie(res, CUSTOMER_SESSION_COOKIE, token, 2592000);
-    res.status(201).json({ token, user: { id: account.id, name: account.full_name, email: account.email, phone: account.phone } });
+    res.status(201).json(sessionResponse({ id: account.id, name: account.full_name, email: account.email, phone: account.phone }, token));
   } catch (error) {
     if (error.code === "23505") return res.status(409).json({ error: "Ya existe una cuenta con ese correo" });
     console.error("Customer registration failed", error);
@@ -1716,7 +1732,7 @@ app.post("/api/customer/auth/login", async (req, res) => {
     if (!account || !(await bcrypt.compare(password, account.password_hash))) return res.status(401).json({ error: "Correo o contraseña incorrectos" });
     const token = jwt.sign({ id: account.id, email: account.email, name: account.full_name, kind: "customer", sessionVersion: account.sessionVersion || 0 }, jwtSecret, { expiresIn: "30d" });
     setSessionCookie(res, CUSTOMER_SESSION_COOKIE, token, 2592000);
-    res.json({ token, user: { id: account.id, name: account.full_name, email: account.email, phone: account.phone } });
+    res.json(sessionResponse({ id: account.id, name: account.full_name, email: account.email, phone: account.phone }, token));
   } catch (error) {
     console.error("Customer login failed", error);
     res.status(500).json({ error: "No se pudo iniciar sesión" });
@@ -1749,7 +1765,7 @@ app.post("/api/customer/auth/password-reset/confirm", async (req, res) => {
     const customer = account.rows[0];
     const sessionToken = jwt.sign({ id: customer.id, email: customer.email, name: customer.name, kind: "customer", sessionVersion: customer.sessionVersion }, jwtSecret, { expiresIn: "30d" });
     setSessionCookie(res, CUSTOMER_SESSION_COOKIE, sessionToken, 2592000);
-    res.json({ token: sessionToken, user: { id: customer.id, name: customer.name, email: customer.email, phone: customer.phone } });
+    res.json(sessionResponse({ id: customer.id, name: customer.name, email: customer.email, phone: customer.phone }, sessionToken));
   } catch (error) { await client.query("ROLLBACK").catch(() => {}); console.error("Customer password reset confirmation failed", error); res.status(500).json({ error: "No se pudo restablecer la contraseña" }); } finally { client.release(); }
 });
 
@@ -2614,7 +2630,7 @@ app.post("/api/auth/change-password", authenticate, async (req, res) => {
     const admin = result.rows[0];
     const token = jwt.sign({ id: admin.id, email: admin.email, role: admin.role, name: admin.full_name, organizationId: admin.organizationId, sessionVersion: admin.sessionVersion, mustChangePassword: false }, jwtSecret, { expiresIn: "8h" });
     setSessionCookie(res, ADMIN_SESSION_COOKIE, token, 28800);
-    res.json({ token, user: { id: admin.id, name: admin.full_name, email: admin.email, role: admin.role, mustChangePassword: false } });
+    res.json(sessionResponse({ id: admin.id, name: admin.full_name, email: admin.email, role: admin.role, mustChangePassword: false }, token));
   } catch (error) { console.error("Password change failed", error); res.status(500).json({ error: "No se pudo cambiar la contraseña" }); }
 });
 
