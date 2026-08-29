@@ -514,10 +514,10 @@ function StudioIntegrations({ copy, reduceMotion }) {
 
 // Boton flotante de WhatsApp. Solo aparece si hay un numero configurado en los
 // ajustes de la plataforma: preferimos que no exista a inventarnos un contacto.
-function StudioWhatsApp({ number, businessName = "ZEVROA", className = "studio-whatsapp", label = "Habla con ventas", ariaLabel = "Hablar con ventas por WhatsApp" }) {
+function StudioWhatsApp({ number, businessName = "ZEVROA", className = "studio-whatsapp", label = "Habla con ventas", ariaLabel = "Hablar con ventas por WhatsApp", messageText = "" }) {
   const digits = whatsappDigits(number);
   if (digits.length < 8) return null;
-  const message = `Hola, quiero conocer cómo ${businessName} puede ayudar a mi concesionario.`;
+  const message = messageText || `Hola, quiero conocer cómo ${businessName} puede ayudar a mi concesionario.`;
   const href = `https://wa.me/${digits}?text=${encodeURIComponent(message)}`;
   return (
     <a className={className} href={href} target="_blank" rel="noopener noreferrer" aria-label={ariaLabel} title={ariaLabel}>
@@ -3375,7 +3375,7 @@ function App() {
           </nav>
         </footer>
       </section>
-      <StudioWhatsApp number={businessSettings.whatsapp} businessName={businessSettings.businessName || getBrandName()} className="studio-whatsapp showroom-whatsapp" label="Habla con ventas" ariaLabel={`Hablar con ${businessSettings.businessName || getBrandName()} por WhatsApp`} />
+      <StudioWhatsApp number={businessSettings.whatsapp} businessName={businessSettings.businessName || getBrandName()} className="studio-whatsapp showroom-whatsapp" label="Habla con ventas" ariaLabel={`Hablar con ${businessSettings.businessName || getBrandName()} por WhatsApp`} messageText={`Hola, me interesa conocer un vehículo de ${businessSettings.businessName || getBrandName()}.`} />
       <AnimatePresence>{accountOpen && <CustomerAccountModal customer={customer} form={accountForm} mode={accountMode} status={accountStatus} recoveryStatus={customerRecoveryStatus} favoriteCount={favoriteIds.length} favoriteVehicles={favoriteVehicles} activity={customerActivity} whatsapp={businessSettings.whatsapp} businessName={businessSettings.businessName || getBrandName()} onChange={changeAccountForm} onSubmit={submitAccount} onRecoverySubmit={submitCustomerRecovery} onTurnstileToken={setAccountTurnstileToken} onMode={(mode) => { setAccountMode(mode); setAccountStatus({ loading: false, error: "" }); setCustomerRecoveryStatus({ loading: false, message: "", error: "" }); }} onClose={() => setAccountOpen(false)} onLogout={logoutCustomer} onReadNotifications={markCustomerNotificationsRead} onOpenVehicle={(vehicle) => { setAccountOpen(false); navigate(vehiclePath(vehicle)); }} onToggleFavorite={toggleFavorite} onQuickAction={(vehicle, type) => { setAccountOpen(false); setQuickAction({ vehicle, type }); }} />}</AnimatePresence>
       <AnimatePresence>{quickAction?.type === "appointment" && <TestDriveModal vehicle={quickAction.vehicle} onClose={() => setQuickAction(null)} />}</AnimatePresence>
       <AnimatePresence>{quickAction?.type === "quote" && <QuoteModal vehicle={quickAction.vehicle} onClose={() => setQuickAction(null)} />}</AnimatePresence>
