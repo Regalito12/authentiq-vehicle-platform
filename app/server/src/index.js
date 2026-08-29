@@ -3764,7 +3764,21 @@ async function publicRouteMetadata(req, organization, { businessName, origin, de
     "/terminos": { title: `${businessName} · Términos`, description: `Consulta los términos de uso de ${businessName}.`, robots: "noindex, nofollow" },
   };
   if (institutionalMetadata[pathname]) return { ...base, ...institutionalMetadata[pathname] };
-  if (pathname === "/preview" || pathname === "/presentacion" || pathname.startsWith("/cotizaciones/")) return { ...base, title: `${businessName} · ZEVROA`, robots: "noindex, nofollow" };
+  if (pathname === "/preview" || pathname === "/presentacion") return { ...base, title: `${businessName} · ZEVROA`, robots: "noindex, nofollow" };
+  if (pathname.startsWith("/cotizaciones/")) {
+    let quoteToken = "";
+    try { quoteToken = decodeURIComponent(pathname.slice("/cotizaciones/".length).replace(/\/+$/, "")); } catch { /* se trata como token inválido */ }
+    try {
+      const payload = jwt.verify(quoteToken, jwtSecret);
+      if (payload.kind !== "public_quote" || !payload.quoteId || payload.organizationId !== organization.id) throw new Error("Invalid quote token");
+      const result = await pool.query('SELECT valid_until AS "validUntil" FROM quotes WHERE id=$1 AND organization_id=$2 AND status IN (\'sent\',\'accepted\')', [payload.quoteId, organization.id]);
+      if (!result.rowCount) return { ...base, notFound: true, notFoundTitle: "Cotización no disponible", notFoundMessage: "Esta cotización ya no está disponible o el enlace está incompleto." };
+      if (result.rows[0].validUntil && new Date(result.rows[0].validUntil) < new Date(new Date().toISOString().slice(0, 10))) return { ...base, notFound: true, notFoundTitle: "Cotización vencida", notFoundMessage: "La vigencia de esta cotización terminó. Solicita al concesionario un nuevo enlace." };
+      return { ...base, title: `${businessName} · ZEVROA`, robots: "noindex, nofollow" };
+    } catch {
+      return { ...base, notFound: true, notFoundTitle: "Cotización no disponible", notFoundMessage: "Esta cotización ya no está disponible o el enlace está incompleto." };
+    }
+  }
   if (!match) {
     if (!isKnownPublicRoute(pathname)) return { ...base, notFound: true, notFoundTitle: "Página no encontrada", notFoundMessage: "Esta dirección no existe en el showroom. Vuelve al catálogo para ver los vehículos disponibles." };
     return base;
