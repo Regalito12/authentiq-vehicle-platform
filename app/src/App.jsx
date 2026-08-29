@@ -1,5 +1,6 @@
-import { Component, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Component, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion, useInView, useMotionTemplate, useMotionValueEvent, useReducedMotion, useScroll, useSpring, useTransform } from "motion/react";
+import useEmblaCarousel from "embla-carousel-react";
 import { LANDING_COPY, LANDING_LANGUAGES } from "./landingCopy.js";
 import { useSmoothScroll } from "./utils/useSmoothScroll.js";
 import { TurnstileField, turnstileSiteKey } from "./utils/turnstile.jsx";
@@ -11,7 +12,7 @@ import { generateQRCodeSVG } from "./utils/qr.js";
 import PhoneField from "./admin/PhoneField.jsx";
 import { AnimatedNumber, BlurFade, Disclosure, ProgressiveBlur, TextReveal } from "./ui/MotionPrimitives.jsx";
 import { AnimatedThemeTogglerStarDemo } from "./components/ui/animated-theme-toggler-star-demo.jsx";
-import { ArrowUpRightIcon, CalendarBlankIcon, CarSimpleIcon, ChartLineUpIcon, ChatsCircleIcon, FileTextIcon, GlobeHemisphereWestIcon, SquaresFourIcon, UsersThreeIcon } from "@phosphor-icons/react";
+import { ArrowUpRightIcon, CalendarBlankIcon, CarSimpleIcon, ChartLineUpIcon, ChatsCircleIcon, FileTextIcon, GlobeHemisphereWestIcon, MagnifyingGlassIcon, SquaresFourIcon, UsersThreeIcon } from "@phosphor-icons/react";
 import { SpeedInsights } from "@vercel/speed-insights/react";
 
 class SectionBoundary extends Component {
@@ -124,6 +125,35 @@ function formatPrice(value) {
 
 function formatFinancePrice(value) {
   return `$${Number(value || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD`;
+}
+
+function normalizeSearchText(value) {
+  return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+}
+
+function editDistance(left, right) {
+  const a = String(left || "");
+  const b = String(right || "");
+  const row = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= a.length; i += 1) {
+    let diagonal = row[0];
+    row[0] = i;
+    for (let j = 1; j <= b.length; j += 1) {
+      const above = row[j];
+      row[j] = a[i - 1] === b[j - 1] ? diagonal : Math.min(diagonal + 1, row[j] + 1, row[j - 1] + 1);
+      diagonal = above;
+    }
+  }
+  return row[b.length];
+}
+
+function vehicleMatchesSearch(vehicle, value) {
+  const query = normalizeSearchText(value);
+  if (!query) return true;
+  const haystack = normalizeSearchText(`${vehicle.brand} ${vehicle.model} ${vehicle.variant || ""} ${vehicle.year} ${vehicle.category || ""} ${vehicle.fuelType || ""} ${vehicle.transmission || ""} ${vehicle.exteriorColor || ""} ${vehicle.location || ""} ${(vehicle.features || []).join(" ")}`);
+  if (haystack.includes(query)) return true;
+  const words = haystack.split(/\s+/).filter(Boolean);
+  return query.split(/\s+/).filter(Boolean).every((token) => words.some((word) => word.startsWith(token) || (token.length >= 4 && editDistance(token, word) <= Math.min(2, Math.floor(token.length / 3)))));
 }
 
 let publicBrandName = "ZEVROA";
@@ -2413,6 +2443,41 @@ function DetailGalleryEditorial({ vehicle }) {
   return <section className="detail-gallery-editorial" aria-label="Lectura editorial del vehículo"><div className="detail-gallery-editorial-head"><span className="eyebrow">CURATED NOTE / {vehicle.brand}</span><span>{vehicle.year} · {vehicle.category || "PREMIUM"}</span></div><h3>Una selección que se entiende mejor cuando la miras de cerca.</h3><div className="detail-gallery-editorial-grid"><div><span>01</span><strong>Presencia</strong><p>{presence}</p></div><div><span>02</span><strong>Respuesta</strong><p>{response}</p></div><div><span>03</span><strong>Confianza</strong><p>{confidence}</p></div></div><div className="detail-gallery-editorial-footer"><span>{getBrandName()} / PRIVATE SELECTION</span><span>Elegido para ser visto con calma.</span></div></section>;
 }
 
+function DetailImageCarousel({ images, vehicle, activeImage, onSelect, onOpen }) {
+  const [viewportRef, emblaApi] = useEmblaCarousel({ align: "start", containScroll: "trimSnaps", skipSnaps: false });
+  const handleSelect = useCallback((api) => onSelect(api?.selectedScrollSnap?.() || 0), [onSelect]);
+
+  useEffect(() => {
+    if (!emblaApi) return undefined;
+    handleSelect(emblaApi);
+    emblaApi.on("select", handleSelect);
+    return () => emblaApi.off("select", handleSelect);
+  }, [emblaApi, handleSelect]);
+
+  useEffect(() => {
+    if (emblaApi && emblaApi.selectedScrollSnap() !== activeImage) emblaApi.scrollTo(activeImage);
+  }, [activeImage, emblaApi]);
+
+  return (
+    <div className="detail-image-carousel">
+      <div className="detail-image-wrap embla-viewport" ref={viewportRef} role="region" aria-roledescription="carrusel" aria-label={`Galería de ${vehicle.brand} ${vehicle.model}`}>
+        <div className="embla-container">
+          {images.map((item, index) => (
+            <button className="embla-slide" type="button" key={item.id || item.url || index} onClick={onOpen} aria-label={`Ampliar imagen ${index + 1} de ${vehicle.brand} ${vehicle.model}`}>
+              <img src={publicMediaUrl(item.url)} alt={item.altText || `Vista ${index + 1} de ${vehicle.brand} ${vehicle.model}`} className="detail-image" loading={index === 0 ? "eager" : "lazy"} fetchPriority={index === 0 ? "high" : undefined} decoding="async" />
+            </button>
+          ))}
+        </div>
+      </div>
+      {images.length > 1 && <div className="detail-carousel-controls" aria-label="Controles de galería">
+        <button type="button" onClick={() => emblaApi?.scrollPrev()} aria-label="Imagen anterior">←</button>
+        <span aria-live="polite">{String(activeImage + 1).padStart(2, "0")} / {String(images.length).padStart(2, "0")}</span>
+        <button type="button" onClick={() => emblaApi?.scrollNext()} aria-label="Imagen siguiente">→</button>
+      </div>}
+    </div>
+  );
+}
+
 function VehicleDetail({ vehicle, vehicles = [], onBack, isFavorite = false, onToggleFavorite = () => {}, customerToken = "", compareVehicles = [], favoriteIds = [], onOpenVehicle = () => {}, onToggleCompare = () => {}, whatsapp = "" }) {
   const whatsappNumber = whatsappDigits(whatsapp);
   const whatsappText = encodeURIComponent(`Hola, me interesa el ${vehicle.brand} ${vehicle.model}${vehicle.year ? ` ${vehicle.year}` : ""}: ${window.location.origin}${vehiclePath(vehicle)}`);
@@ -2428,8 +2493,6 @@ function VehicleDetail({ vehicle, vehicles = [], onBack, isFavorite = false, onT
   const [appliedFinancing, setAppliedFinancing] = useState(null);
   const [quickVehicle, setQuickVehicle] = useState(null);
   const images = vehicle.images?.length ? vehicle.images : [{ url: "/assets/hero-highway.webp" }];
-  const image = publicMediaUrl(images[activeImage]?.url || images[0].url);
-  const imageAlt = images[activeImage]?.altText || images[0]?.altText || `${vehicle.brand} ${vehicle.model}`;
   const structuredData = JSON.stringify({ "@context": "https://schema.org", "@type": "Vehicle", name: `${vehicle.brand} ${vehicle.model}`, model: vehicle.model, vehicleConfiguration: vehicle.variant || undefined, fuelType: vehicle.fuelType || undefined, color: vehicle.exteriorColor || undefined, brand: { "@type": "Brand", name: vehicle.brand }, vehicleModelDate: String(vehicle.year), image: images.map((item) => new URL(publicMediaUrl(item.url), window.location.origin).href), mileageFromOdometer: { "@type": "QuantitativeValue", value: Number(vehicle.mileageKm), unitCode: "KMT" }, offers: { "@type": "Offer", priceCurrency: "USD", price: Number(vehicle.priceUsd), availability: vehicle.status === "published" ? "https://schema.org/InStock" : "https://schema.org/LimitedAvailability" } }).replace(/</g, "\\u003c");
   useEffect(() => {
     const model = vehicle.media?.find((item) => item.type === "model_3d");
@@ -2452,23 +2515,7 @@ function VehicleDetail({ vehicle, vehicles = [], onBack, isFavorite = false, onT
       <Breadcrumbs vehicle={vehicle} />
       <section className="detail-grid">
         <div>
-          <div className="detail-image-wrap" role="button" tabIndex="0" aria-label="Ampliar imagen" onClick={() => setLightboxOpen(true)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") setLightboxOpen(true); }}>
-            <AnimatePresence mode="wait" initial={false}>
-              <motion.img
-                key={image}
-                src={publicMediaUrl(image)}
-                alt={imageAlt}
-                className="detail-image"
-                loading="eager"
-                fetchPriority="high"
-                decoding="async"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.18, ease: "easeOut" }}
-              />
-            </AnimatePresence>
-          </div>
+          <DetailImageCarousel images={images} vehicle={vehicle} activeImage={activeImage} onSelect={setActiveImage} onOpen={() => setLightboxOpen(true)} />
           <ProgressiveBlur className="detail-thumbs-frame">
             <div className="thumbs">
               {images.map((item, index) => (
@@ -2665,6 +2712,81 @@ function BudgetSearchPanel({ vehicles, activeBudget, activeDownPayment = 20, act
     onApply?.({ amount: numericBudget, downPayment, months });
   };
   return <section className={`budget-search-panel${activeBudget ? " is-active" : ""}`} aria-label="Buscar vehículos por presupuesto mensual"><div className="budget-search-copy"><span className="eyebrow">BUSCAR POR PRESUPUESTO</span><h2>Empieza por la cuota que te conviene.</h2><p>Te mostramos vehículos que caben en tu presupuesto estimado. No es una aprobación financiera.</p>{activeBudget && <button type="button" className="text-button budget-clear" onClick={onClear}>Quitar presupuesto</button>}</div><div className="budget-search-controls"><label>Cuota máxima mensual<strong><span>$</span><input type="number" min="0" step="25" value={budget} onChange={(event) => setBudget(event.target.value)} aria-label="Cuota máxima mensual" /><span>USD</span></strong></label><label>Inicial <output>{downPayment}%</output><input type="range" min="0" max="70" step="5" value={downPayment} aria-label="Porcentaje de inicial" onChange={(event) => setDownPayment(Number(event.target.value))} /></label><label>Plazo <output>{months} meses</output><select value={months} aria-label="Plazo de financiamiento" onChange={(event) => setMonths(Number(event.target.value))}><option value="36">36 meses</option><option value="48">48 meses</option><option value="60">60 meses</option><option value="72">72 meses</option><option value="84">84 meses</option></select></label><div className="budget-search-result" aria-live="polite"><strong>{numericBudget ? matches.length : "—"}</strong><span>{numericBudget ? `vehículo${matches.length === 1 ? "" : "s"} encaja${matches.length === 1 ? "" : "n"}` : "define una cuota"}</span></div><button type="button" className="primary-action" onClick={apply} disabled={!numericBudget}>{activeBudget ? "Actualizar resultados →" : "Ver vehículos que encajan →"}</button></div><small className="budget-search-note">Estimación con 12% anual · inicial {downPayment}% · sin seguros ni gastos adicionales.</small></section>;
+}
+
+function SmartVehicleSearch({ vehicles, value, onChange, resultCount, onClear }) {
+  const [open, setOpen] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(0);
+  const rootRef = useRef(null);
+  const inputRef = useRef(null);
+  const query = normalizeSearchText(value);
+  const suggestions = useMemo(() => {
+    if (!query) return [];
+    const options = [];
+    const seen = new Set();
+    const addOption = (option) => {
+      const key = `${option.type}:${normalizeSearchText(option.query)}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      const normalizedTitle = normalizeSearchText(option.title);
+      const starts = normalizedTitle.startsWith(query) ? 0 : normalizedTitle.includes(query) ? 1 : 2;
+      options.push({ ...option, score: starts });
+    };
+    vehicles.forEach((vehicle) => {
+      if (!vehicleMatchesSearch(vehicle, query)) return;
+      addOption({
+        type: "vehicle",
+        query: `${vehicle.brand} ${vehicle.model}`,
+        title: `${vehicle.brand} ${vehicle.model}`,
+        detail: [vehicle.year, vehicle.variant, vehicle.priceUsd ? formatPrice(vehicle.priceUsd) : ""].filter(Boolean).join(" · "),
+      });
+    });
+    const valuesByType = [
+      ["brand", "Marca", vehicles.map((vehicle) => vehicle.brand)],
+      ["category", "Tipo", vehicles.map((vehicle) => vehicle.category)],
+      ["fuelType", "Combustible", vehicles.map((vehicle) => vehicle.fuelType)],
+      ["transmission", "Transmisión", vehicles.map((vehicle) => vehicle.transmission)],
+      ["location", "Ubicación", vehicles.map((vehicle) => vehicle.location)],
+    ];
+    valuesByType.forEach(([type, label, values]) => [...new Set(values.filter(Boolean))].forEach((item) => {
+      const normalizedItem = normalizeSearchText(item);
+      if (!normalizedItem.includes(query) && !(query.length >= 4 && editDistance(query, normalizedItem) <= Math.min(2, Math.floor(query.length / 3)))) return;
+      addOption({ type, query: item, title: item, detail: label });
+    }));
+    return options.sort((left, right) => left.score - right.score || left.title.localeCompare(right.title)).slice(0, 7);
+  }, [query, vehicles]);
+
+  useEffect(() => {
+    const closeOnOutsideClick = (event) => { if (!rootRef.current?.contains(event.target)) setOpen(false); };
+    document.addEventListener("pointerdown", closeOnOutsideClick);
+    return () => document.removeEventListener("pointerdown", closeOnOutsideClick);
+  }, []);
+  useEffect(() => { setHighlightedIndex(0); }, [query]);
+
+  const chooseSuggestion = (suggestion) => {
+    onChange(suggestion.query);
+    setOpen(false);
+    window.requestAnimationFrame(() => inputRef.current?.focus());
+  };
+  const handleKeyDown = (event) => {
+    if (event.key === "ArrowDown") { event.preventDefault(); setOpen(true); setHighlightedIndex((current) => suggestions.length ? (current + 1) % suggestions.length : 0); }
+    else if (event.key === "ArrowUp") { event.preventDefault(); setOpen(true); setHighlightedIndex((current) => suggestions.length ? (current - 1 + suggestions.length) % suggestions.length : 0); }
+    else if (event.key === "Enter" && open && suggestions[highlightedIndex]) { event.preventDefault(); chooseSuggestion(suggestions[highlightedIndex]); }
+    else if (event.key === "Escape") { setOpen(false); }
+  };
+  const listId = "vehicle-search-suggestions";
+  const activeId = open && suggestions[highlightedIndex] ? `${listId}-${highlightedIndex}` : undefined;
+  return <div className="smart-search" ref={rootRef}>
+    <div className="smart-search-label"><span className="eyebrow">BUSCAR EN INVENTARIO</span><span>{query ? `${resultCount} resultado${resultCount === 1 ? "" : "s"}` : "Marca, modelo, versión o especificación"}</span></div>
+    <div className="smart-search-control">
+      <MagnifyingGlassIcon className="smart-search-icon" size={20} aria-hidden="true" />
+      <input ref={inputRef} className="catalog-search" value={value} onChange={(event) => { onChange(event.target.value); setOpen(true); }} onFocus={() => query && setOpen(true)} onKeyDown={handleKeyDown} placeholder="Ej. Porsche, SUV, eléctrico o 2024" aria-label="Buscar vehículos por marca, modelo o especificación" role="combobox" aria-expanded={open && query.length > 0} aria-controls={listId} aria-autocomplete="list" aria-activedescendant={activeId} />
+      {value && <button className="smart-search-clear" type="button" onClick={() => { onClear(); setOpen(false); inputRef.current?.focus(); }} aria-label="Limpiar búsqueda">×</button>}
+    </div>
+    {open && query && <div className="smart-search-popover" id={listId} role="listbox" aria-label="Sugerencias de búsqueda">
+      {suggestions.length ? suggestions.map((suggestion, index) => <button key={`${suggestion.type}-${suggestion.query}`} id={`${listId}-${index}`} className={`smart-search-option ${index === highlightedIndex ? "is-highlighted" : ""}`} type="button" role="option" aria-selected={index === highlightedIndex} onMouseDown={(event) => event.preventDefault()} onClick={() => chooseSuggestion(suggestion)}><span><strong>{suggestion.title}</strong><small>{suggestion.detail}</small></span><span className="smart-search-option-arrow">↗</span></button>) : <div className="smart-search-empty" role="status">No encontramos coincidencias cercanas. Prueba con marca, modelo o año.</div>}
+    </div>}
+  </div>;
 }
 
 function IntentRail({ categories, conditions, fuelTypes, onChoose }) {
@@ -3052,7 +3174,6 @@ function App() {
   const transmissions = useMemo(() => [...new Set(vehicles.map((vehicle) => vehicle.transmission).filter(Boolean))].sort(), [vehicles]);
   const filteredVehicles = useMemo(() => vehicles
     .filter((vehicle) => {
-      const haystack = `${vehicle.brand} ${vehicle.model} ${vehicle.variant || ""} ${vehicle.year} ${vehicle.category || ""} ${vehicle.fuelType || ""} ${vehicle.exteriorColor || ""} ${(vehicle.features || []).join(" ")}`.toLowerCase();
       const price = Number(vehicle.priceUsd);
       const year = Number(vehicle.year);
       const monthlyBudget = Number(maxMonthlyPayment);
@@ -3069,7 +3190,7 @@ function App() {
         (!maxPrice || price <= Number(maxPrice)) &&
         (!monthlyBudget || estimatedPayment <= monthlyBudget) &&
         (!minYear || year >= Number(minYear)) &&
-        (!search.trim() || haystack.includes(search.trim().toLowerCase()));
+        vehicleMatchesSearch(vehicle, search);
     })
     .sort((left, right) => {
       if (sort === "price-low") return Number(left.priceUsd) - Number(right.priceUsd);
@@ -3212,7 +3333,7 @@ function App() {
          <BudgetSearchPanel vehicles={vehicles} activeBudget={Number(maxMonthlyPayment) || 0} activeDownPayment={budgetDownPayment} activeMonths={budgetMonths} onApply={applyBudget} onClear={clearFilters} />
          <div className="filters-heading"><div><span className="eyebrow">BÚSQUEDA AVANZADA</span><strong>Filtra por lo que importa.</strong></div><span>Marca, precio, año y especificaciones</span><button className="filters-toggle" type="button" onClick={() => setFiltersOpen((current) => !current)} aria-expanded={filtersOpen}>{filtersOpen ? "Ocultar filtros" : "Más filtros"} <span>{filtersOpen ? "↑" : "↓"}</span></button></div>
          <div className={`filters ${filtersOpen ? "filters-expanded" : ""}`}>
-          <input className="catalog-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar marca, modelo o año" aria-label="Buscar vehículos" />
+          <SmartVehicleSearch vehicles={vehicles} value={search} onChange={setSearch} resultCount={filteredVehicles.length} onClear={() => setSearch("")} />
           <select className="filter-secondary" value={brand} onChange={(event) => setBrand(event.target.value)} aria-label="Filtrar por marca"><option value="all">Todas las marcas</option>{brands.map((item) => <option key={item} value={item}>{item}</option>)}</select>
           <select value={category} onChange={(event) => setCategory(event.target.value)} aria-label="Filtrar por tipo"><option value="all">Todos los tipos</option>{categories.map((item) => <option key={item} value={item}>{item}</option>)}</select>
           <select className="filter-secondary" value={condition} onChange={(event) => setCondition(event.target.value)} aria-label="Filtrar por condición"><option value="all">Nuevo y certificado</option>{conditions.map((item) => <option key={item} value={item}>{item === "new" ? "Nuevo" : "Certificado"}</option>)}</select>

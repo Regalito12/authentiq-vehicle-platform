@@ -390,6 +390,23 @@ function DashboardPulse({ data, leads, offers, appointments, onNavigate, onOpenL
   </section>;
 }
 
+function DashboardWorkflowRail({ vehicles = [], leads = [], appointments = [], offers = [], onNavigate }) {
+  const published = vehicles.filter((vehicle) => ["published", "reserved"].includes(vehicle.status)).length;
+  const activeLeads = leads.filter((lead) => ["new", "contacted", "qualified"].includes(lead.status)).length;
+  const activeAppointments = appointments.filter((item) => ["pending", "confirmed"].includes(item.status)).length;
+  const pendingOffers = offers.filter((item) => item.status === "pending").length;
+  const stages = [
+    ["inventory", "Inventario", published, published ? "Vitrina activa" : "Añade un vehículo"],
+    ["leads", "Clientes", activeLeads, activeLeads ? "Conversaciones abiertas" : "Sin leads pendientes"],
+    ["appointments", "Citas", activeAppointments, activeAppointments ? "Visitas por preparar" : "Agenda despejada"],
+    ["offers", "Propuestas", pendingOffers, pendingOffers ? "Propuestas por responder" : "Sin propuestas pendientes"],
+  ];
+  return <section className="dashboard-workflow" aria-label="Recorrido comercial del showroom">
+    <div className="dashboard-workflow-heading"><div><span className="eyebrow">EL RECORRIDO DEL SHOWROOM</span><h3>De la vitrina a la venta.</h3></div><p>Una lectura rápida de dónde está tu operación y qué merece atención.</p></div>
+    <div className="dashboard-workflow-rail">{stages.map(([key, label, count, note], index) => <button className={`dashboard-workflow-step${count ? " has-activity" : ""}`} type="button" key={key} onClick={() => onNavigate(key)}><span className="dashboard-workflow-number">{String(index + 1).padStart(2, "0")}</span><span className="dashboard-workflow-icon"><AdminModuleIcon name={key} /></span><strong>{label}</strong><b>{count}</b><small>{note}</small>{index < stages.length - 1 && <i aria-hidden="true">→</i>}</button>)}</div>
+  </section>;
+}
+
 function DashboardSetupCard({ onboarding, onOpenOnboarding, onOpenPublic }) {
   if (!onboarding?.steps?.length) return null;
   // El centro de inicio debe usar la misma regla que el panel de personalización:
@@ -557,6 +574,7 @@ function DashboardView({ data, vehicles = [], leads, offers, appointments, loadi
         <StatCard label="Valor inventario" numericValue={snapshot.inventoryValue} prefix="$" suffix=" USD" note="Valor publicado por modelo" />
         <StatCard label="Clientes activos" numericValue={snapshot.pendingLeads} note={`${snapshot.pendingOffers} ofertas pendientes`} />
       </div>
+      <DashboardWorkflowRail vehicles={vehicles} leads={safeLeads} appointments={appointments} offers={safeOffers} onNavigate={onNavigate} />
       <DashboardPulse data={data} leads={leads} offers={offers} appointments={appointments} onNavigate={onNavigate} onOpenLead={onOpenLead} currentUser={currentUser} />
       <div className="charts-grid">
         <article className="chart-panel"><div className="panel-heading"><div><span className="eyebrow">INVENTARIO</span><h3>Stock por marca</h3></div></div><div className="chart-box"><ResponsiveContainer width="100%" height="100%"><BarChart data={data.byBrand || []} margin={{ top: 8, right: 8, left: -22, bottom: 0 }}><XAxis dataKey="name" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} /><YAxis allowDecimals={false} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} /><Tooltip formatter={(value) => [`${value} unidades`, "Stock"]} /><Bar dataKey="stock" fill="#c8a24b" radius={[3, 3, 0, 0]} /></BarChart></ResponsiveContainer></div></article>
@@ -1132,7 +1150,35 @@ function UsersModule({ users, form, onChange, onSave, onUpdate, onResetPassword,
     if (!(await confirm({ title: "Eliminar usuario", message: `Eliminarás definitivamente a ${user.name}. Esta acción no se puede deshacer.`, confirmLabel: "Eliminar usuario", danger: true }))) return;
     onDelete?.(user);
   };
-  return <section className="records-content"><div className="panel-heading"><div><span className="eyebrow">ACCESOS · EQUIPO</span><h2>Usuarios.</h2></div></div>{resetResult && <PasswordResetResult result={resetResult} onDismiss={() => setResetResult(null)} />}<div className="admin-layout users-layout"><form className="admin-form" onSubmit={onSave}><div className="admin-form-head"><h2>Nuevo usuario</h2></div><label>Nombre<input value={form.name} onChange={(event) => onChange("name", event.target.value)} required /></label><label>Correo<input type="email" value={form.email} onChange={(event) => onChange("email", event.target.value)} required /></label><label>Contraseña inicial<input type="password" minLength="8" value={form.password} onChange={(event) => onChange("password", event.target.value)} required /></label><label>Rol<select value={form.role} onChange={(event) => onChange("role", event.target.value)}><option value="seller">Ventas</option><option value="editor">Editor</option><option value="content_editor">Contenido</option><option value="admin">Administrador</option></select></label>{message && <p className="form-message">{message}</p>}<button className="primary-action" type="submit">Crear usuario</button></form><section className="table-panel"><div className="panel-heading"><div><span className="eyebrow">USUARIOS REGISTRADOS</span><h3>{users.length} cuentas</h3></div></div>{loading ? <p className="empty-state">Cargando usuarios…</p> : <div className="user-list">{users.map((user) => <article className={`user-row ${user.isActive ? "" : "is-inactive"}`} key={user.id}><div><strong>{user.name}</strong><span>{user.email} · {formatRole(user.role)}</span></div><div><select value={user.role} onChange={(event) => onUpdate(user, { role: event.target.value, isActive: user.isActive })}><option value="seller">Ventas</option><option value="editor">Editor</option><option value="content_editor">Contenido</option><option value="admin">Administrador</option></select><button className="text-button" type="button" onClick={() => requestReset(user)} disabled={resettingId === user.id}>{resettingId === user.id ? "Generando…" : "Restablecer contraseña"}</button><button className="text-button" onClick={() => onUpdate(user, { role: user.role, isActive: !user.isActive })}>{user.isActive ? "Desactivar" : "Activar"}</button>{!user.isActive && <button className="text-button" type="button" onClick={() => requestDelete(user)}>Eliminar</button>}</div></article>)}</div>}</section></div></section>;
+  return (
+    <section className="records-content">
+      <div className="panel-heading"><div><span className="eyebrow">ACCESOS · EQUIPO</span><h2>Usuarios.</h2></div></div>
+      {resetResult && <PasswordResetResult result={resetResult} onDismiss={() => setResetResult(null)} />}
+      <div className="admin-layout users-layout">
+        <form className="admin-form" onSubmit={onSave}>
+          <div className="admin-form-head"><h2>Nuevo usuario</h2></div>
+          <label>Nombre<input value={form.name} onChange={(event) => onChange("name", event.target.value)} required /></label>
+          <label>Correo<input type="email" value={form.email} onChange={(event) => onChange("email", event.target.value)} required /></label>
+          <label>Contraseña inicial<input type="password" minLength="8" value={form.password} onChange={(event) => onChange("password", event.target.value)} required /></label>
+          <label>Rol<select value={form.role} onChange={(event) => onChange("role", event.target.value)}><option value="seller">Ventas</option><option value="editor">Editor</option><option value="content_editor">Contenido</option><option value="admin">Administrador</option></select></label>
+          {message && <p className="form-message" role="status">{message}</p>}
+          <button className="primary-action" type="submit">Crear usuario</button>
+        </form>
+        <section className="table-panel">
+          <div className="panel-heading"><div><span className="eyebrow">USUARIOS REGISTRADOS</span><h3>{users.length} cuentas</h3></div></div>
+          {loading ? <p className="empty-state">Cargando usuarios…</p> : <div className="user-list">{users.map((user) => <article className={`user-row ${user.isActive ? "" : "is-inactive"}`} key={user.id}>
+            <div><strong>{user.name}</strong><span>{user.email} · {formatRole(user.role)}</span></div>
+            <div>
+              <select value={user.role} onChange={(event) => onUpdate(user, { role: event.target.value, isActive: user.isActive })} aria-label={`Rol de ${user.name}`}><option value="seller">Ventas</option><option value="editor">Editor</option><option value="content_editor">Contenido</option><option value="admin">Administrador</option></select>
+              <button className="text-button" type="button" onClick={() => requestReset(user)} disabled={resettingId === user.id}>{resettingId === user.id ? "Generando…" : "Restablecer contraseña"}</button>
+              <button className="text-button" type="button" onClick={() => onUpdate(user, { role: user.role, isActive: !user.isActive })}>{user.isActive ? "Desactivar" : "Activar"}</button>
+              {!user.isActive && <button className="text-button" type="button" onClick={() => requestDelete(user)}>Eliminar</button>}
+            </div>
+          </article>)}</div>}
+        </section>
+      </div>
+    </section>
+  );
 }
 
 function AppointmentSettingsFields({ form, onChange }) {
@@ -1906,7 +1952,7 @@ function BackofficeWorkspace({ onBack, onVehiclesChanged, initialMode = "login",
           </p>
           <label>Correo<input type="email" value={login.email} onChange={(event) => setLogin({ ...login, email: event.target.value })} placeholder="admin@tuconcesionario.com" autoComplete="username" required /></label>
           <label>Contraseña<input type="password" value={login.password} onChange={(event) => setLogin({ ...login, password: event.target.value })} placeholder="Tu contraseña" autoComplete="current-password" required /></label>
-          {loginError && <p className="state-message error">{loginError}</p>}
+          {loginError && <p className="state-message error" role="alert">{loginError}</p>}
           <button className="primary-action" type="submit">Entrar al panel</button>
           <button className="text-button" type="button" onClick={() => { setRecoveryEmail(login.email); setRecoveryState({ loading: false, message: "", error: "" }); setAuthMode("forgot"); }}>¿Olvidaste tu contraseña?</button>
           <div className="dealer-login-switch">
