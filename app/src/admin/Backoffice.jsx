@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { AnimatePresence, motion } from "motion/react";
 import imageCompression from "browser-image-compression";
 import { Command } from "cmdk";
+import { getCoreRowModel, getSortedRowModel, useReactTable } from "@tanstack/react-table";
 import { DndContext, KeyboardSensor, PointerSensor, useDraggable, useDroppable, useSensor, useSensors } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -15,6 +16,17 @@ import { contrastSafeShade, contrastSafeTint, lighten, readableInkOn } from "../
 import { normalizePhone } from "../utils/phone.js";
 import { SlidingNumber } from "../components/animate-ui/primitives/texts/sliding-number.jsx";
 import { AnimatedList } from "../ui/MotionPrimitives.jsx";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../components/ui/alert-dialog.jsx";
+import "../components/ui/alert-dialog.css";
 import {
   ArticleIcon,
   ArrowUpRightIcon,
@@ -72,6 +84,7 @@ const chartColors = ["#c8a24b", "#5f6f6b", "#2f3b39", "#a33b2b", "#8d7a55"];
 const Vehicle3dActionsContext = createContext({});
 function localIsoDate(value = new Date()) { const date = new Date(value); return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 10); }
 
+
 async function inspect3dFile(file) {
   if (!file) return null;
   const sizeBytes = Number(file.size || 0);
@@ -113,6 +126,23 @@ function AdminActionDialog({ request, onResolve }) {
     setBusy(true);
     await Promise.resolve(onResolve(isPrompt ? value : true));
   };
+  if (!isPrompt) return <AlertDialog open onOpenChange={(open) => { if (!open && !busy) onResolve(null); }}>
+    <AlertDialogContent>
+      <AlertDialogHeader>
+        <span className="eyebrow">ZEVROA · CONFIRMACIÓN</span>
+        <AlertDialogTitle>{request.title}</AlertDialogTitle>
+        {request.message && <AlertDialogDescription>{request.message}</AlertDialogDescription>}
+      </AlertDialogHeader>
+      <AlertDialogFooter>
+        <AlertDialogCancel disabled={busy}>{request.cancelLabel || "Cancelar"}</AlertDialogCancel>
+        <AlertDialogAction
+          data-danger={request.danger ? "true" : undefined}
+          disabled={busy}
+          onClick={(event) => { event.preventDefault(); submit(event); }}
+        >{busy ? "Guardando…" : (request.confirmLabel || "Confirmar")}</AlertDialogAction>
+      </AlertDialogFooter>
+    </AlertDialogContent>
+  </AlertDialog>;
   return <div className="admin-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onResolve(null); }}>
     <form className="admin-action-dialog" role="dialog" aria-modal="true" aria-labelledby="admin-action-dialog-title" ref={dialogRef} onSubmit={submit}>
       <span className="eyebrow">ZEVROA · CONFIRMACIÓN</span>
@@ -823,9 +853,18 @@ function InventoryTableModule({ vehicles, taxonomy, form, editingId, loading, me
   const fieldLabels = { brand: "Marca", brandLogoUrl: "Logo real de la marca (URL SVG)", category: "Categoría", model: "Modelo", variant: "Versión / variante", year: "Año", priceUsd: "Precio USD", stockNumber: "Número de inventario", engine: "Motor", power: "Potencia", transmission: "Transmisión", drive: "Tracción", fuelType: "Combustible", exteriorColor: "Color exterior", interiorColor: "Color interior", doors: "Puertas", seats: "Asientos", mileageKm: "Kilometraje (km)", location: "Ubicación", warranty: "Garantía", features: "Equipamiento (separado por comas)", description: "Descripción comercial", seoTitle: "Título SEO", seoDescription: "Descripción SEO", stock: "Unidades", maxDiscountPercent: "Descuento máximo %" };
   const [globalFilter, setGlobalFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [inventorySort, setInventorySort] = useState("updatedAt");
   useEffect(() => { const refresh = () => onRefresh?.(); window.addEventListener("authentiq:inventory-refresh", refresh); return () => window.removeEventListener("authentiq:inventory-refresh", refresh); }, [onRefresh]);
   const filteredVehicles = vehicles.filter((vehicle) => (statusFilter === "all" || vehicle.status === statusFilter)
     && `${vehicle.brand} ${vehicle.model} ${vehicle.year} ${vehicleStatusLabels[vehicle.status] || vehicle.status} ${vehicle.stockNumber || ""}`.toLowerCase().includes(globalFilter.toLowerCase()));
+  const inventoryTable = useReactTable({
+    data: filteredVehicles,
+    columns: [{ accessorKey: inventorySort }],
+    state: { sorting: [{ id: inventorySort, desc: inventorySort !== "brand" && inventorySort !== "model" }] },
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+  });
+  const sortedVehicles = inventoryTable.getRowModel().rows.map((row) => row.original);
   const numericFields = ["year", "priceUsd", "doors", "seats", "mileageKm", "stock", "maxDiscountPercent"];
   const wizardSteps = ["Identidad", "Disponibilidad", "Ficha técnica", "Presentación", "Visibilidad", "Imágenes", "3D y medios"];
   const [wizardOpen, setWizardOpen] = useState(false);
@@ -833,7 +872,7 @@ function InventoryTableModule({ vehicles, taxonomy, form, editingId, loading, me
   const closeWizard = () => { setWizardOpen(false); onCancel?.(); };
   const saveWizard = async (event) => { if (form.status === "published" && !(await confirm({ title: "Publicar vehículo", message: "Quedará visible en el catálogo y podrá compartirse públicamente.", confirmLabel: "Publicar vehículo" }))) return; await onSave(event); setWizardOpen(false); };
   if (wizardOpen) return <VehicleWizard vehicles={vehicles} taxonomy={taxonomy} form={form} editingId={editingId} message={message} onChange={onChange} onSave={saveWizard} onCancel={closeWizard} onUpload={onUpload} onPackageUpload={onPackageUpload} onPreview={onPreview} />;
-  return <div className="inventory-content"><div className="admin-layout"><form className="admin-form" onSubmit={onSave}><div className="admin-form-head"><h2>{editingId ? "Editar vehículo" : "Nuevo vehículo"}</h2>{editingId && <button type="button" className="text-button" onClick={onCancel}>Cancelar</button>}</div><VehicleReadiness form={form} /><InventoryFieldSections fields={fields} fieldLabels={fieldLabels} numericFields={numericFields} form={form} onChange={onChange} /><MediaOps form={form} onChange={onChange} onUpload={onUpload} onPackageUpload={onPackageUpload} /><PhotoEditor value={form.images} altValue={form.imageAltTexts} onChange={(value) => onChange("images", value)} onAltChange={(value) => onChange("imageAltTexts", value)} onUpload={onUpload} />{message && <p className="form-message">{message}</p>}<button className="primary-action" type="submit">{editingId ? "Guardar cambios" : "Crear vehículo"}</button></form><section className="table-panel"><div className="panel-heading"><div><span className="eyebrow">INVENTARIO · {vehicles.length.toString().padStart(2, "0")}</span><h3>Vehículos registrados</h3></div><button className="text-button" type="button" onClick={onRefresh}>Actualizar</button></div>{vehicles.length > 0 && <div className="inventory-table-filters"><input className="table-search" placeholder="Buscar por marca, modelo o número de inventario…" value={globalFilter} onChange={(event) => setGlobalFilter(event.target.value)} /><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Filtrar inventario por estado"><option value="all">Todos los estados</option>{Object.entries(vehicleStatusLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select><span>{filteredVehicles.length} de {vehicles.length}</span></div>}{loading ? <p className="empty-state">Cargando inventario…</p> : <div className="table-scroll">{vehicles.length > 0 && <table className="inventory-table"><thead><tr><th>Vehículo</th><th>Año</th><th>Estado</th><th>Medios</th><th>SEO</th><th>Precio</th><th /></tr></thead><tbody>{filteredVehicles.map((vehicle) => {
+  return <div className="inventory-content"><div className="admin-layout"><form className="admin-form" onSubmit={onSave}><div className="admin-form-head"><h2>{editingId ? "Editar vehículo" : "Nuevo vehículo"}</h2>{editingId && <button type="button" className="text-button" onClick={onCancel}>Cancelar</button>}</div><VehicleReadiness form={form} /><InventoryFieldSections fields={fields} fieldLabels={fieldLabels} numericFields={numericFields} form={form} onChange={onChange} /><MediaOps form={form} onChange={onChange} onUpload={onUpload} onPackageUpload={onPackageUpload} /><PhotoEditor value={form.images} altValue={form.imageAltTexts} onChange={(value) => onChange("images", value)} onAltChange={(value) => onChange("imageAltTexts", value)} onUpload={onUpload} />{message && <p className="form-message">{message}</p>}<button className="primary-action" type="submit">{editingId ? "Guardar cambios" : "Crear vehículo"}</button></form><section className="table-panel"><div className="panel-heading"><div><span className="eyebrow">INVENTARIO · {vehicles.length.toString().padStart(2, "0")}</span><h3>Vehículos registrados</h3></div><button className="text-button" type="button" onClick={onRefresh}>Actualizar</button></div>{vehicles.length > 0 && <div className="inventory-table-filters"><input className="table-search" placeholder="Buscar por marca, modelo o número de inventario…" value={globalFilter} onChange={(event) => setGlobalFilter(event.target.value)} /><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Filtrar inventario por estado"><option value="all">Todos los estados</option>{Object.entries(vehicleStatusLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select><select value={inventorySort} onChange={(event) => setInventorySort(event.target.value)} aria-label="Ordenar inventario"><option value="updatedAt">Más recientes</option><option value="brand">Marca</option><option value="model">Modelo</option><option value="year">Año</option><option value="priceUsd">Precio</option></select><span>{filteredVehicles.length} de {vehicles.length}</span></div>}{loading ? <p className="empty-state">Cargando inventario…</p> : <div className="table-scroll">{vehicles.length > 0 && <table className="inventory-table"><thead><tr><th>Vehículo</th><th>Año</th><th>Estado</th><th>Medios</th><th>SEO</th><th>Precio</th><th /></tr></thead><tbody>{sortedVehicles.map((vehicle) => {
       const model3d = model3dState(vehicle.media?.find((item) => item.type === "model_3d")?.url);
       const hasVideo = vehicle.media?.some((item) => item.type === "video");
       const seoReady = Boolean(String(vehicle.seoTitle || "").trim() && String(vehicle.seoDescription || "").trim());
