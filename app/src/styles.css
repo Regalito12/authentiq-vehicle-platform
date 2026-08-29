@@ -1458,6 +1458,9 @@ html[data-theme="dark"] .report-insight > p, html[data-theme="dark"] .insight-li
 .catalog-empty { margin-top: 14px; padding: 42px 24px; border: 1px solid #d9d3c8; background: #fff; }
 .catalog-empty h3 { margin: 0 0 8px; font-size: 24px; font-weight: 400; }
 .catalog-empty p { margin: 0 0 20px; color: #6b6660; }
+.catalog-empty .eyebrow { display: block; margin-bottom: 12px; color: #8a6a22; }
+.catalog-empty-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 20px; }
+.catalog-empty-actions .text-button { min-height: 44px; }
 .detail-description { margin-top: 28px; padding-top: 20px; border-top: 1px solid #d9d3c8; }
 .detail-description p { max-width: 58ch; margin: 12px 0 0; color: #3d3a35; line-height: 1.55; }
 .detail-image-wrap[role="button"] { cursor: zoom-in; }
@@ -1758,6 +1761,8 @@ html[data-theme="dark"] .vehicle-readiness-list span.is-done { color: #b9d3bf; }
 html[data-theme="dark"] .showroom-signal { background: #0b0d0e; }
 html[data-theme="dark"] .catalog-intro-note { color: #9da39f; }
 html[data-theme="dark"] .catalog-toolbar-line { background: #303538; }
+html[data-theme="dark"] .catalog-empty { border-color: #303538; background: #151819; }
+html[data-theme="dark"] .catalog-empty p { color: #a5aaa7; }
 html[data-theme="dark"] .hero::after { border-color: rgba(242,239,233,.2); }
 @media (max-width: 760px) {
   .hero::after { inset: 10px; }
