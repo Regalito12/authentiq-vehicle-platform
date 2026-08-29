@@ -1,14 +1,14 @@
 {
-  "name": "authentiq-vehicle-platform",
+  "name": "zevroa-platform",
   "private": true,
   "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "local": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-local.ps1",
-    "backup:db": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/backup-db.ps1",
+    "backup:db": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/backup-db.ps1 -Verify",
     "build": "vite build",
-    "check:production": "node scripts/check-production-env.mjs",
+    "check:production": "node scripts/check-production-env.mjs && npm --prefix server run check:migration-manifest",
     "check:live": "node scripts/live-check.mjs",
     "verify": "npm run check:production && npm run build && node scripts/smoke-check.mjs",
     "preview": "vite preview"
@@ -20,17 +20,18 @@
     "@phosphor-icons/react": "^2.1.10",
     "@sentry/react": "^10.70.0",
     "@vercel/speed-insights": "^2.0.0",
-    "@vitejs/plugin-react": "latest",
+    "@vitejs/plugin-react": "6.0.5",
     "browser-image-compression": "^2.0.2",
     "cmdk": "^1.1.1",
     "lenis": "^1.3.26",
+    "libphonenumber-js": "^1.13.12",
     "motion": "^12.43.0",
-    "react": "latest",
-    "react-dom": "latest",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
     "read-excel-file": "^9.3.10",
     "recharts": "^3.10.1",
     "three": "^0.183.2",
-    "vite": "latest",
+    "vite": "8.2.0",
     "vite-plugin-pwa": "^1.3.0"
   }
 }

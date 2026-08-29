@@ -39,6 +39,19 @@ export const LANDING_COPY = {
         { index: "04", title: "Cotizaciones", body: "Comparte una propuesta clara y recibe la decisión." },
       ],
     },
+    serviceFlow: {
+      kicker: "Un flujo, no cinco herramientas",
+      heading: "Cada paso deja listo el siguiente.",
+      body: "Desde que entra un vehículo hasta que se agenda una visita, ZEVROA mantiene al equipo en el mismo ritmo.",
+      ariaLabel: "Flujo de trabajo de ZEVROA",
+      items: [
+        { index: "01", title: "Publica", body: "Una ficha completa para tu showroom y tus canales.", status: "Listo para vender" },
+        { index: "02", title: "Conversa", body: "El lead llega con el vehículo y el contexto de la visita.", status: "Contexto guardado" },
+        { index: "03", title: "Agenda", body: "Convierte el interés en una hora concreta para tu equipo.", status: "Próxima acción" },
+        { index: "04", title: "Cotiza", body: "Comparte una propuesta clara sin rehacer el trabajo.", status: "En un enlace" },
+        { index: "05", title: "Crece", body: "Mira qué se mueve y decide con datos de tu operación.", status: "Siempre visible" },
+      ],
+    },
     chapters: [
       {
         kicker: "01 · Publica",
@@ -111,13 +124,13 @@ export const LANDING_COPY = {
     integrations: {
       kicker: "Conexiones",
       heading: "Conectado con lo que ya usas.",
-      body: "Nada de migrar tu forma de trabajar. ZEVROA se enchufa a las herramientas con las que ya vendes.",
+      body: "Conecta lo que ya usas a tu ritmo. Cada servicio indica claramente si está activo, disponible para conectar o pendiente.",
       items: [
         { name: "WhatsApp", detail: "Comparte fichas y responde leads por el canal que tus clientes ya usan." },
-        { name: "Google Calendar", detail: "Las citas confirmadas se sincronizan con el calendario del equipo." },
-        { name: "Instagram y Facebook", detail: "Genera la publicacion de cada vehiculo lista para subir." },
-        { name: "Stripe", detail: "Cobra la suscripcion con checkout y facturacion automatica." },
-        { name: "Correo", detail: "Avisos de leads, citas y cotizaciones al buzon de tu equipo." },
+        { name: "Google Calendar", detail: "Disponible al activar la conexión del calendario del equipo." },
+        { name: "Instagram y Facebook", detail: "Borradores de publicación listos; conexión automática disponible al activar Meta." },
+        { name: "Facturación", detail: "Planes y activación comercial por demo. No procesamos pagos automáticos todavía." },
+        { name: "Correo", detail: "Disponible al verificar el dominio de envío del equipo." },
         { name: "Excel", detail: "Sube tu inventario completo de una vez desde una hoja de calculo." },
         { name: "Tu dominio", detail: "Conecta tu propia direccion web cuando quieras, o usa la incluida." },
         { name: "Google y buscadores", detail: "Cada ficha sale con su SEO, sitemap y datos estructurados." },
@@ -125,10 +138,10 @@ export const LANDING_COPY = {
     },
     pricing: {
       kicker: "Planes",
-      heading: "Sabes lo que pagas antes de escribirnos.",
-      body: "Sin instalación, sin permanencia y con 14 días de prueba. Cambias de plan desde el panel cuando tu inventario crezca.",
-      note: "Precios en USD por mes, impuestos aparte. Todos los planes incluyen showroom, inventario, clientes y agenda de citas.",
-      cta: "Empezar la prueba",
+      heading: "Elige el tamaño de operación y solicita una demo.",
+      body: "Revisamos contigo el plan, la migración y la configuración antes de activar el servicio. Sin cobro ni tarjeta desde esta página.",
+      note: "Precios de referencia en USD por mes, impuestos aparte. La activación comercial se confirma después de la demo.",
+      cta: "Solicitar demo",
       perMonth: "/ mes",
       plans: [
         { code: "starter", name: "Starter", price: "99", limit: "Hasta 40 vehículos", body: "Para un concesionario que abre su vitrina digital.", features: ["Showroom con tu marca", "Inventario y clientes", "Agenda de citas"] },
@@ -142,7 +155,7 @@ export const LANDING_COPY = {
       items: [
         { q: "¿Cuánto tardo en tener el showroom en línea?", a: "Una tarde. Creas la cuenta, subes tu logo, publicas el primer vehículo y ya puedes compartir el enlace. No hay instalación ni configuración técnica." },
         { q: "¿Necesito comprar un dominio?", a: "No. Tu showroom vive en una dirección propia dentro de ZEVROA desde el primer día. Si más adelante quieres usar tu propio dominio, lo conectas desde el panel." },
-        { q: "¿Me piden tarjeta para la prueba?", a: "No. Los 14 días de prueba no piden tarjeta. Solo eliges plan cuando decidas seguir." },
+        { q: "¿Me piden tarjeta para la demo?", a: "No. La demo sirve para validar el plan y la configuración que necesita tu concesionario; no se cobra ni se pide tarjeta desde el sitio." },
         { q: "¿Qué pasa con las fotos y los datos de mis vehículos?", a: "Son tuyos. Puedes exportar tu inventario y tus clientes cuando quieras, y si cancelas no retenemos tu información." },
         { q: "¿Puedo importar el inventario que ya tengo?", a: "Sí. Puedes cargar varios vehículos de una vez desde un Excel y luego ajustar cada ficha desde el panel." },
         { q: "¿Cuánta gente de mi equipo puede entrar?", a: "Puedes crear usuarios con permisos distintos: quien publica el inventario no tiene por qué ver la facturación." },
@@ -204,6 +217,19 @@ export const LANDING_COPY = {
         { index: "02", title: "Customers", body: "Every lead arrives with vehicle, channel, and next action." },
         { index: "03", title: "Appointments", body: "Schedule and confirm visits without losing the thread." },
         { index: "04", title: "Quotes", body: "Share a clear proposal and receive the decision." },
+      ],
+    },
+    serviceFlow: {
+      kicker: "One flow, not five tools",
+      heading: "Every step prepares the next one.",
+      body: "From the moment a vehicle arrives to the booked visit, ZEVROA keeps the whole team moving at the same pace.",
+      ariaLabel: "ZEVROA workflow",
+      items: [
+        { index: "01", title: "Publish", body: "One complete listing for your showroom and every channel.", status: "Ready to sell" },
+        { index: "02", title: "Connect", body: "Every lead arrives with the vehicle and visit context.", status: "Context saved" },
+        { index: "03", title: "Schedule", body: "Turn interest into a real time for your team.", status: "Next action" },
+        { index: "04", title: "Quote", body: "Share a clear proposal without repeating the work.", status: "One link" },
+        { index: "05", title: "Grow", body: "See what is moving and decide with operating data.", status: "Always visible" },
       ],
     },
     chapters: [
@@ -278,13 +304,13 @@ export const LANDING_COPY = {
     integrations: {
       kicker: "Connections",
       heading: "Connected to what you already use.",
-      body: "No need to migrate how you work. ZEVROA plugs into the tools you already sell with.",
+      body: "Connect what you already use at your own pace. Every service clearly shows whether it is active, ready to connect, or pending.",
       items: [
         { name: "WhatsApp", detail: "Share listings and answer leads on the channel your customers already use." },
-        { name: "Google Calendar", detail: "Confirmed appointments sync with the team calendar." },
-        { name: "Instagram and Facebook", detail: "Generate each vehicle's post, ready to publish." },
-        { name: "Stripe", detail: "Charge the subscription with checkout and automatic invoicing." },
-        { name: "Email", detail: "Lead, appointment and quote alerts to your team inbox." },
+        { name: "Google Calendar", detail: "Available once the team's calendar connection is activated." },
+        { name: "Instagram and Facebook", detail: "Publishing drafts are ready; automatic connection is available after Meta activation." },
+        { name: "Billing", detail: "Plans and commercial activation happen through a demo. Automatic payments are not active yet." },
+        { name: "Email", detail: "Available after the sending domain is verified." },
         { name: "Spreadsheets", detail: "Upload your whole inventory at once from a spreadsheet." },
         { name: "Your domain", detail: "Connect your own web address whenever you want, or use the included one." },
         { name: "Google and search", detail: "Every listing ships with its SEO, sitemap and structured data." },
@@ -292,10 +318,10 @@ export const LANDING_COPY = {
     },
     pricing: {
       kicker: "Plans",
-      heading: "You know what you pay before you talk to us.",
-      body: "No setup fee, no lock-in, and a 14-day trial. Switch plans from the panel whenever your inventory grows.",
-      note: "Prices in USD per month, taxes not included. Every plan includes showroom, inventory, customers and appointment booking.",
-      cta: "Start the trial",
+      heading: "Choose your operation size and request a demo.",
+      body: "We review the plan, migration and setup with you before activating service. No charge or card is requested on this page.",
+      note: "Reference prices in USD per month, taxes not included. Commercial activation is confirmed after the demo.",
+      cta: "Request a demo",
       perMonth: "/ mo",
       plans: [
         { code: "starter", name: "Starter", price: "99", limit: "Up to 40 vehicles", body: "For a dealership opening its digital storefront.", features: ["Showroom with your brand", "Inventory and customers", "Appointment booking"] },
@@ -309,7 +335,7 @@ export const LANDING_COPY = {
       items: [
         { q: "How long until my showroom is live?", a: "One afternoon. Create the account, upload your logo, publish the first vehicle and share the link. No installation, no technical setup." },
         { q: "Do I need to buy a domain?", a: "No. Your showroom lives on its own address inside ZEVROA from day one. If you later want your own domain, you connect it from the panel." },
-        { q: "Do you ask for a card for the trial?", a: "No. The 14-day trial needs no card. You only pick a plan when you decide to continue." },
+        { q: "Do you ask for a card for the demo?", a: "No. The demo validates the plan and configuration your dealership needs; no payment or card is requested through the site." },
         { q: "What happens to my vehicle photos and data?", a: "They are yours. You can export your inventory and customers whenever you want, and if you cancel we do not hold on to your information." },
         { q: "Can I import the inventory I already have?", a: "Yes. You can upload several vehicles at once from a spreadsheet and then adjust each listing from the panel." },
         { q: "How many people from my team can log in?", a: "You can create users with different permissions: whoever publishes inventory does not need to see billing." },

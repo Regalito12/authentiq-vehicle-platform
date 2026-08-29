@@ -6,7 +6,7 @@
 // desarrollar.
 //
 // Para activarlo: crea el proyecto en sentry.io, copia el DSN y ponlo como
-// VITE_SENTRY_DSN en las variables de entorno del despliegue (Render/Vercel).
+// VITE_SENTRY_DSN en las variables de entorno del despliegue.
 
 const dsn = import.meta.env.VITE_SENTRY_DSN || "";
 let client = null;

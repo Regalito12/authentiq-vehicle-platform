@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import imageCompression from "browser-image-compression";
 import { Command } from "cmdk";
@@ -8,9 +8,11 @@ import { Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis
 import PlatformCenter from "./PlatformCenter.jsx";
 import { apiFetch as fetch, apiUrl } from "./apiClient.js";
 import DealerRegistrationWizard from "./DealerRegistrationWizard.jsx";
+import PhoneField from "./PhoneField.jsx";
 import { formatDate, formatDateTime, formatLeadSource, formatPlatform, formatPrice, formatPriority, formatRole, formatStatus, publicVehiclePath } from "./format.js";
 import { SocialFlyerStudio, WindowStickerModal } from "./GraphicsStudio.jsx";
 import { contrastSafeShade, contrastSafeTint, lighten, readableInkOn } from "../utils/color.js";
+import { normalizePhone } from "../utils/phone.js";
 import { SlidingNumber } from "../components/animate-ui/primitives/texts/sliding-number.jsx";
 import { AnimatedList } from "../ui/MotionPrimitives.jsx";
 import {
@@ -98,6 +100,53 @@ async function inspect3dFile(file) {
   }
 }
 
+const AdminDialogsContext = createContext(null);
+
+function AdminActionDialog({ request, onResolve }) {
+  const [value, setValue] = useState(request.defaultValue || "");
+  const [busy, setBusy] = useState(false);
+  const dialogRef = useAdminDialog(() => onResolve(null));
+  const isPrompt = request.kind === "prompt";
+  const submit = async (event) => {
+    event?.preventDefault?.();
+    if (isPrompt && request.required && !value.trim()) return;
+    setBusy(true);
+    await Promise.resolve(onResolve(isPrompt ? value : true));
+  };
+  return <div className="admin-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onResolve(null); }}>
+    <form className="admin-action-dialog" role="dialog" aria-modal="true" aria-labelledby="admin-action-dialog-title" ref={dialogRef} onSubmit={submit}>
+      <span className="eyebrow">ZEVROA · CONFIRMACIÓN</span>
+      <h2 id="admin-action-dialog-title">{request.title}</h2>
+      {request.message && <p>{request.message}</p>}
+      {isPrompt && <label>{request.label || "Valor"}<input autoFocus value={value} onChange={(event) => setValue(event.target.value)} placeholder={request.placeholder || ""} required={request.required} /></label>}
+      <div className="admin-action-dialog-actions">
+        <button className="secondary-action" type="button" onClick={() => onResolve(null)} disabled={busy}>{request.cancelLabel || "Cancelar"}</button>
+        <button className={`primary-action${request.danger ? " danger-action" : ""}`} type="submit" disabled={busy || (isPrompt && request.required && !value.trim())}>{busy ? "Guardando…" : (request.confirmLabel || "Confirmar")}</button>
+      </div>
+    </form>
+  </div>;
+}
+
+export function AdminDialogsProvider({ children }) {
+  const [request, setRequest] = useState(null);
+  const resolve = useCallback((result) => {
+    setRequest((current) => {
+      current?.resolve?.(result);
+      return null;
+    });
+  }, []);
+  const ask = useCallback((options = {}) => new Promise((promiseResolve) => setRequest({ kind: "confirm", ...options, resolve: promiseResolve })), []);
+  const askPrompt = useCallback((options = {}) => new Promise((promiseResolve) => setRequest({ kind: "prompt", ...options, resolve: promiseResolve })), []);
+  const value = useMemo(() => ({ confirm: ask, prompt: askPrompt }), [ask, askPrompt]);
+  return <AdminDialogsContext.Provider value={value}>{children}<AnimatePresence>{request && <AdminActionDialog key="admin-action-dialog" request={request} onResolve={resolve} />}</AnimatePresence></AdminDialogsContext.Provider>;
+}
+
+function useAdminConfirm() {
+  const value = useContext(AdminDialogsContext);
+  if (!value) throw new Error("useAdminConfirm debe usarse dentro de AdminDialogsProvider");
+  return value;
+}
+
 function format3dReport(report) {
   if (!report) return null;
   if (report.animationCount === null) return `Archivo ${report.sizeLabel} · análisis visual pendiente`;
@@ -182,6 +231,7 @@ function InventoryImportModal({ open, onClose, vehicles = [] }) {
 }
 
 function TaxonomyModule({ taxonomy: externalTaxonomy, loading: externalLoading = false, onRefresh: externalRefresh, onCreate: externalCreate, onUpdate: externalUpdate }) {
+  const { confirm, prompt } = useAdminConfirm();
   const [localTaxonomy, setLocalTaxonomy] = useState(externalTaxonomy || { brands: [], categories: [] });
   const [localLoading, setLocalLoading] = useState(false);
   const requestTaxonomy = async (path, options = {}) => { const response = await fetch(`${apiUrl}${path}`, { ...options, credentials: "include", headers: { "Content-Type": "application/json", ...(options.headers || {}) } }); const payload = response.status === 204 ? null : await response.json(); if (!response.ok) throw new Error(payload?.error || "No se pudo actualizar el catálogo"); return payload; };
@@ -190,7 +240,7 @@ function TaxonomyModule({ taxonomy: externalTaxonomy, loading: externalLoading =
   const loading = externalLoading || localLoading;
   const onRefresh = externalRefresh || refreshTaxonomy;
   const onCreate = externalCreate || (async (kind, values) => { await requestTaxonomy(`/api/admin/taxonomy/${kind}`, { method: "POST", body: JSON.stringify(values) }); await refreshTaxonomy(); });
-  const onUpdate = externalUpdate || (async (kind, record) => { const name = window.prompt(`Nombre de ${kind === "brands" ? "la marca" : "la categoría"}:`, record.name); if (name === null) return; const isActive = record.isActive ? window.confirm("¿Quieres mantener este registro activo? Pulsa Cancelar para desactivarlo.") : true; const logoUrl = kind === "brands" ? window.prompt("Logo URL (opcional):", record.logoUrl || "") : ""; await requestTaxonomy(`/api/admin/taxonomy/${kind}/${record.id}`, { method: "PATCH", body: JSON.stringify({ name, logoUrl, isActive }) }); await refreshTaxonomy(); });
+  const onUpdate = externalUpdate || (async (kind, record) => { const name = await prompt({ title: `Editar ${kind === "brands" ? "marca" : "categoría"}`, message: "Actualiza el nombre que verá el equipo al crear vehículos.", label: "Nombre", defaultValue: record.name, required: true, confirmLabel: "Continuar" }); if (name === null) return; const isActive = record.isActive ? await confirm({ title: "Mantener registro activo", message: "Si lo mantienes activo, seguirá apareciendo en el asistente de inventario.", confirmLabel: "Mantener activa" }) : true; if (isActive === null) return; const logoUrl = kind === "brands" ? await prompt({ title: "Logo de la marca", message: "Puedes dejarlo vacío si no quieres cambiarlo.", label: "Logo URL", defaultValue: record.logoUrl || "", placeholder: "https://.../logo.svg", confirmLabel: "Guardar marca" }) : ""; if (logoUrl === null) return; await requestTaxonomy(`/api/admin/taxonomy/${kind}/${record.id}`, { method: "PATCH", body: JSON.stringify({ name, logoUrl, isActive }) }); await refreshTaxonomy(); });
   useEffect(() => { if (!externalTaxonomy) refreshTaxonomy().catch(() => {}); }, []);
   const [kind, setKind] = useState("brands");
   const [form, setForm] = useState({ name: "", logoUrl: "" });
@@ -210,8 +260,8 @@ function AdminNav({ activeModule, onChange, onBack, onLogout, role, unreadNotifi
   // Cuatro accesos bastan para el trabajo diario. El resto sigue disponible
   // en Administración y mediante Ctrl/Cmd + K, sin desaparecer ni duplicarse.
   const primaryKeysByRole = {
-    admin: ["settings", "dashboard", "inventory", "reports"],
-    editor: ["settings", "dashboard", "inventory", "reports"],
+    admin: ["dashboard", "inventory", "leads", "appointments", "quotes"],
+    editor: ["dashboard", "inventory", "leads", "appointments", "quotes"],
     seller: ["dashboard", "leads", "quotes", "reports"],
     content_editor: ["dashboard", "blog"],
   };
@@ -236,14 +286,14 @@ function AdminNav({ activeModule, onChange, onBack, onLogout, role, unreadNotifi
         {/* El nombre del módulo lo titula cada módulo con su propio contexto:
             repetirlo aquí duplicaba el encabezado y comía media pantalla en móvil. */}
         <div className="admin-title-row"><h1 className="admin-app-title">{businessName} <span>Panel de control</span></h1><span className="role-chip">{role === "admin" ? "DUEÑO" : role === "content_editor" ? "CONTENIDO" : role === "editor" ? "OPERACIÓN" : "VENTAS"}</span></div>
-        <div className="admin-header-actions"><button className="secondary-action command-launch" type="button" onClick={() => setCommandOpen(true)}><MagnifyingGlassIcon size={16} aria-hidden="true" />Acciones <kbd>Ctrl K</kbd></button><div className="notification-wrap"><button className="notification-button" type="button" onClick={() => setShowNotifications((current) => !current)} aria-expanded={showNotifications} aria-label="Abrir notificaciones"><BellIcon size={16} weight="regular" aria-hidden="true" />Notificaciones {unreadNotifications > 0 && <span>{unreadNotifications}</span>}</button>{showNotifications && <div className="notification-popover"><div className="notification-popover-head"><strong>Actividad reciente</strong>{unreadNotifications > 0 && <button className="text-button" type="button" onClick={onReadNotifications}>Marcar leídas</button>}</div>{notifications?.length ? notifications.slice(0, 8).map((notification) => <article className={notification.readAt ? "notification-item" : "notification-item unread"} key={notification.id}><strong>{notification.title}</strong><span>{notification.body}</span><small>{formatDate(notification.createdAt)}</small></article>) : <p className="empty-state">No hay notificaciones nuevas.</p>}</div>}</div>{["admin", "editor"].includes(role) && <button className="secondary-action onboarding-launch-button" type="button" onClick={role === "editor" ? () => onChange("settings") : onOpenOnboarding}><PaintBrushIcon size={16} weight="regular" aria-hidden="true" />Personalizar showroom</button>}<button className="secondary-action theme-toggle" type="button" onClick={onToggleTheme} aria-label="Cambiar tema">{theme === "dark" ? <SunIcon size={16} weight="regular" aria-hidden="true" /> : <MoonIcon size={16} weight="regular" aria-hidden="true" />}{theme === "dark" ? "Modo claro" : "Modo oscuro"}</button><button className="secondary-action" type="button" onClick={onPreview}><EyeIcon size={16} weight="regular" aria-hidden="true" />Vista previa</button><button className="secondary-action" onClick={onBack}><HouseIcon size={16} weight="regular" aria-hidden="true" />Ver catálogo</button><button className="secondary-action" onClick={onLogout}>Cerrar sesión</button></div>
+         <div className="admin-header-actions"><button className="secondary-action command-launch" type="button" onClick={() => setCommandOpen(true)}><MagnifyingGlassIcon size={16} aria-hidden="true" />Acciones <kbd>Ctrl K</kbd></button><div className="notification-wrap"><button className="notification-button" type="button" onClick={() => setShowNotifications((current) => !current)} aria-expanded={showNotifications} aria-label="Abrir notificaciones"><BellIcon size={16} weight="regular" aria-hidden="true" />Notificaciones {unreadNotifications > 0 && <span>{unreadNotifications}</span>}</button>{showNotifications && <div className="notification-popover"><div className="notification-popover-head"><strong>Actividad reciente</strong>{unreadNotifications > 0 && <button className="text-button" type="button" onClick={onReadNotifications}>Marcar leídas</button>}</div>{notifications?.length ? notifications.slice(0, 8).map((notification) => <article className={notification.readAt ? "notification-item" : "notification-item unread"} key={notification.id}><strong>{notification.title}</strong><span>{notification.body}</span><small>{formatDate(notification.createdAt)}</small></article>) : <p className="empty-state">No hay notificaciones nuevas.</p>}</div>}</div>{["admin", "editor"].includes(role) && <button className="secondary-action onboarding-launch-button" type="button" onClick={role === "editor" ? () => onChange("settings") : onOpenOnboarding}><PaintBrushIcon size={16} weight="regular" aria-hidden="true" />Personalizar showroom</button>}<button className="secondary-action theme-toggle" type="button" onClick={onToggleTheme} aria-label="Cambiar tema">{theme === "dark" ? <SunIcon size={16} weight="regular" aria-hidden="true" /> : <MoonIcon size={16} weight="regular" aria-hidden="true" />}{theme === "dark" ? "Modo claro" : "Modo oscuro"}</button><button className="secondary-action" type="button" onClick={onPreview}><EyeIcon size={16} weight="regular" aria-hidden="true" />Vista previa</button><button className="secondary-action" type="button" onClick={onBack}><HouseIcon size={16} weight="regular" aria-hidden="true" />Ver catálogo</button><button className="secondary-action" type="button" onClick={onLogout}>Cerrar sesión</button></div>
       </header>
       <div className="admin-presentation-launch"><span>¿Quieres enseñar el showroom sin herramientas de administración?</span><button className="secondary-action" type="button" onClick={() => window.open("/presentacion", "_blank", "noopener,noreferrer")}>Abrir vista de presentación →</button></div>
       <aside className="admin-navigation-shell">
         <div className="admin-navigation-brand"><span className="admin-navigation-kicker">Tu operación</span><strong>{businessName}</strong><small>{role === "admin" ? "Control total del showroom" : "Espacio de trabajo"}</small></div>
         <nav className="admin-nav" aria-label="Módulos administrativos">
           <div className="admin-nav-core"><span className="admin-nav-label">Trabajo diario</span>{primaryItems.map(([key, label]) => <button key={key} className={activeModule === key ? "admin-nav-item active" : "admin-nav-item"} aria-current={activeModule === key ? "page" : undefined} onClick={() => onChange(key)}><AdminModuleIcon name={key} />{label}</button>)}</div>
-          {advancedItems.length > 0 && <div className="admin-nav-advanced"><button className="admin-nav-more-toggle" type="button" aria-expanded={advancedOpen} onClick={() => setAdvancedOpen((current) => !current)}><span>Administración</span>{advancedOpen ? <CaretUpIcon size={15} aria-hidden="true" /> : <CaretDownIcon size={15} aria-hidden="true" />}</button>{advancedOpen && <div className="admin-nav-more-panel">{advancedItems.map(([key, label]) => <button key={key} className={activeModule === key ? "admin-nav-item active" : "admin-nav-item"} aria-current={activeModule === key ? "page" : undefined} onClick={() => { setAdvancedOpen(true); onChange(key); }}><AdminModuleIcon name={key} />{label}</button>)}</div>}</div>}
+          {advancedItems.length > 0 && <div className="admin-nav-advanced"><button className="admin-nav-more-toggle" type="button" aria-expanded={advancedOpen} onClick={() => setAdvancedOpen((current) => !current)}><span>Más herramientas</span>{advancedOpen ? <CaretUpIcon size={15} aria-hidden="true" /> : <CaretDownIcon size={15} aria-hidden="true" />}</button>{advancedOpen && <div className="admin-nav-more-panel">{advancedItems.map(([key, label]) => <button key={key} className={activeModule === key ? "admin-nav-item active" : "admin-nav-item"} aria-current={activeModule === key ? "page" : undefined} onClick={() => { setAdvancedOpen(true); onChange(key); }}><AdminModuleIcon name={key} />{label}</button>)}</div>}</div>}
         </nav>
         {role === "content_editor" && <div className="admin-role-hint" role="note"><span className="admin-navigation-kicker">Acceso actual</span><strong>Cuenta de contenido</strong><p>Solo puedes editar Contenido. Para trabajar con inventario, clientes, citas, cotizaciones, usuarios y facturación, entra con una cuenta Dueño u Operación.</p><button className="text-button" type="button" onClick={onLogout}>Cambiar de cuenta →</button></div>}
         <div className="admin-context-bar" aria-live="polite"><span><b>{moduleContext[0]}</b><small>{moduleContext[1]}</small></span></div>
@@ -268,7 +318,7 @@ function AdminEmptyState({ eyebrow = "SIN ACTIVIDAD", title, text, actionLabel, 
 function AdminToast({ message }) {
   if (!message) return null;
   // La salida es más rápida que la entrada (~75%): confirma sin demorar al usuario.
-  return <motion.div className="admin-toast" role="status" initial={{ opacity: 0, y: 12, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1, transition: { duration: .22, ease: [0.22, 1, 0.36, 1] } }} exit={{ opacity: 0, y: 8, transition: { duration: .15 } }}><span className="admin-toast-mark">✓</span><span>{message}</span></motion.div>;
+  return <motion.div className="admin-toast" role="status" aria-live="polite" initial={{ opacity: 0, y: 12, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1, transition: { duration: .22, ease: [0.22, 1, 0.36, 1] } }} exit={{ opacity: 0, y: 8, transition: { duration: .15 } }}><span className="admin-toast-mark" aria-hidden="true">✓</span><span>{message}</span></motion.div>;
 }
 
 function DashboardSkeleton() {
@@ -414,7 +464,7 @@ function DealerShareCard({ organization, settings, onNavigate }) {
         <div className="dealer-preview-mini">
           <div className="dealer-preview-logo">
             {organization?.logoUrl ? (
-              <img src={organization.logoUrl} alt="" />
+              <img src={organization.logoUrl} alt={`Logo de ${organization.name || "tu concesionario"}`} />
             ) : (
               <span>{(organization?.name || "D").slice(0, 2).toUpperCase()}</span>
             )}
@@ -748,6 +798,7 @@ function WizardReview({ form, editingId }) {
 }
 
 function VehicleWizard({ vehicles, taxonomy, form, editingId, message, onChange, onSave, onCancel, onUpload, onPackageUpload, onGenerate3d, onRefresh3d, onPreview }) {
+  const { confirm } = useAdminConfirm();
   const [step, setStep] = useState(0);
   const initialSnapshot = useRef(JSON.stringify(form));
   const steps = ["Identidad", "Disponibilidad", "Ficha técnica", "Presentación", "Visibilidad", "Imágenes", "3D y medios", "Revisión final"];
@@ -756,7 +807,7 @@ function VehicleWizard({ vehicles, taxonomy, form, editingId, message, onChange,
   const fieldLabels = { brand: "Marca", brandLogoUrl: "Logo real de la marca (URL SVG)", category: "Categoría", model: "Modelo", variant: "Versión / variante", year: "Año", priceUsd: "Precio USD", stockNumber: "Número de inventario", engine: "Motor", power: "Potencia", transmission: "Transmisión", drive: "Tracción", fuelType: "Combustible", exteriorColor: "Color exterior", interiorColor: "Color interior", doors: "Puertas", seats: "Asientos", mileageKm: "Kilometraje (km)", location: "Ubicación", warranty: "Garantía", features: "Equipamiento (separado por comas)", description: "Descripción comercial", seoTitle: "Título SEO", seoDescription: "Descripción SEO", stock: "Unidades", maxDiscountPercent: "Descuento máximo %" };
   const goTo = (next) => setStep(Math.max(0, Math.min(steps.length - 1, next)));
   const isDirty = JSON.stringify(form) !== initialSnapshot.current;
-  const requestClose = () => { if (isDirty && !window.confirm("Tienes cambios sin guardar. ¿Quieres descartarlos?")) return; onCancel?.(); };
+  const requestClose = async () => { if (isDirty && !(await confirm({ title: "Descartar cambios", message: "Tienes cambios sin guardar en esta ficha. Si sales ahora, se perderán.", confirmLabel: "Descartar cambios", danger: true }))) return; onCancel?.(); };
   useEffect(() => {
     if (!isDirty) return undefined;
     const warnBeforeUnload = (event) => { event.preventDefault(); event.returnValue = ""; };
@@ -767,6 +818,7 @@ function VehicleWizard({ vehicles, taxonomy, form, editingId, message, onChange,
 }
 
 function InventoryTableModule({ vehicles, taxonomy, form, editingId, loading, message, onChange, onSave, onEdit, onCancel, onDeactivate, onDuplicate, onRefresh, onUpload, onPackageUpload, onReview, onStatusChange, onPreview, onOpenSticker, onOpenSocial }) {
+  const { confirm } = useAdminConfirm();
   const fields = ["brand", "category", "model", "variant", "year", "priceUsd", "stockNumber", "engine", "power", "transmission", "drive", "fuelType", "exteriorColor", "interiorColor", "doors", "seats", "mileageKm", "location", "warranty", "features", "description", "seoTitle", "seoDescription", "stock", "maxDiscountPercent"];
   const fieldLabels = { brand: "Marca", brandLogoUrl: "Logo real de la marca (URL SVG)", category: "Categoría", model: "Modelo", variant: "Versión / variante", year: "Año", priceUsd: "Precio USD", stockNumber: "Número de inventario", engine: "Motor", power: "Potencia", transmission: "Transmisión", drive: "Tracción", fuelType: "Combustible", exteriorColor: "Color exterior", interiorColor: "Color interior", doors: "Puertas", seats: "Asientos", mileageKm: "Kilometraje (km)", location: "Ubicación", warranty: "Garantía", features: "Equipamiento (separado por comas)", description: "Descripción comercial", seoTitle: "Título SEO", seoDescription: "Descripción SEO", stock: "Unidades", maxDiscountPercent: "Descuento máximo %" };
   const [globalFilter, setGlobalFilter] = useState("");
@@ -779,7 +831,7 @@ function InventoryTableModule({ vehicles, taxonomy, form, editingId, loading, me
   const [wizardOpen, setWizardOpen] = useState(false);
   useEffect(() => { if (editingId) setWizardOpen(true); }, [editingId]);
   const closeWizard = () => { setWizardOpen(false); onCancel?.(); };
-  const saveWizard = async (event) => { if (form.status === "published" && !window.confirm("¿Publicar este vehículo ahora? Quedará visible en el catálogo y podrá compartirse públicamente.")) return; await onSave(event); setWizardOpen(false); };
+  const saveWizard = async (event) => { if (form.status === "published" && !(await confirm({ title: "Publicar vehículo", message: "Quedará visible en el catálogo y podrá compartirse públicamente.", confirmLabel: "Publicar vehículo" }))) return; await onSave(event); setWizardOpen(false); };
   if (wizardOpen) return <VehicleWizard vehicles={vehicles} taxonomy={taxonomy} form={form} editingId={editingId} message={message} onChange={onChange} onSave={saveWizard} onCancel={closeWizard} onUpload={onUpload} onPackageUpload={onPackageUpload} onPreview={onPreview} />;
   return <div className="inventory-content"><div className="admin-layout"><form className="admin-form" onSubmit={onSave}><div className="admin-form-head"><h2>{editingId ? "Editar vehículo" : "Nuevo vehículo"}</h2>{editingId && <button type="button" className="text-button" onClick={onCancel}>Cancelar</button>}</div><VehicleReadiness form={form} /><InventoryFieldSections fields={fields} fieldLabels={fieldLabels} numericFields={numericFields} form={form} onChange={onChange} /><MediaOps form={form} onChange={onChange} onUpload={onUpload} onPackageUpload={onPackageUpload} /><PhotoEditor value={form.images} altValue={form.imageAltTexts} onChange={(value) => onChange("images", value)} onAltChange={(value) => onChange("imageAltTexts", value)} onUpload={onUpload} />{message && <p className="form-message">{message}</p>}<button className="primary-action" type="submit">{editingId ? "Guardar cambios" : "Crear vehículo"}</button></form><section className="table-panel"><div className="panel-heading"><div><span className="eyebrow">INVENTARIO · {vehicles.length.toString().padStart(2, "0")}</span><h3>Vehículos registrados</h3></div><button className="text-button" type="button" onClick={onRefresh}>Actualizar</button></div>{vehicles.length > 0 && <div className="inventory-table-filters"><input className="table-search" placeholder="Buscar por marca, modelo o número de inventario…" value={globalFilter} onChange={(event) => setGlobalFilter(event.target.value)} /><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Filtrar inventario por estado"><option value="all">Todos los estados</option>{Object.entries(vehicleStatusLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select><span>{filteredVehicles.length} de {vehicles.length}</span></div>}{loading ? <p className="empty-state">Cargando inventario…</p> : <div className="table-scroll">{vehicles.length > 0 && <table className="inventory-table"><thead><tr><th>Vehículo</th><th>Año</th><th>Estado</th><th>Medios</th><th>SEO</th><th>Precio</th><th /></tr></thead><tbody>{filteredVehicles.map((vehicle) => {
       const model3d = model3dState(vehicle.media?.find((item) => item.type === "model_3d")?.url);
@@ -836,7 +888,7 @@ function ReportsModule({ dashboard, vehicles, leads, offers, loading, analytics,
   const funnel = [{ name: "Clientes", value: periodLeads.length, fill: "#c8a24b" }, { name: "Ofertas", value: periodOffers.length, fill: "#5f6f6b" }, { name: "Cerrados", value: periodLeads.filter((lead) => lead.status === "closed").length, fill: "#2f3b39" }];
   const acceptedOffers = periodOffers.filter((offer) => offer.status === "accepted");
   const conversion = periodLeads.length ? Math.round((periodLeads.filter((lead) => ["qualified", "closed"].includes(lead.status)).length / periodLeads.length) * 100) : 0;
-  const exportReport = () => { const rows = [["Métrica", "Valor"], ["Periodo", period === "all" ? "Histórico" : `Últimos ${period} días`], ["Vehículos publicados", reportPublishedCount], ["Stock disponible", reportStock], ["Leads", periodLeads.length], ["Ofertas", periodOffers.length], ["Ofertas aceptadas", acceptedOffers.length], ["Conversión calificados/cerrados", `${conversion}%`]]; const csv = rows.map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(",")).join("\n"); const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob(["\\ufeff", csv], { type: "text/csv;charset=utf-8" })); link.download = `authentiq-reporte-${new Date().toISOString().slice(0, 10)}.csv`; link.click(); URL.revokeObjectURL(link.href); };
+  const exportReport = () => { const rows = [["Métrica", "Valor"], ["Periodo", period === "all" ? "Histórico" : `Últimos ${period} días`], ["Vehículos publicados", reportPublishedCount], ["Stock disponible", reportStock], ["Leads", periodLeads.length], ["Ofertas", periodOffers.length], ["Ofertas aceptadas", acceptedOffers.length], ["Conversión calificados/cerrados", `${conversion}%`]]; const csv = rows.map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(",")).join("\n"); const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob(["\\ufeff", csv], { type: "text/csv;charset=utf-8" })); link.download = `zevroa-reporte-${new Date().toISOString().slice(0, 10)}.csv`; link.click(); URL.revokeObjectURL(link.href); };
   return <section className="reports-content"><div className="panel-heading"><div><span className="eyebrow">CÓMO VA EL NEGOCIO</span><h2>Reportes.</h2></div><div className="panel-actions"><select className="report-period" value={period} onChange={(event) => setPeriod(event.target.value)} aria-label="Periodo del reporte"><option value="all">Todo el histórico</option><option value="30">Últimos 30 días</option><option value="90">Últimos 90 días</option></select><button className="secondary-action" onClick={exportReport}>Exportar CSV</button></div></div>{loading ? <p className="empty-state">Preparando reporte…</p> : <><div className="report-kpis"><AnalyticsEventsPanel analytics={analytics} /><AnalyticsFunnelPanel data={funnelData} /><StatCard label="Conversión comercial" value={`${conversion}%`} note="Leads calificados o cerrados" /><StatCard label="Ofertas aceptadas" value={acceptedOffers.length} note={`${periodOffers.length} ofertas en el periodo`} /><StatCard label="Inventario publicado" value={reportPublishedCount} note={`${publishedVehicles.length} registros cargados`} /></div><div className="report-grid"><article className="chart-panel report-chart"><div className="panel-heading"><div><span className="eyebrow">EMBUDO</span><h3>Interés que se convierte en acción</h3></div></div><div className="chart-box"><ResponsiveContainer width="100%" height="100%"><BarChart data={funnel} layout="vertical" margin={{ top: 8, right: 20, left: 18, bottom: 0 }}><XAxis type="number" allowDecimals={false} axisLine={false} tickLine={false} /><YAxis type="category" dataKey="name" width={70} axisLine={false} tickLine={false} /><Tooltip formatter={(value) => [`${value}`, "Registros"]} /><Bar dataKey="value" radius={[0, 3, 3, 0]}>{funnel.map((item) => <Cell key={item.name} fill={item.fill} />)}</Bar></BarChart></ResponsiveContainer></div></article><article className="report-insight"><span className="eyebrow">LECTURA RÁPIDA</span><h3>{conversion >= 30 ? "El interés está avanzando." : "Hay oportunidad en el seguimiento."}</h3><p>{conversion >= 30 ? "La operación está convirtiendo una parte saludable de sus leads en conversaciones calificadas." : "Prioriza los leads nuevos y contactados para aumentar el paso hacia ofertas."}</p><div className="insight-line"><span>Valor de inventario</span><strong>{formatPrice(reportInventoryValue)}</strong></div><div className="insight-line"><span>Stock disponible</span><strong>{reportStock} unidades</strong></div></article></div></>}</section>;
 }
 
@@ -1009,8 +1061,8 @@ function LeadsModule({ records, users, loading, onRefresh, onUpdate, onLoadHisto
       return changed ? next : current;
     });
   }, [records]);
-  const visibleRecords = records.filter((lead) => { const haystack = `${lead.name} ${lead.email || ""} ${lead.phone || ""} ${lead.brand || ""} ${lead.model || ""}`.toLowerCase(); return (statusFilter === "all" || lead.status === statusFilter) && haystack.includes(query.toLowerCase()); });
-  const exportLeads = () => { const csv = ["Nombre,Correo,Telefono,Estado,Origen,Vehiculo,Recibido", ...visibleRecords.map((lead) => [lead.name, lead.email, lead.phone, lead.status, lead.source, `${lead.brand || ""} ${lead.model || ""}`, formatDate(lead.createdAt)].map((value) => `"${String(value || "").replaceAll('"', '""')}"`).join(","))].join("\n"); const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8" })); link.download = `authentiq-leads-${new Date().toISOString().slice(0, 10)}.csv`; link.click(); URL.revokeObjectURL(link.href); };
+  const visibleRecords = records.filter((lead) => { const haystack = `${lead.name} ${lead.email || ""} ${lead.phone || ""} ${lead.brand || ""} ${lead.model || ""}`.toLowerCase(); const overdue = lead.nextActionAt && new Date(lead.nextActionAt).getTime() < Date.now(); const noAction = !lead.nextActionAt; const attentionMatches = attentionFilter === "all" || (attentionFilter === "overdue" && overdue) || (attentionFilter === "no_action" && noAction) || (attentionFilter === "planned" && !noAction && !overdue); return (statusFilter === "all" || lead.status === statusFilter) && attentionMatches && haystack.includes(query.toLowerCase()); });
+  const exportLeads = () => { const csv = ["Nombre,Correo,Telefono,Estado,Origen,Vehiculo,Recibido", ...visibleRecords.map((lead) => [lead.name, lead.email, lead.phone, lead.status, lead.source, `${lead.brand || ""} ${lead.model || ""}`, formatDate(lead.createdAt)].map((value) => `"${String(value || "").replaceAll('"', '""')}"`).join(","))].join("\n"); const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8" })); link.download = `zevroa-leads-${new Date().toISOString().slice(0, 10)}.csv`; link.click(); URL.revokeObjectURL(link.href); };
   return <section className="records-content"><div className="panel-heading"><div><span className="eyebrow">SEGUIMIENTO COMERCIAL</span><h2>Clientes.</h2></div><div className="panel-actions"><button className="secondary-action" onClick={exportLeads}>Exportar CSV</button><button className="secondary-action" onClick={onRefresh}>Actualizar</button></div></div><div className="lead-filters"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar nombre, correo o vehículo…" aria-label="Buscar clientes" /><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Filtrar clientes por estado"><option value="all">Todos los estados</option><option value="new">Nuevos</option><option value="contacted">Contactados</option><option value="qualified">Calificados</option><option value="closed">Cerrados</option><option value="lost">Perdidos</option></select><span>{visibleRecords.length} de {records.length} clientes</span></div>{loading ? <p className="empty-state">Cargando clientes…</p> : visibleRecords.length ? <div className="leads-list">{visibleRecords.map((lead) => { const draft = draftFor(lead); return <article className={`lead-row${lead.id === initialLeadId ? " is-focused" : ""}`} ref={lead.id === initialLeadId ? focusedLeadRef : undefined} key={lead.id}><div className="lead-main"><div className="lead-heading"><strong>{lead.name}</strong><span className={`status-pill ${draft.status}`}>{formatStatus(draft.status)}</span><span className={`priority-mark p${draft.priority}`} title={`Prioridad ${formatPriority(draft.priority)}`}>{formatPriority(draft.priority)}</span></div><span>{lead.email || "Sin correo"} · {lead.phone || "Sin teléfono"}</span><span>{lead.brand ? `${lead.brand} ${lead.model}` : "Contacto general"} · {formatLeadSource(lead.source)}</span><LeadContactActions lead={lead} onLoadHistory={onLoadHistory} onAddAppointment={onAddAppointment} onCreateQuote={onCreateQuote} />{lead.nextAction && <p className="lead-next-action">Próxima acción: {lead.nextAction}{lead.nextActionAt ? ` · ${formatDateTime(lead.nextActionAt)}` : ""}</p>}{lead.message && <p>{lead.message}</p>}</div><div className="lead-management"><label>Estado<select value={draft.status} onChange={(event) => setDraft(lead, "status", event.target.value)}><option value="new">Nuevo</option><option value="contacted">Contactado</option><option value="qualified">Calificado</option><option value="closed">Cerrado</option><option value="lost">Perdido</option></select></label><label>Prioridad<select value={draft.priority} onChange={(event) => setDraft(lead, "priority", Number(event.target.value))}><option value="1">Alta</option><option value="2">Media</option><option value="3">Baja</option></select></label><label>Asignar a<select value={draft.assignedTo} onChange={(event) => setDraft(lead, "assignedTo", event.target.value)}><option value="">Sin asignar</option>{users.map((user) => <option key={user.id} value={user.id}>{user.name} · {formatRole(user.role)}</option>)}</select></label><label>Próxima acción<input value={draft.nextAction} onChange={(event) => setDraft(lead, "nextAction", event.target.value)} placeholder="Llamar y confirmar presupuesto" /></label><label>Vencimiento<input type="datetime-local" value={draft.nextActionAt} onChange={(event) => setDraft(lead, "nextActionAt", event.target.value)} /></label>{draft.status === "lost" && <label>Motivo de pérdida<input value={draft.lostReason} onChange={(event) => setDraft(lead, "lostReason", event.target.value)} placeholder="Precio, sin respuesta, otro vehículo…" required /></label>}<label>Notas internas<textarea value={draft.notes} onChange={(event) => setDraft(lead, "notes", event.target.value)} placeholder="Seguimiento…" /></label><button className="primary-action" onClick={() => onUpdate(lead.id, draft)}>Guardar seguimiento</button><small>Recibido {formatDate(lead.createdAt)}</small></div></article>; })}</div> : <p className="empty-state">No hay clientes que coincidan.</p>}</section>;
 }
 
@@ -1029,15 +1081,16 @@ function PasswordResetResult({ result, onDismiss }) {
 }
 
 function UsersModule({ users, form, onChange, onSave, onUpdate, onResetPassword, onDelete, loading, message }) {
+  const { confirm } = useAdminConfirm();
   const [resetResult, setResetResult] = useState(null);
   const [resettingId, setResettingId] = useState("");
   const requestReset = async (user) => {
-    if (!window.confirm(`¿Generar una contraseña temporal para ${user.name}? Su contraseña actual dejará de funcionar.`)) return;
+    if (!(await confirm({ title: "Restablecer contraseña", message: `Se generará una contraseña temporal para ${user.name}. Su contraseña actual dejará de funcionar.`, confirmLabel: "Generar contraseña" }))) return;
     setResettingId(user.id);
     try { setResetResult(await onResetPassword(user.id)); } finally { setResettingId(""); }
   };
-  const requestDelete = (user) => {
-    if (!window.confirm(`¿Eliminar definitivamente a ${user.name}? Esta acción no se puede deshacer.`)) return;
+  const requestDelete = async (user) => {
+    if (!(await confirm({ title: "Eliminar usuario", message: `Eliminarás definitivamente a ${user.name}. Esta acción no se puede deshacer.`, confirmLabel: "Eliminar usuario", danger: true }))) return;
     onDelete?.(user);
   };
   return <section className="records-content"><div className="panel-heading"><div><span className="eyebrow">ACCESOS · EQUIPO</span><h2>Usuarios.</h2></div></div>{resetResult && <PasswordResetResult result={resetResult} onDismiss={() => setResetResult(null)} />}<div className="admin-layout users-layout"><form className="admin-form" onSubmit={onSave}><div className="admin-form-head"><h2>Nuevo usuario</h2></div><label>Nombre<input value={form.name} onChange={(event) => onChange("name", event.target.value)} required /></label><label>Correo<input type="email" value={form.email} onChange={(event) => onChange("email", event.target.value)} required /></label><label>Contraseña inicial<input type="password" minLength="8" value={form.password} onChange={(event) => onChange("password", event.target.value)} required /></label><label>Rol<select value={form.role} onChange={(event) => onChange("role", event.target.value)}><option value="seller">Ventas</option><option value="editor">Editor</option><option value="content_editor">Contenido</option><option value="admin">Administrador</option></select></label>{message && <p className="form-message">{message}</p>}<button className="primary-action" type="submit">Crear usuario</button></form><section className="table-panel"><div className="panel-heading"><div><span className="eyebrow">USUARIOS REGISTRADOS</span><h3>{users.length} cuentas</h3></div></div>{loading ? <p className="empty-state">Cargando usuarios…</p> : <div className="user-list">{users.map((user) => <article className={`user-row ${user.isActive ? "" : "is-inactive"}`} key={user.id}><div><strong>{user.name}</strong><span>{user.email} · {formatRole(user.role)}</span></div><div><select value={user.role} onChange={(event) => onUpdate(user, { role: event.target.value, isActive: user.isActive })}><option value="seller">Ventas</option><option value="editor">Editor</option><option value="content_editor">Contenido</option><option value="admin">Administrador</option></select><button className="text-button" type="button" onClick={() => requestReset(user)} disabled={resettingId === user.id}>{resettingId === user.id ? "Generando…" : "Restablecer contraseña"}</button><button className="text-button" onClick={() => onUpdate(user, { role: user.role, isActive: !user.isActive })}>{user.isActive ? "Desactivar" : "Activar"}</button>{!user.isActive && <button className="text-button" type="button" onClick={() => requestDelete(user)}>Eliminar</button>}</div></article>)}</div>}</section></div></section>;
@@ -1344,26 +1397,114 @@ function SettingsModule({ form, organization, onboarding, onChange, onOrganizati
     setProfileLinkCopied(true);
     window.setTimeout(() => setProfileLinkCopied(false), 2200);
   };
-  return <section className="records-content"><div className="panel-heading"><div><span className="eyebrow">PERFIL Y AJUSTES</span><h2>Tu showroom, a tu manera.</h2><p>Empieza por el nombre y el enlace público. Lo demás son mejoras que puedes activar cuando las necesites.</p></div></div><OnboardingPanel onboarding={onboarding} onNavigate={onNavigate} onOpenPublic={onOpenPublic} /><div className="settings-form admin-form"><nav className="settings-tabs" aria-label="Secciones de personalización">{sections.map(([id, label]) => <button key={id} type="button" className={`${activeSection === id ? "is-active" : ""}${sectionReady[id] ? " is-ready" : " is-pending"}`} aria-current={activeSection === id ? "page" : undefined} onClick={() => setActiveSection(id)}>{label}<span className="settings-tab-mark" aria-hidden="true">{sectionReady[id] ? "✓" : "•"}</span><span className="visually-hidden">{sectionReady[id] ? " (completa)" : " (falta información)"}</span></button>)}</nav>{pendingSections.length > 0 && <p className="settings-pending-hint">Falta información en: {pendingSections.map(([, label]) => label).join(", ")}.</p>}{activeSection === "brand" && isOwner && <form onSubmit={onOrganizationSave} className="settings-section organization-profile"><span className="eyebrow">PERFIL DEL CONCESIONARIO</span><p className="settings-section-note">Nombre, logo, enlace público y dominio opcional. Aquí no se gestionan formularios de contacto.</p><div className="form-grid"><label>Nombre del concesionario<input value={organization.name || ""} onChange={(event) => onOrganizationChange("name", event.target.value)} required /></label><label>Nombre del enlace público<input value={organization.slug || ""} onChange={(event) => onOrganizationChange("slug", event.target.value)} pattern="[a-z0-9]+(?:-[a-z0-9]+)*" required /><small>Ejemplo: concesionario-jordi. Se usará en tu dirección pública.</small></label><BrandAssetField label="Logo del concesionario" value={organization.logoUrl} onChange={(value) => onOrganizationChange("logoUrl", value)} onUpload={onUpload} placeholder="/uploads/logo.webp" /><label>Dominio personalizado <span>Opcional</span><input value={organization.customDomain || ""} onChange={(event) => onOrganizationChange("customDomain", event.target.value)} placeholder="www.concesionario.com" inputMode="url" /><small>{organization.subdomain ? <>Tu showroom ya está disponible en <strong>{organization.subdomain}</strong>. Usa un dominio propio solo si ya lo tienes.</> : "Después de guardarlo, apunta este dominio al hosting."}</small></label></div><div className="settings-public-link"><div><span className="eyebrow">ENLACE PÚBLICO</span><strong>{profileLink}</strong><small>Este es el enlace que puedes compartir con tus clientes.</small></div><div><button className="secondary-action" type="button" onClick={copyProfileLink}>{profileLinkCopied ? "✓ Copiado" : "Copiar enlace"}</button><button className="text-button" type="button" onClick={onOpenPublic}>Abrir showroom ↗</button></div></div>{organizationMessage && <p className="form-message">{organizationMessage}</p>}<button className="secondary-action" type="submit">Guardar perfil</button></form>}<form onSubmit={onSave}>{loading ? <p className="empty-state">Cargando configuración…</p> : <>{activeSection === "brand" && <div className="settings-section branding-settings"><span className="eyebrow">IDENTIDAD VISUAL</span><p className="settings-section-note">Elige los colores y el icono que verán los compradores. Puedes comprobarlos antes de publicar.</p><div className="branding-layout"><div className="branding-controls"><div className="form-grid"><label>Color principal<div className="color-input-row"><input type="color" value={form.primaryColor || "#c8a24b"} onChange={(event) => onChange("primaryColor", event.target.value)} /><input value={form.primaryColor || "#c8a24b"} onChange={(event) => onChange("primaryColor", event.target.value)} pattern="#[0-9a-fA-F]{6}" /></div></label><label>Color de acento<div className="color-input-row"><input type="color" value={form.accentColor || "#b28b37"} onChange={(event) => onChange("accentColor", event.target.value)} /><input value={form.accentColor || "#b28b37"} onChange={(event) => onChange("accentColor", event.target.value)} pattern="#[0-9a-fA-F]{6}" /></div></label></div><BrandAssetField label="Icono del navegador" value={form.faviconUrl} onChange={(value) => onChange("faviconUrl", value)} onUpload={onUpload} placeholder="/uploads/favicon.png" /></div><BrandingPreview form={form} organization={organization} onOpenPublic={onOpenPublic} /></div></div>}{activeSection === "showroom" && <div className="settings-section"><span className="eyebrow">PORTADA Y SECCIONES</span><p className="settings-section-note">Define la primera impresión y qué información verá un comprador.</p><div className="form-grid"><label>Titular principal<input value={form.heroHeadline || ""} onChange={(event) => onChange("heroHeadline", event.target.value)} placeholder="Elige lo que te mueve." maxLength="160" /><small>Si lo dejas vacío se utilizará el titular principal del sistema.</small></label><label>Subtítulo<input value={form.heroSubheadline || ""} onChange={(event) => onChange("heroSubheadline", event.target.value)} placeholder="Vehículos con carácter, información clara..." maxLength="280" /></label></div><BrandAssetField label="Imagen de portada" value={form.heroImageUrl} onChange={(value) => onChange("heroImageUrl", value)} onUpload={onUpload} placeholder="/uploads/portada.webp" /><div className="settings-toggle-grid"><label><input type="checkbox" checked={form.showFinancing !== false} onChange={(event) => onChange("showFinancing", event.target.checked)} /> Mostrar opciones de financiamiento</label><label><input type="checkbox" checked={form.showBrandRail !== false} onChange={(event) => onChange("showBrandRail", event.target.checked)} /> Mostrar marcas disponibles</label><label><input type="checkbox" checked={form.showModelLineRail !== false} onChange={(event) => onChange("showModelLineRail", event.target.checked)} /> Mostrar tipos de vehículos</label><label><input type="checkbox" checked={form.showBlog !== false} onChange={(event) => onChange("showBlog", event.target.checked)} /> Mostrar artículos y novedades</label></div></div>}{activeSection === "contact" && <div className="settings-section"><span className="eyebrow">CONTACTO Y REDES</span><p className="settings-section-note">Deja una forma clara de contactarte desde cada vehículo.</p><div className="form-grid"><label>Teléfono<input value={form.phone || ""} onChange={(event) => onChange("phone", event.target.value)} /></label><label>WhatsApp<input value={form.whatsapp || ""} onChange={(event) => onChange("whatsapp", event.target.value)} /></label><label>Correo<input type="email" value={form.email || ""} onChange={(event) => onChange("email", event.target.value)} /></label><label>Moneda<input value={form.currency || "USD"} onChange={(event) => onChange("currency", event.target.value)} maxLength="8" /></label><label>Instagram<input value={form.instagramUrl || ""} onChange={(event) => onChange("instagramUrl", event.target.value)} /></label><label>Facebook<input value={form.facebookUrl || ""} onChange={(event) => onChange("facebookUrl", event.target.value)} /></label></div><label>Dirección<input value={form.address || ""} onChange={(event) => onChange("address", event.target.value)} /></label><label>Horario visible<input value={form.hours || ""} onChange={(event) => onChange("hours", event.target.value)} placeholder="Lun–Sáb · 9:00–18:00" /></label></div>}{activeSection === "appointments" && <AppointmentSettingsFields form={form} onChange={onChange} />}{activeSection === "legal" && <LegalSettingsFields form={form} onChange={onChange} />}{message && <p className="form-message">{message}</p>}<div className="settings-save-bar"><span>Revisa el resultado antes de compartir el enlace.</span><div><button className="secondary-action" type="button" onClick={onOpenPublic}>Vista previa</button><button className="primary-action" type="submit">Guardar cambios</button></div></div></>}</form></div></section>;
+  return <section className="records-content"><div className="panel-heading"><div><span className="eyebrow">PERFIL Y AJUSTES</span><h2>Tu showroom, a tu manera.</h2><p>Empieza por el nombre y el enlace público. Lo demás son mejoras que puedes activar cuando las necesites.</p></div></div><OnboardingPanel onboarding={onboarding} onNavigate={onNavigate} onOpenPublic={onOpenPublic} /><div className="settings-form admin-form"><nav className="settings-tabs" aria-label="Secciones de personalización">{sections.map(([id, label]) => <button key={id} type="button" className={`${activeSection === id ? "is-active" : ""}${sectionReady[id] ? " is-ready" : " is-pending"}`} aria-current={activeSection === id ? "page" : undefined} onClick={() => setActiveSection(id)}>{label}<span className="settings-tab-mark" aria-hidden="true">{sectionReady[id] ? "✓" : "•"}</span><span className="visually-hidden">{sectionReady[id] ? " (completa)" : " (falta información)"}</span></button>)}</nav>{pendingSections.length > 0 && <p className="settings-pending-hint">Falta información en: {pendingSections.map(([, label]) => label).join(", ")}.</p>}{activeSection === "brand" && isOwner && <form onSubmit={onOrganizationSave} className="settings-section organization-profile"><span className="eyebrow">PERFIL DEL CONCESIONARIO</span><p className="settings-section-note">Nombre, logo, enlace público y dominio opcional. Aquí no se gestionan formularios de contacto.</p><div className="form-grid"><label>Nombre del concesionario<input value={organization.name || ""} onChange={(event) => onOrganizationChange("name", event.target.value)} required /></label><label>Nombre del enlace público<input value={organization.slug || ""} onChange={(event) => onOrganizationChange("slug", event.target.value)} pattern="[a-z0-9]+(?:-[a-z0-9]+)*" required /><small>Ejemplo: concesionario-jordi. Se usará en tu dirección pública.</small></label><BrandAssetField label="Logo del concesionario" value={organization.logoUrl} onChange={(value) => onOrganizationChange("logoUrl", value)} onUpload={onUpload} placeholder="/uploads/logo.webp" /><label>Dominio personalizado <span>Opcional</span><input value={organization.customDomain || ""} onChange={(event) => onOrganizationChange("customDomain", event.target.value)} placeholder="www.concesionario.com" inputMode="url" /><small>{organization.subdomain ? <>Tu showroom ya está disponible en <strong>{organization.subdomain}</strong>. Usa un dominio propio solo si ya lo tienes.</> : "Después de guardarlo, apunta este dominio al hosting."}</small></label></div><div className="settings-public-link"><div><span className="eyebrow">ENLACE PÚBLICO</span><strong>{profileLink}</strong><small>Este es el enlace que puedes compartir con tus clientes.</small></div><div><button className="secondary-action" type="button" onClick={copyProfileLink}>{profileLinkCopied ? "✓ Copiado" : "Copiar enlace"}</button><button className="text-button" type="button" onClick={onOpenPublic}>Abrir showroom ↗</button></div></div>{organizationMessage && <p className="form-message">{organizationMessage}</p>}<button className="secondary-action" type="submit">Guardar perfil</button></form>}<form onSubmit={onSave}>{loading ? <p className="empty-state">Cargando configuración…</p> : <>{activeSection === "brand" && <div className="settings-section branding-settings"><span className="eyebrow">IDENTIDAD VISUAL</span><p className="settings-section-note">Elige los colores y el icono que verán los compradores. Puedes comprobarlos antes de publicar.</p><div className="branding-layout"><div className="branding-controls"><div className="form-grid"><label>Color principal<div className="color-input-row"><input type="color" value={form.primaryColor || "#c8a24b"} onChange={(event) => onChange("primaryColor", event.target.value)} /><input value={form.primaryColor || "#c8a24b"} onChange={(event) => onChange("primaryColor", event.target.value)} pattern="#[0-9a-fA-F]{6}" /></div></label><label>Color de acento<div className="color-input-row"><input type="color" value={form.accentColor || "#b28b37"} onChange={(event) => onChange("accentColor", event.target.value)} /><input value={form.accentColor || "#b28b37"} onChange={(event) => onChange("accentColor", event.target.value)} pattern="#[0-9a-fA-F]{6}" /></div></label></div><BrandAssetField label="Icono del navegador" value={form.faviconUrl} onChange={(value) => onChange("faviconUrl", value)} onUpload={onUpload} placeholder="/uploads/favicon.png" /></div><BrandingPreview form={form} organization={organization} onOpenPublic={onOpenPublic} /></div></div>}{activeSection === "showroom" && <div className="settings-section"><span className="eyebrow">PORTADA Y SECCIONES</span><p className="settings-section-note">Define la primera impresión y qué información verá un comprador.</p><div className="form-grid"><label>Titular principal<input value={form.heroHeadline || ""} onChange={(event) => onChange("heroHeadline", event.target.value)} placeholder="Elige lo que te mueve." maxLength="160" /><small>Si lo dejas vacío se utilizará el titular principal del sistema.</small></label><label>Subtítulo<input value={form.heroSubheadline || ""} onChange={(event) => onChange("heroSubheadline", event.target.value)} placeholder="Vehículos con carácter, información clara..." maxLength="280" /></label></div><BrandAssetField label="Imagen de portada" value={form.heroImageUrl} onChange={(value) => onChange("heroImageUrl", value)} onUpload={onUpload} placeholder="/uploads/portada.webp" /><div className="settings-toggle-grid"><label><input type="checkbox" checked={form.showFinancing !== false} onChange={(event) => onChange("showFinancing", event.target.checked)} /> Mostrar opciones de financiamiento</label><label><input type="checkbox" checked={form.showBrandRail !== false} onChange={(event) => onChange("showBrandRail", event.target.checked)} /> Mostrar marcas disponibles</label><label><input type="checkbox" checked={form.showModelLineRail !== false} onChange={(event) => onChange("showModelLineRail", event.target.checked)} /> Mostrar tipos de vehículos</label><label><input type="checkbox" checked={form.showBlog !== false} onChange={(event) => onChange("showBlog", event.target.checked)} /> Mostrar artículos y novedades</label></div></div>}{activeSection === "contact" && <div className="settings-section"><span className="eyebrow">CONTACTO Y REDES</span><p className="settings-section-note">Deja una forma clara de contactarte desde cada vehículo.</p><div className="form-grid"><PhoneField label="Teléfono comercial" value={form.phone || ""} onChange={(value) => onChange("phone", value)} hint="Lo usarás como teléfono de contacto del showroom." /><PhoneField label="WhatsApp comercial" value={form.whatsapp || ""} onChange={(value) => onChange("whatsapp", value)} hint="Este número abrirá el chat de WhatsApp para tus compradores." /><label>Correo<input type="email" value={form.email || ""} onChange={(event) => onChange("email", event.target.value)} autoComplete="email" /></label><label>Moneda<input value={form.currency || "USD"} onChange={(event) => onChange("currency", event.target.value)} maxLength="8" /></label><label>Instagram<input value={form.instagramUrl || ""} onChange={(event) => onChange("instagramUrl", event.target.value)} inputMode="url" /></label><label>Facebook<input value={form.facebookUrl || ""} onChange={(event) => onChange("facebookUrl", event.target.value)} inputMode="url" /></label></div><label>Dirección<input value={form.address || ""} onChange={(event) => onChange("address", event.target.value)} autoComplete="street-address" /></label><label>Horario visible<input value={form.hours || ""} onChange={(event) => onChange("hours", event.target.value)} placeholder="Lun–Sáb · 9:00–18:00" /></label><p className="settings-field-note">El WhatsApp se mostrará en los botones públicos del showroom y en las fichas de vehículos.</p></div>}{activeSection === "appointments" && <AppointmentSettingsFields form={form} onChange={onChange} />}{activeSection === "legal" && <LegalSettingsFields form={form} onChange={onChange} />}{message && <p className="form-message">{message}</p>}<div className="settings-save-bar"><span>Revisa el resultado antes de compartir el enlace.</span><div><button className="secondary-action" type="button" onClick={onOpenPublic}>Vista previa</button><button className="primary-action" type="submit">Guardar cambios</button></div></div></>}</form></div></section>;
 }
 
 const leadStages = [
   ["new", "Nuevos", "Primer contacto"],
-  ["contacted", "Contactados", "Conversacion abierta"],
+  ["contacted", "Contactados", "Conversación abierta"],
   ["qualified", "Calificados", "Listos para avanzar"],
-  ["closed", "Cerrados", "Operacion ganada"],
-  ["lost", "Perdidos", "Revisar despues"],
+  ["closed", "Cerrados", "Operación ganada"],
+  ["lost", "Perdidos", "Revisar después"],
 ];
 
 function LeadPipelineCard({ lead, onUpdate, onOpenList, onCreateQuote }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: `lead:${lead.id}`, data: { status: lead.status } });
   const style = transform ? { transform: CSS.Translate.toString(transform) } : undefined;
-  return <article ref={setNodeRef} style={style} className={`lead-pipeline-card${isDragging ? " is-dragging" : ""}`}><div className="pipeline-card-top"><strong>{lead.name}</strong><button className="pipeline-drag-handle" type="button" {...listeners} {...attributes} aria-label={`Arrastrar a ${lead.name}`} title="Arrastra para mover de etapa">⠿</button><span>{formatDate(lead.createdAt)}</span></div><small>{lead.brand ? `${lead.brand} ${lead.model}` : "Contacto general"}</small><div className="pipeline-card-meta"><span className={`priority-mark p${lead.priority || 2}`} title={`Prioridad ${formatPriority(lead.priority)}`}>{formatPriority(lead.priority)}</span><span>{lead.assignedTo || "Sin asignar"}</span></div>{lead.nextAction && <p className="pipeline-next-action">{lead.nextAction}{lead.nextActionAt ? ` · ${formatDateTime(lead.nextActionAt)}` : ""}</p>}<span className="pipeline-source">{formatLeadSource(lead.source)}</span><select aria-label={`Mover a etapa ${lead.name}`} value={lead.status} onChange={(event) => onUpdate(lead.id, { status: event.target.value })}><option value="new">Nuevo</option><option value="contacted">Contactado</option><option value="qualified">Calificado</option><option value="closed">Cerrado</option><option value="lost">Perdido</option></select>{lead.vehicleId && <button type="button" className="pipeline-manage-button quote-inline-action" onClick={() => onCreateQuote?.(lead)}>Crear cotización →</button>}{onOpenList && <button type="button" className="pipeline-manage-button" onClick={onOpenList}>Abrir ficha del cliente →</button>}</article>;
+  
+  const phoneDigits = useMemo(() => String(lead.phone || "").replace(/\D/g, ""), [lead.phone]);
+  const waText = useMemo(() => {
+    const car = lead.brand ? `${lead.brand} ${lead.model || ""}` : "tu vehículo de interés";
+    return encodeURIComponent(`Hola ${lead.name || ""}, te escribo del concesionario sobre tu consulta por ${car}. ¿Cómo te podemos ayudar?`);
+  }, [lead]);
+
+  const sla = useMemo(() => {
+    if (lead.status !== "new") return null;
+    const elapsedMinutes = Math.floor((Date.now() - new Date(lead.createdAt).getTime()) / 60000);
+    if (elapsedMinutes < 30) {
+      return { label: `⚡ Nuevo · ${elapsedMinutes}m`, className: "sla-fresh", title: "Lead recibido hace menos de 30 minutos. Contacta de inmediato." };
+    }
+    return { label: `⚠️ SLA +${elapsedMinutes}m`, className: "sla-delayed", title: "Atención prioritaria requerida. Más de 30m sin contactar." };
+  }, [lead.status, lead.createdAt]);
+
+  return (
+    <article ref={setNodeRef} style={style} className={`lead-pipeline-card${isDragging ? " is-dragging" : ""}`}>
+      <div className="pipeline-card-top">
+        <strong>{lead.name}</strong>
+        <button className="pipeline-drag-handle" type="button" {...listeners} {...attributes} aria-label={`Arrastrar a ${lead.name}`} title="Arrastra para mover de etapa">⠿</button>
+        <span>{formatDate(lead.createdAt)}</span>
+      </div>
+
+      {sla && (
+        <div className={`pipeline-sla-badge ${sla.className}`} title={sla.title}>
+          {sla.label}
+        </div>
+      )}
+
+      <small>{lead.brand ? `${lead.brand} ${lead.model}` : "Contacto general"}</small>
+      <div className="pipeline-card-meta">
+        <span className={`priority-mark p${lead.priority || 2}`} title={`Prioridad ${formatPriority(lead.priority)}`}>{formatPriority(lead.priority)}</span>
+        <span>{lead.assignedTo || "Sin asignar"}</span>
+      </div>
+      {lead.nextAction && <p className="pipeline-next-action">{lead.nextAction}{lead.nextActionAt ? ` · ${formatDateTime(lead.nextActionAt)}` : ""}</p>}
+      <span className="pipeline-source">{formatLeadSource(lead.source)}</span>
+
+      {phoneDigits ? (
+        <div className="pipeline-quick-contact">
+          <a
+            href={`https://wa.me/${phoneDigits}?text=${waText}`}
+            target="_blank"
+            rel="noreferrer"
+            className="pipeline-wa-btn"
+            title="Abrir chat en WhatsApp con mensaje personalizado"
+          >
+            💬 WhatsApp
+          </a>
+          <a
+            href={`tel:${phoneDigits}`}
+            className="pipeline-call-btn"
+            title="Llamar directamente"
+          >
+            📞 Llamar
+          </a>
+        </div>
+      ) : null}
+
+      <select aria-label={`Mover a etapa ${lead.name}`} value={lead.status} onChange={(event) => onUpdate(lead.id, { status: event.target.value })}>
+        <option value="new">Nuevo</option>
+        <option value="contacted">Contactado</option>
+        <option value="qualified">Calificado</option>
+        <option value="closed">Cerrado</option>
+        <option value="lost">Perdido</option>
+      </select>
+      {lead.vehicleId && <button type="button" className="pipeline-manage-button quote-inline-action" onClick={() => onCreateQuote?.(lead)}>Crear cotización →</button>}
+      {onOpenList && <button type="button" className="pipeline-manage-button" onClick={onOpenList}>Abrir ficha del cliente →</button>}
+    </article>
+  );
 }
 
 function LeadPipelineColumn({ stage, label, hint, records, onUpdate, onOpenList, onCreateQuote }) {
   const { isOver, setNodeRef } = useDroppable({ id: `stage:${stage}` });
-  return <section className={`lead-pipeline-column ${stage}${isOver ? " is-drop-target" : ""}`}><div className="lead-pipeline-heading"><div><span className="eyebrow">{label}</span><small>{hint}</small></div><strong>{String(records.length).padStart(2, "0")}</strong></div><div ref={setNodeRef} className="lead-pipeline-cards">{records.length ? records.map((lead) => <LeadPipelineCard lead={lead} key={lead.id} onUpdate={onUpdate} onCreateQuote={onCreateQuote} onOpenList={onOpenList} />) : <p className="pipeline-empty">Suelta un cliente aquí</p>}</div></section>;
+  return (
+    <section className={`lead-pipeline-column ${stage}${isOver ? " is-drop-target" : ""}`}>
+      <div className="lead-pipeline-heading">
+        <div>
+          <span className="eyebrow">{label}</span>
+          <small>{hint}</small>
+        </div>
+        <strong>{String(records.length).padStart(2, "0")}</strong>
+      </div>
+      <div ref={setNodeRef} className="lead-pipeline-cards">
+        {records.length ? (
+          records.map((lead) => (
+            <LeadPipelineCard lead={lead} key={lead.id} onUpdate={onUpdate} onCreateQuote={onCreateQuote} onOpenList={onOpenList} />
+          ))
+        ) : (
+          <p className="pipeline-empty">Suelta un cliente aquí</p>
+        )}
+      </div>
+    </section>
+  );
 }
 
 function LeadPipeline({ records, onUpdate, onOpenList, onCreateQuote }) {
@@ -1379,12 +1520,24 @@ function LeadPipeline({ records, onUpdate, onOpenList, onCreateQuote }) {
   return <DndContext sensors={sensors} onDragEnd={moveLead}><div className="lead-pipeline">{leadStages.map(([stage, label, hint]) => <LeadPipelineColumn stage={stage} label={label} hint={hint} records={records.filter((lead) => lead.status === stage)} key={stage} onUpdate={onUpdate} onCreateQuote={onCreateQuote} onOpenList={onOpenList} />)}</div></DndContext>;
 }
 
+function LeadAttentionSummary({ records, activeFilter, onSelect }) {
+  const openRecords = records.filter((lead) => !["closed", "lost"].includes(lead.status));
+  const now = Date.now();
+  const overdue = openRecords.filter((lead) => lead.nextActionAt && new Date(lead.nextActionAt).getTime() < now);
+  const noAction = openRecords.filter((lead) => !lead.nextActionAt);
+  const planned = openRecords.filter((lead) => lead.nextActionAt && new Date(lead.nextActionAt).getTime() >= now);
+  const items = [["all", "Cartera abierta", openRecords.length, "Todos los pendientes"], ["overdue", "Vencidos", overdue.length, "Atención inmediata"], ["no_action", "Sin próxima acción", noAction.length, "Asignar siguiente paso"], ["planned", "Con seguimiento", planned.length, "Ya tienen fecha"]];
+  return <div className="lead-attention-summary" role="group" aria-label="Resumen del seguimiento">{items.map(([key, label, count, hint]) => <button key={key} type="button" className={activeFilter === key ? "is-active" : ""} onClick={() => onSelect(key)}><span>{label}</span><strong>{count}</strong><small>{hint}</small></button>)}</div>;
+}
+
 function LeadsControlRoom({ records, users, loading, onRefresh, onUpdate, onLoadHistory, onAddAppointment, onCreateQuote, initialLeadId = "" }) {
+  const { confirm } = useAdminConfirm();
   const [viewMode, setViewMode] = useState("pipeline");
   const [listDirty, setListDirty] = useState(false);
   const [attentionFilter, setAttentionFilter] = useState("all");
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const selectAttention = (filter) => { setAttentionFilter(filter); setViewMode("list"); setQuery(""); setStatusFilter("all"); };
   const visibleRecords = records.filter((lead) => { const haystack = `${lead.name} ${lead.email || ""} ${lead.phone || ""} ${lead.brand || ""} ${lead.model || ""}`.toLowerCase(); const overdue = lead.nextActionAt && new Date(lead.nextActionAt).getTime() < Date.now(); const noAction = !lead.nextActionAt; const attentionMatches = attentionFilter === "all" || (attentionFilter === "overdue" && overdue) || (attentionFilter === "no_action" && noAction) || (attentionFilter === "planned" && !noAction && !overdue); return (statusFilter === "all" || lead.status === statusFilter) && attentionMatches && haystack.includes(query.toLowerCase()); });
   useEffect(() => {
     const syncDirty = (event) => setListDirty(Boolean(event.detail));
@@ -1394,27 +1547,10 @@ function LeadsControlRoom({ records, users, loading, onRefresh, onUpdate, onLoad
   useEffect(() => {
     if (initialLeadId) setViewMode("list");
   }, [initialLeadId]);
-  useEffect(() => {
-    const guard = (event) => {
-      if (!listDirty) return;
-      const button = event.target.closest?.(".lead-control-room button, .lead-control-room + .records-content button");
-      if (!button) return;
-      const label = button.textContent.trim();
-      const switching = button.closest(".lead-view-switcher");
-      const refreshing = label === "Actualizar";
-      if (!switching && !refreshing) return;
-      event.preventDefault();
-      event.stopPropagation();
-      if (!window.confirm("Tienes cambios de seguimiento sin guardar. ¿Quieres continuar y descartarlos?")) return;
-      setListDirty(false);
-      if (refreshing) onRefresh();
-      else setViewMode(label === "Lista detallada" ? "list" : "pipeline");
-    };
-    document.addEventListener("click", guard, true);
-    return () => document.removeEventListener("click", guard, true);
-  }, [listDirty, onRefresh]);
+  const changeLeadView = async (nextView) => { if (listDirty && !(await confirm({ title: "Descartar cambios de seguimiento", message: "Tienes cambios sin guardar en esta vista. Si continúas, se perderán.", confirmLabel: "Continuar", danger: true }))) return; setListDirty(false); setViewMode(nextView); };
+  const refreshLeadView = async () => { if (listDirty && !(await confirm({ title: "Actualizar seguimiento", message: "Tienes cambios sin guardar. Actualizar puede reemplazar lo que estás editando.", confirmLabel: "Actualizar", danger: true }))) return; setListDirty(false); onRefresh(); };
   return <>
-    <section className="records-content lead-control-room"><div className="panel-heading"><div><span className="eyebrow">SEGUIMIENTO COMERCIAL</span><h2>{viewMode === "pipeline" ? "Seguimiento." : "Clientes."}</h2></div><div className="lead-view-switcher"><button className={viewMode === "pipeline" ? "active" : ""} type="button" onClick={() => setViewMode("pipeline")}>Seguimiento</button><button className={viewMode === "list" ? "active" : ""} type="button" onClick={() => setViewMode("list")}>Lista detallada</button></div></div>{viewMode === "pipeline" && <><div className="lead-filters"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar nombre, correo o vehículo..." aria-label="Buscar clientes" /><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Filtrar clientes"><option value="all">Todas las etapas</option><option value="new">Nuevos</option><option value="contacted">Contactados</option><option value="qualified">Calificados</option><option value="closed">Cerrados</option><option value="lost">Perdidos</option></select><span>{visibleRecords.length} de {records.length} clientes</span></div>{loading ? <p className="empty-state">Cargando clientes...</p> : <LeadPipeline records={visibleRecords} onUpdate={onUpdate} onCreateQuote={onCreateQuote} onOpenList={() => setViewMode("list")} />}</>}</section>
+    <section className="records-content lead-control-room"><div className="panel-heading"><div><span className="eyebrow">SEGUIMIENTO COMERCIAL</span><h2>{viewMode === "pipeline" ? "Seguimiento." : "Clientes."}</h2></div><div className="lead-view-switcher"><button className={viewMode === "pipeline" ? "active" : ""} type="button" onClick={() => changeLeadView("pipeline")}>Seguimiento</button><button className={viewMode === "list" ? "active" : ""} type="button" onClick={() => changeLeadView("list")}>Lista detallada</button></div></div><LeadAttentionSummary records={records} activeFilter={attentionFilter} onSelect={selectAttention} />{viewMode === "pipeline" && <><div className="lead-filters"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar nombre, correo o vehículo..." aria-label="Buscar clientes" /><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Filtrar clientes"><option value="all">Todas las etapas</option><option value="new">Nuevos</option><option value="contacted">Contactados</option><option value="qualified">Calificados</option><option value="closed">Cerrados</option><option value="lost">Perdidos</option></select><button className="text-button" type="button" onClick={refreshLeadView}>Actualizar</button><span>{visibleRecords.length} de {records.length} clientes</span></div>{loading ? <p className="empty-state">Cargando clientes...</p> : <LeadPipeline records={visibleRecords} onUpdate={onUpdate} onCreateQuote={onCreateQuote} onOpenList={() => changeLeadView("list")} />}</>}</section>
     {viewMode === "list" && <><div className="lead-attention-filter"><label>Prioridad de seguimiento<select value={attentionFilter} onChange={(event) => setAttentionFilter(event.target.value)} aria-label="Filtrar seguimiento"><option value="all">Todo el seguimiento</option><option value="overdue">Seguimientos vencidos</option><option value="no_action">Sin próxima acción</option><option value="planned">Con acción futura</option></select></label></div><LeadsModule records={records} users={users} loading={loading} onRefresh={onRefresh} onUpdate={onUpdate} onLoadHistory={onLoadHistory} onAddAppointment={onAddAppointment} onCreateQuote={onCreateQuote} initialLeadId={initialLeadId} attentionFilter={attentionFilter} /></>}
   </>;
 }
@@ -1426,13 +1562,21 @@ function LeadAppointmentBadge({ lead }) {
 }
 
 
-function AppointmentsModule({ appointments, blocks, loading, onRefresh, onStatusChange, onCreateBlock, onDeleteBlock, canManageBlocks, onExport }) {
+function AppointmentsModule({ appointments, blocks, loading, onRefresh, onStatusChange, onCreateBlock, onDeleteBlock, canManageBlocks, onExport, onOpenIntegrations = () => window.dispatchEvent(new CustomEvent("zevroa:open-admin-module", { detail: "integrations" })) }) {
   const [dateFilter, setDateFilter] = useState("");
   const [blockForm, setBlockForm] = useState({ date: "", start: "", end: "", reason: "" });
   const visible = appointments.filter((appointment) => !dateFilter || String(appointment.date).slice(0, 10) === dateFilter);
   const visibleBlocks = blocks.filter((block) => !dateFilter || String(block.date).slice(0, 10) === dateFilter);
+  const calendarAnchor = new Date(`${dateFilter || localIsoDate()}T12:00:00`);
+  calendarAnchor.setDate(calendarAnchor.getDate() - ((calendarAnchor.getDay() + 6) % 7));
+  const calendarDays = Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(calendarAnchor);
+    date.setDate(calendarAnchor.getDate() + index);
+    const iso = localIsoDate(date);
+    return { iso, date, label: new Intl.DateTimeFormat("es-DO", { weekday: "short" }).format(date).replace(".", ""), number: date.getDate(), items: appointments.filter((appointment) => String(appointment.date).slice(0, 10) === iso) };
+  });
   const submitBlock = async (event) => { event.preventDefault(); await onCreateBlock(blockForm); setBlockForm({ date: "", start: "", end: "", reason: "" }); };
-  return <section className="records-content appointments-content"><div className="panel-heading"><div><span className="eyebrow">AGENDA COMERCIAL</span><h2>Citas.</h2></div><div className="panel-actions"><input type="date" value={dateFilter} onChange={(event) => setDateFilter(event.target.value)} aria-label="Filtrar citas por fecha" /><button className="secondary-action" type="button" onClick={onRefresh}>Actualizar</button></div></div><div className="appointments-summary"><span><strong>{visible.length}</strong> cita{visible.length === 1 ? "" : "s"} {dateFilter ? "para este día" : "registradas"}</span><span>Los horarios se bloquean automáticamente al alcanzar la capacidad configurada.</span></div>{loading ? <p className="empty-state">Cargando agenda…</p> : visible.length ? <div className="appointments-list">{visible.map((appointment) => <article className="appointment-admin-row" key={appointment.id}><div className="appointment-date"><strong>{formatDate(appointment.date)}</strong><span>{String(appointment.time).slice(0, 5)} · {Number(appointment.durationMinutes) || 60} min</span></div><div className="appointment-main"><strong>{appointment.customerName}</strong><span>{appointment.brand ? `${appointment.brand} ${appointment.model} · ${appointment.year}` : "Vehículo no disponible"}</span><small>{appointment.customerEmail || appointment.customerPhone || "Sin contacto"}</small>{appointment.notes && <p>{appointment.notes}</p>}</div><div className="appointment-actions"><span className={`status-pill ${appointment.status}`}>{appointment.status === "confirmed" ? "Confirmada" : appointment.status === "cancelled" ? "Cancelada" : "Pendiente"}</span><select value={appointment.status} onChange={(event) => onStatusChange(appointment.id, event.target.value)} aria-label={`Estado de la cita de ${appointment.customerName}`}><option value="pending">Pendiente</option><option value="confirmed">Confirmada</option><option value="cancelled">Cancelada</option></select></div></article>)}</div> : <AdminEmptyState eyebrow="AGENDA VACÍA" title="No hay citas para mostrar." text="Cuando un comprador solicite una visita, la cita aparecerá aquí para confirmarla." />}{canManageBlocks && <section className="appointment-blocks"><div className="panel-heading"><div><span className="eyebrow">EXCEPCIONES DE AGENDA</span><h3>Bloqueos.</h3></div></div><form className="appointment-block-form" onSubmit={submitBlock}><label>Fecha<input type="date" value={blockForm.date} onChange={(event) => setBlockForm({ ...blockForm, date: event.target.value })} required /></label><label>Desde<input type="time" value={blockForm.start} onChange={(event) => setBlockForm({ ...blockForm, start: event.target.value })} /></label><label>Hasta<input type="time" value={blockForm.end} onChange={(event) => setBlockForm({ ...blockForm, end: event.target.value })} /></label><label>Motivo<input value={blockForm.reason} onChange={(event) => setBlockForm({ ...blockForm, reason: event.target.value })} placeholder="Feriado, vacaciones…" required /></label><button className="primary-action" type="submit">Bloquear horario</button></form><div className="appointment-block-list">{visibleBlocks.length ? visibleBlocks.map((block) => <article key={block.id}><div><strong>{formatDate(block.date)}</strong><span>{block.start ? `${String(block.start).slice(0, 5)}–${String(block.end).slice(0, 5)}` : "Todo el día"} · {block.reason}</span></div><button className="text-button" type="button" onClick={() => onDeleteBlock(block.id)}>Eliminar</button></article>) : <p className="empty-state">No hay bloqueos para este filtro.</p>}</div></section>}</section>;
+  return <section className="records-content appointments-content"><div className="panel-heading"><div><span className="eyebrow">AGENDA COMERCIAL</span><h2>Citas.</h2><p className="module-intro">Organiza las visitas, confirma horarios y evita cruces en un solo lugar.</p></div><div className="panel-actions"><button className="secondary-action" type="button" onClick={() => setDateFilter("")}>Hoy</button><input type="date" value={dateFilter} onChange={(event) => setDateFilter(event.target.value)} aria-label="Filtrar citas por fecha" /><button className="secondary-action" type="button" onClick={onRefresh}>Actualizar</button></div></div><section className="calendar-sync-callout" aria-label="Sincronización de calendario"><div className="calendar-sync-icon"><CalendarBlankIcon size={24} weight="duotone" /></div><div><span className="eyebrow">PARA NO PERDER NINGUNA VISITA</span><h3>Conecta Google Calendar</h3><p>Las citas nuevas de tu showroom pueden aparecer automáticamente en el calendario del equipo. El dueño lo autoriza una sola vez desde Conexiones.</p></div><div className="calendar-sync-actions"><button className="primary-action" type="button" onClick={onOpenIntegrations}>Conectar calendario</button>{onExport && <button className="text-button" type="button" onClick={onExport}>Descargar .ics</button>}</div></section><div className="appointments-summary"><span><strong>{visible.length}</strong> cita{visible.length === 1 ? "" : "s"} {dateFilter ? "para este día" : "registradas"}</span><span>Los horarios se bloquean automáticamente al alcanzar la capacidad configurada.</span></div><section className="agenda-week" aria-label="Vista semanal de la agenda"><div className="agenda-week-head"><div><span className="eyebrow">VISTA RÁPIDA</span><strong>Esta semana</strong></div><small>Selecciona un día para ver sus citas</small></div><div className="agenda-week-grid">{calendarDays.map((day) => <button type="button" className={`agenda-day${dateFilter === day.iso ? " is-selected" : ""}${day.iso === localIsoDate() ? " is-today" : ""}`} key={day.iso} onClick={() => setDateFilter(day.iso)}><span>{day.label}</span><strong>{day.number}</strong><small>{day.items.length ? `${day.items.length} cita${day.items.length === 1 ? "" : "s"}` : "Libre"}</small>{day.items.slice(0, 2).map((item) => <em key={item.id}>{String(item.time).slice(0, 5)} · {item.customerName}</em>)}</button>)}</div></section>{loading ? <p className="empty-state">Cargando agenda…</p> : visible.length ? <div className="appointments-list">{visible.map((appointment) => <article className="appointment-admin-row" key={appointment.id}><div className="appointment-date"><strong>{formatDate(appointment.date)}</strong><span>{String(appointment.time).slice(0, 5)} · {Number(appointment.durationMinutes) || 60} min</span></div><div className="appointment-main"><strong>{appointment.customerName}</strong><span>{appointment.brand ? `${appointment.brand} ${appointment.model} · ${appointment.year}` : "Vehículo no disponible"}</span><small>{appointment.customerEmail || appointment.customerPhone || "Sin contacto"}</small>{appointment.notes && <p>{appointment.notes}</p>}</div><div className="appointment-actions"><span className={`status-pill ${appointment.status}`}>{appointment.status === "confirmed" ? "Confirmada" : appointment.status === "cancelled" ? "Cancelada" : "Pendiente"}</span><select value={appointment.status} onChange={(event) => onStatusChange(appointment.id, event.target.value)} aria-label={`Estado de la cita de ${appointment.customerName}`}><option value="pending">Pendiente</option><option value="confirmed">Confirmada</option><option value="cancelled">Cancelada</option></select></div></article>)}</div> : <AdminEmptyState eyebrow="AGENDA VACÍA" title="No hay citas para mostrar." text="Cuando un comprador solicite una visita, la cita aparecerá aquí para confirmarla." />}{canManageBlocks && <section className="appointment-blocks"><div className="panel-heading"><div><span className="eyebrow">EXCEPCIONES DE AGENDA</span><h3>Bloqueos.</h3></div></div><form className="appointment-block-form" onSubmit={submitBlock}><label>Fecha<input type="date" value={blockForm.date} onChange={(event) => setBlockForm({ ...blockForm, date: event.target.value })} required /></label><label>Desde<input type="time" value={blockForm.start} onChange={(event) => setBlockForm({ ...blockForm, start: event.target.value })} /></label><label>Hasta<input type="time" value={blockForm.end} onChange={(event) => setBlockForm({ ...blockForm, end: event.target.value })} /></label><label>Motivo<input value={blockForm.reason} onChange={(event) => setBlockForm({ ...blockForm, reason: event.target.value })} placeholder="Feriado, vacaciones…" required /></label><button className="primary-action" type="submit">Bloquear horario</button></form><div className="appointment-block-list">{visibleBlocks.length ? visibleBlocks.map((block) => <article key={block.id}><div><strong>{formatDate(block.date)}</strong><span>{block.start ? `${String(block.start).slice(0, 5)}–${String(block.end).slice(0, 5)}` : "Todo el día"} · {block.reason}</span></div><button className="text-button" type="button" onClick={() => onDeleteBlock(block.id)}>Eliminar</button></article>) : <p className="empty-state">No hay bloqueos para este filtro.</p>}</div></section>}</section>;
 }
 
 const emptyVehicle = { brand: "", brandLogoUrl: "", category: "sports", model: "", variant: "", year: new Date().getFullYear(), condition: "used", priceUsd: "", stockNumber: "", engine: "", power: "", transmission: "", drive: "", fuelType: "", exteriorColor: "", interiorColor: "", doors: "", seats: "", mileageKm: 0, location: "", warranty: "", features: "", description: "", stock: 1, status: "draft", maxDiscountPercent: 0, images: "", media3dUrl: "", procedural3dEnabled: false, videoUrl: "", videoPosterUrl: "", panorama360Url: "" };
@@ -1444,7 +1588,7 @@ const emptyUser = { name: "", email: "", password: "", role: "seller" };
 const emptySettings = { businessName: "ZEVROA", logoUrl: "", primaryColor: "#c8a24b", accentColor: "#b28b37", faviconUrl: "", phone: "", whatsapp: "", email: "", address: "", hours: "", instagramUrl: "", facebookUrl: "", currency: "USD", privacyText: "", termsText: "", appointmentTimezone: "America/Santo_Domingo", appointmentStart: "09:00", appointmentEnd: "18:00", appointmentDurationMinutes: 60, appointmentMinNoticeHours: 2, appointmentMaxDaysAhead: 30, appointmentDays: [1, 2, 3, 4, 5, 6], appointmentCapacity: 1, heroHeadline: "", heroSubheadline: "", heroImageUrl: "", showFinancing: true, showBrandRail: true, showModelLineRail: true, showBlog: true, faqItems: [], testimonials: [] };
 const emptyOrganization = { id: "", name: "ZEVROA", slug: "zevroa", logoUrl: "", customDomain: "", isActive: true };
 
-export default function Backoffice({ onBack, onVehiclesChanged, initialMode = "login", impersonation = null }) {
+function BackofficeWorkspace({ onBack, onVehiclesChanged, initialMode = "login", impersonation = null }) {
   // La sesión normal vive en una cookie HttpOnly; el token de soporte solo vive
   // en memoria de esta pestaña para no persistir credenciales en el navegador.
   const [token, setToken] = useState(() => impersonation?.token || "");
@@ -1498,6 +1642,7 @@ export default function Backoffice({ onBack, onVehiclesChanged, initialMode = "l
   const [loading, setLoading] = useState(false);
   const [moduleLoading, setModuleLoading] = useState(false);
   const [theme, setTheme] = useState(() => localStorage.getItem("authentiq_theme") || "light");
+  const { confirm, prompt } = useAdminConfirm();
   useEffect(() => {
     const syncLeadDraft = (event) => setLeadDraftDirty(Boolean(event.detail));
     window.addEventListener("authentiq:lead-dirty", syncLeadDraft);
@@ -1508,44 +1653,31 @@ export default function Backoffice({ onBack, onVehiclesChanged, initialMode = "l
     window.addEventListener("authentiq:settings-dirty", syncSettingsDraft);
     return () => window.removeEventListener("authentiq:settings-dirty", syncSettingsDraft);
   }, []);
-  useEffect(() => {
-    const guardAdminNavigation = (event) => {
-      const dirty = activeModule === "leads" ? leadDraftDirty : activeModule === "settings" ? settingsDraftDirty : false;
-      if (!dirty) return;
-      const button = event.target.closest?.(".admin-nav-item");
-      if (!button || button.classList.contains("active")) return;
-      const warning = activeModule === "settings" ? "Tienes cambios de personalización sin guardar. ¿Quieres salir y descartarlos?" : "Tienes cambios de seguimiento sin guardar. ¿Quieres salir y descartarlos?";
-      if (!window.confirm(warning)) {
-        event.preventDefault();
-        event.stopPropagation();
-        return;
-      }
-      if (activeModule === "settings") setSettingsDraftDirty(false);
-      else setLeadDraftDirty(false);
-    };
-    document.addEventListener("click", guardAdminNavigation, true);
-    return () => document.removeEventListener("click", guardAdminNavigation, true);
-  }, [activeModule, leadDraftDirty, settingsDraftDirty]);
   useEffect(() => { if (!message) return undefined; const timer = window.setTimeout(() => setMessage(""), 3200); return () => window.clearTimeout(timer); }, [message]);
+  useEffect(() => {
+    const openModule = (event) => { if (event.detail) navigateAdmin(event.detail); };
+    window.addEventListener("zevroa:open-admin-module", openModule);
+    return () => window.removeEventListener("zevroa:open-admin-module", openModule);
+  }, [activeModule, leadDraftDirty, settingsDraftDirty]);
 
-  const confirmDiscardAdminDraft = () => {
+  const confirmDiscardAdminDraft = async () => {
     const dirty = activeModule === "leads" ? leadDraftDirty : activeModule === "settings" ? settingsDraftDirty : false;
     if (!dirty) return true;
     const warning = activeModule === "settings" ? "Tienes cambios de personalización sin guardar. ¿Quieres salir y descartarlos?" : "Tienes cambios de seguimiento sin guardar. ¿Quieres salir y descartarlos?";
-    if (!window.confirm(warning)) return false;
+    if (!(await confirm({ title: "Descartar cambios", message: warning, confirmLabel: "Salir sin guardar", danger: true }))) return false;
     if (activeModule === "settings") setSettingsDraftDirty(false);
     else setLeadDraftDirty(false);
     return true;
   };
-  const navigateAdmin = (nextModule) => {
+  const navigateAdmin = async (nextModule) => {
     if (nextModule === activeModule) return true;
-    if (!confirmDiscardAdminDraft()) return false;
+    if (!(await confirmDiscardAdminDraft())) return false;
     setActiveModule(nextModule);
     return true;
   };
-  const openLeadFromDashboard = (lead) => {
+  const openLeadFromDashboard = async (lead) => {
     if (!lead?.id) return;
-    if (navigateAdmin("leads")) setLeadFocusId(lead.id);
+    if (await navigateAdmin("leads")) setLeadFocusId(lead.id);
   };
 
   const request = async (path, options = {}) => { const response = await fetch(`${apiUrl}${path}`, { ...options, credentials: "include", headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(options.headers || {}) } }); const payload = response.status === 204 ? null : await response.json(); if (response.status === 401) { setCurrentUser(null); setToken(""); setSessionResolved(true); throw new Error("La sesión expiró. Inicia sesión nuevamente."); } if (!response.ok) throw new Error(payload?.error || "La operación no pudo completarse"); return payload; };
@@ -1621,21 +1753,21 @@ export default function Backoffice({ onBack, onVehiclesChanged, initialMode = "l
   const change = (field, value) => setForm((current) => ({ ...current, [field]: value }));
   const generate3d = async (vehicleId, files) => { const body = new FormData(); files.forEach((file) => body.append("images", file, file.name)); const response = await fetch(`${apiUrl}/api/admin/vehicles/${vehicleId}/3d-generation`, { method: "POST", credentials: "include", body }); const payload = await response.json(); if (!response.ok) throw new Error(payload.error || "No se pudo iniciar la generación 3D"); return payload.data; };
   const refresh3d = async (vehicleId, jobId) => (await request(`/api/admin/vehicles/${vehicleId}/3d-generation/${jobId}/refresh`)).data;
-  const edit = (vehicle) => { const media = vehicle.media || []; setEditingId(vehicle.id); setForm({ ...vehicle, features: (vehicle.features || []).join(", "), images: (vehicle.images || []).map((image) => image.url).join(", "), imageAltTexts: (vehicle.images || []).map((image) => image.altText || "").join("\n"), media3dUrl: media.find((item) => item.type === "model_3d")?.url || "", videoUrl: media.find((item) => item.type === "video")?.url || "", videoPosterUrl: media.find((item) => item.type === "video")?.posterUrl || "", panorama360Url: media.find((item) => item.type === "panorama_360")?.url || "" }); navigateAdmin("inventory"); };
+  const edit = async (vehicle) => { if (!(await navigateAdmin("inventory"))) return; const media = vehicle.media || []; setEditingId(vehicle.id); setForm({ ...vehicle, features: (vehicle.features || []).join(", "), images: (vehicle.images || []).map((image) => image.url).join(", "), imageAltTexts: (vehicle.images || []).map((image) => image.altText || "").join("\n"), media3dUrl: media.find((item) => item.type === "model_3d")?.url || "", videoUrl: media.find((item) => item.type === "video")?.url || "", videoPosterUrl: media.find((item) => item.type === "video")?.posterUrl || "", panorama360Url: media.find((item) => item.type === "panorama_360")?.url || "" }); };
   const save = async (event) => { event.preventDefault(); setMessage(""); const images = String(form.images || "").split(",").map((image) => image.trim()).filter(Boolean); const isPublishing = ["pending_review", "published"].includes(form.status); if (isPublishing && (!images.length || String(form.description || "").trim().length < 40)) { setMessage("Para publicar agrega al menos una foto y una descripción de 40 caracteres."); return; } const model3dUrl = String(form.media3dUrl || "").trim(); const videoUrl = String(form.videoUrl || "").trim(); const media = [{ type: "model_3d", url: model3dUrl }, { type: "video", url: videoUrl, posterUrl: String(form.videoPosterUrl || "").trim() || images[0] || "" }, { type: "panorama_360", url: form.panorama360Url }].filter((item) => String(item.url || "").trim()); const autoSeoTitle = String(form.seoTitle || "").trim() || `${form.brand} ${form.model} ${form.year} | ZEVROA`; const autoSeoDescription = String(form.seoDescription || "").trim() || String(form.description || "").trim().slice(0, 160); /* Posicional: sin filter(Boolean), que desplazaba los alt a la imagen equivocada. */ const altLines = String(form.imageAltTexts || "").split(/\r?\n/).map((item) => item.trim()); const imageAltTexts = images.map((_, index) => altLines[index] || `${form.brand} ${form.model} ${form.year} · vista ${index + 1}`); const body = { ...form, seoTitle: autoSeoTitle, seoDescription: autoSeoDescription, media3dUrl: model3dUrl, year: Number(form.year), priceUsd: Number(form.priceUsd), doors: form.doors === "" ? null : Number(form.doors), seats: form.seats === "" ? null : Number(form.seats), mileageKm: Number(form.mileageKm), stock: Number(form.stock), maxDiscountPercent: Number(form.maxDiscountPercent), features: String(form.features || "").split(",").map((item) => item.trim()).filter(Boolean), images, imageAltTexts, media }; try { const payload = await request(editingId ? `/api/admin/vehicles/${editingId}` : "/api/admin/vehicles", { method: editingId ? "PUT" : "POST", body: JSON.stringify(body) }); onVehiclesChanged?.(payload?.data); setForm(emptyVehicle); setEditingId(null); setMessage("Vehículo guardado correctamente"); await Promise.all([loadVehicles(), loadDashboard()]); } catch (error) { setMessage(error.message); } };
   const uploadImage = async (file) => { const body = new FormData(); body.append("file", file); const response = await fetch(`${apiUrl}/api/admin/media-upload`, { method: "POST", credentials: "include", body }); const payload = await response.json(); if (!response.ok) throw new Error(payload.error || "No se pudo subir el archivo"); return payload.data.url; };
   const uploadMediaPackage = async (files) => { const body = new FormData(); files.forEach((file) => body.append("files", file, file.webkitRelativePath || file.name)); const response = await fetch(`${apiUrl}/api/admin/media-package-upload`, { method: "POST", credentials: "include", body }); const payload = await response.json(); if (!response.ok) { const missing = payload.missingCount ? ` Faltan ${payload.missingCount} dependencias.` : ""; throw new Error(`${payload.error || "No se pudo subir la carpeta 3D"}${missing}`); } return payload.data.url; };
-  const deactivate = async (id) => { if (!window.confirm("¿Desactivar este vehículo?")) return; try { await request(`/api/admin/vehicles/${id}`, { method: "DELETE" }); await Promise.all([loadVehicles(), loadDashboard()]); } catch (error) { setMessage(error.message); } };
+  const deactivate = async (id) => { if (!(await confirm({ title: "Archivar vehículo", message: "El vehículo dejará de aparecer en el inventario activo y no será visible públicamente.", confirmLabel: "Archivar vehículo", danger: true }))) return; try { await request(`/api/admin/vehicles/${id}`, { method: "DELETE" }); setMessage("Vehículo archivado"); await Promise.all([loadVehicles(), loadDashboard()]); } catch (error) { setMessage(error.message); } };
   const duplicateVehicle = async (id) => { try { await request(`/api/admin/vehicles/${id}/duplicate`, { method: "POST" }); setMessage("Vehículo duplicado como borrador"); await Promise.all([loadVehicles(), loadDashboard()]); } catch (error) { setMessage(error.message); } };
-  const changeVehicleStatus = async (id, status) => { if (["sold","inactive"].includes(status) && !window.confirm(`¿Marcar este vehículo como ${status==="sold"?"vendido":"inactivo"}?`)) return; if (status === "published" && !window.confirm("¿Publicar este vehículo ahora? Quedará visible en el catálogo.")) return; try { await request(`/api/admin/vehicles/${id}/status`, { method: "PATCH", body: JSON.stringify({ status }) }); setMessage("Estado actualizado"); await Promise.all([loadVehicles(), loadDashboard()]); } catch (error) { setMessage(error.message); } };
+  const changeVehicleStatus = async (id, status) => { const statusLabel = status === "sold" ? "vendido" : status === "inactive" ? "inactivo" : status === "published" ? "publicado" : "borrador"; if (["sold", "inactive", "published"].includes(status) && !(await confirm({ title: `${status === "published" ? "Publicar" : "Marcar como"} vehículo`, message: status === "published" ? "Quedará visible en el catálogo y podrá compartirse públicamente." : `El estado del vehículo pasará a ${statusLabel}.`, confirmLabel: status === "published" ? "Publicar vehículo" : "Cambiar estado", danger: status !== "published" }))) return; try { await request(`/api/admin/vehicles/${id}/status`, { method: "PATCH", body: JSON.stringify({ status }) }); setMessage("Estado actualizado"); await Promise.all([loadVehicles(), loadDashboard()]); } catch (error) { setMessage(error.message); } };
   const reviewVehicle = async (id, decision) => { try { await request("/api/admin/vehicles/" + id + "/review", { method: "PATCH", body: JSON.stringify({ decision }) }); setMessage(decision === "approve" ? "Vehículo aprobado y publicado" : "Vehículo devuelto a borrador"); await Promise.all([loadVehicles(), loadDashboard(), loadNotifications()]); } catch (error) { setMessage(error.message); } };
   const previewVehicle = () => { const media = [{ type: "model_3d", url: form.media3dUrl }, { type: "video", url: form.videoUrl, posterUrl: form.videoPosterUrl }, { type: "panorama_360", url: form.panorama360Url }].filter((item) => String(item.url || "").trim()); const preview = { ...form, id: "preview", priceUsd: Number(form.priceUsd || 0), mileageKm: Number(form.mileageKm || 0), media, images: String(form.images || "").split(",").map((url) => url.trim()).filter(Boolean).map((url, index) => ({ id: `preview-${index}`, url, sortOrder: index })) }; sessionStorage.setItem("authentiq_vehicle_preview", JSON.stringify(preview)); window.open("/preview", "_blank", "noopener,noreferrer"); };
-  const updateStatus = async (kind, id, status) => { if (["cancelled", "rejected"].includes(status) && !window.confirm(`¿Confirmas marcar este registro como ${status === "cancelled" ? "cancelado" : "rechazado"}?`)) return; try { await request(`/api/admin/${kind}/${id}/status`, { method: "PATCH", body: JSON.stringify({ status }) }); setMessage("Estado actualizado correctamente"); await Promise.all([loadOffers(), loadDashboard()]); } catch (error) { setMessage(error.message); } };
+  const updateStatus = async (kind, id, status) => { if (["cancelled", "rejected"].includes(status) && !(await confirm({ title: status === "cancelled" ? "Cancelar registro" : "Rechazar registro", message: `El registro quedará marcado como ${status === "cancelled" ? "cancelado" : "rechazado"}.`, confirmLabel: status === "cancelled" ? "Cancelar registro" : "Rechazar", danger: true }))) return; try { await request(`/api/admin/${kind}/${id}/status`, { method: "PATCH", body: JSON.stringify({ status }) }); setMessage("Estado actualizado correctamente"); await Promise.all([loadOffers(), loadDashboard()]); } catch (error) { setMessage(error.message); } };
   const updateLead = async (id, values) => { try { const current = leads.find((lead) => lead.id === id) || {}; const payload = { status: current.status || "new", notes: current.notes || "", assignedTo: current.assignedToId || "", priority: current.priority || 2, nextAction: current.nextAction || "", nextActionAt: current.nextActionAt || "", lostReason: current.lostReason || "", updatedAt: current.updatedAt || "", ...values }; await request(`/api/admin/leads/${id}`, { method: "PATCH", body: JSON.stringify(payload) }); await Promise.all([loadLeads(), loadDashboard()]); return true; } catch (error) { setMessage(error.message); return false; } };
-  const updateAppointment = async (id, status) => { if (status === "cancelled" && !window.confirm("¿Confirmas cancelar esta cita?")) return; try { await request(`/api/admin/appointments/${id}`, { method: "PATCH", body: JSON.stringify({ status }) }); setMessage("Cita actualizada correctamente"); await loadAppointments(); } catch (error) { setMessage(error.message); } };
+  const updateAppointment = async (id, status) => { if (status === "cancelled" && !(await confirm({ title: "Cancelar cita", message: "La cita se marcará como cancelada y dejará de ocupar ese horario.", confirmLabel: "Cancelar cita", danger: true }))) return; try { await request(`/api/admin/appointments/${id}`, { method: "PATCH", body: JSON.stringify({ status }) }); setMessage("Cita actualizada correctamente"); await loadAppointments(); } catch (error) { setMessage(error.message); } };
   const createAppointmentFromLead = async (values) => { const payload = await request("/api/admin/appointments", { method: "POST", body: JSON.stringify(values) }); setMessage("Cita confirmada correctamente"); await Promise.all([loadAppointments(), loadLeads(), loadNotifications()]); return payload.data; };
   const createAppointmentBlock = async (values) => { try { await request("/api/admin/appointment-blocks", { method: "POST", body: JSON.stringify(values) }); setMessage("Bloqueo guardado correctamente"); await Promise.all([loadAppointmentBlocks(), loadAppointments()]); } catch (error) { setMessage(error.message); throw error; } };
-  const deleteAppointmentBlock = async (id) => { if (!window.confirm("¿Eliminar este bloqueo?")) return; try { await request(`/api/admin/appointment-blocks/${id}`, { method: "DELETE" }); setMessage("Bloqueo eliminado"); await Promise.all([loadAppointmentBlocks(), loadAppointments()]); } catch (error) { setMessage(error.message); } };
+  const deleteAppointmentBlock = async (id) => { if (!(await confirm({ title: "Eliminar bloqueo", message: "El horario volverá a estar disponible para nuevas citas.", confirmLabel: "Eliminar bloqueo", danger: true }))) return; try { await request(`/api/admin/appointment-blocks/${id}`, { method: "DELETE" }); setMessage("Bloqueo eliminado"); await Promise.all([loadAppointmentBlocks(), loadAppointments()]); } catch (error) { setMessage(error.message); } };
   const createQuote = async (values) => { try { await request("/api/admin/quotes", { method: "POST", body: JSON.stringify({ ...values, basePriceUsd: Number(values.basePriceUsd), discountUsd: Number(values.discountUsd || 0) }) }); setQuoteLead(null); setMessage("Cotización guardada correctamente"); await loadQuotes(); } catch (error) { setMessage(error.message); throw error; } };
   const openQuoteForLead = (lead) => { if (!confirmDiscardAdminDraft()) return; setQuoteLead(lead); setActiveModule("quotes"); };
   const updateQuoteStatus = async (id, status) => { try { await request(`/api/admin/quotes/${id}/status`, { method: "PATCH", body: JSON.stringify({ status }) }); setMessage("Estado de cotización actualizado"); await loadQuotes(); } catch (error) { setMessage(error.message); } };
@@ -1646,10 +1778,10 @@ export default function Backoffice({ onBack, onVehiclesChanged, initialMode = "l
   const resetUserPassword = async (id) => { try { return (await request(`/api/admin/users/${id}/reset-password`, { method: "POST" })).data; } catch (error) { setMessage(error.message); return null; } };
   const deleteUser = async (user) => { try { await request(`/api/admin/users/${user.id}`, { method: "DELETE" }); setMessage("Usuario eliminado correctamente"); await Promise.all([loadManagedUsers(), loadUsers()]); } catch (error) { setMessage(error.message); } };
   const createTaxonomy = async (kind, values) => { try { await request(`/api/admin/taxonomy/${kind}`, { method: "POST", body: JSON.stringify(values) }); setMessage("Registro agregado al catálogo"); await loadTaxonomy(); } catch (error) { setMessage(error.message); throw error; } };
-  const updateTaxonomy = async (kind, record) => { const name = window.prompt(`Nombre de ${kind === "brands" ? "la marca" : "la categoría"}:`, record.name); if (name === null) return; const isActive = record.isActive ? window.confirm("¿Quieres mantener este registro activo? Pulsa Cancelar para desactivarlo.") : true; const logoUrl = kind === "brands" ? window.prompt("Logo URL (opcional):", record.logoUrl || "") : ""; try { await request(`/api/admin/taxonomy/${kind}/${record.id}`, { method: "PATCH", body: JSON.stringify({ name, logoUrl, isActive }) }); setMessage("Catálogo actualizado"); await loadTaxonomy(); } catch (error) { setMessage(error.message); } };
+  const updateTaxonomy = async (kind, record) => { const name = await prompt({ title: `Editar ${kind === "brands" ? "marca" : "categoría"}`, message: "Actualiza el nombre que verá el equipo al crear vehículos.", label: "Nombre", defaultValue: record.name, required: true, confirmLabel: "Continuar" }); if (name === null) return; const isActive = record.isActive ? await confirm({ title: "Mantener registro activo", message: "Si lo mantienes activo, seguirá apareciendo en el asistente de inventario.", confirmLabel: "Mantener activa" }) : true; if (isActive === null) return; const logoUrl = kind === "brands" ? await prompt({ title: "Logo de la marca", message: "Puedes dejarlo vacío si no quieres cambiarlo.", label: "Logo URL", defaultValue: record.logoUrl || "", placeholder: "https://.../logo.svg", confirmLabel: "Guardar marca" }) : ""; if (logoUrl === null) return; try { await request(`/api/admin/taxonomy/${kind}/${record.id}`, { method: "PATCH", body: JSON.stringify({ name, logoUrl, isActive }) }); setMessage("Catálogo actualizado"); await loadTaxonomy(); } catch (error) { setMessage(error.message); } };
   const changeSettings = (field, value) => setSettings((current) => ({ ...current, [field]: value }));
   const changeOrganization = (field, value) => setOrganization((current) => ({ ...current, [field]: value }));
-  const saveSettings = async (event) => { event.preventDefault(); setMessage(""); try { const payload = await request("/api/admin/settings", { method: "PATCH", body: JSON.stringify(settings) }); setSettings(payload.data); setMessage("Configuración guardada correctamente"); await loadOnboarding(); } catch (error) { setMessage(error.message); } };
+  const saveSettings = async (event) => { event.preventDefault(); setMessage(""); try { const normalizedSettings = { ...settings, phone: normalizePhone(settings.phone), whatsapp: normalizePhone(settings.whatsapp) }; const payload = await request("/api/admin/settings", { method: "PATCH", body: JSON.stringify(normalizedSettings) }); setSettings(payload.data); setMessage("Configuración guardada correctamente"); await loadOnboarding(); } catch (error) { setMessage(error.message); } };
   const saveOrganization = async (event) => { event.preventDefault(); setOrganizationMessage(""); try { const payload = await request("/api/admin/organization", { method: "PATCH", body: JSON.stringify(organization) }); setOrganization(payload.data); setOrganizationMessage("Perfil guardado correctamente"); await loadOnboarding(); } catch (error) { setOrganizationMessage(error.message); } };
   const saveIntegration = async (provider, config) => { try { await request(`/api/admin/integrations/${provider}`, { method: "PATCH", body: JSON.stringify({ config }) }); setMessage("Integración local actualizada"); await loadIntegrations(); } catch (error) { setMessage(error.message); } };
   const connectGoogleCalendar = async () => { if (currentUser?.role !== "admin") { setMessage("Esta conexión la configura el dueño del concesionario."); return; } try { const payload = await request("/api/admin/integrations/google-calendar/connect"); if (!payload?.data?.authorizationUrl) throw new Error("No se pudo preparar la autorización de Google"); window.location.assign(payload.data.authorizationUrl); } catch (error) { setMessage(error.message); } };
@@ -1658,9 +1790,9 @@ export default function Backoffice({ onBack, onVehiclesChanged, initialMode = "l
   const exportCalendar = async () => { try { const response = await fetch(`${apiUrl}/api/admin/calendar.ics`, { credentials: "include", ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}) }); if (!response.ok) throw new Error("No se pudo exportar la agenda"); const blob = await response.blob(); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = "agenda-showroom.ics"; link.click(); URL.revokeObjectURL(url); setMessage("Agenda descargada correctamente"); } catch (error) { setMessage(error.message); } };
   const toggleTheme = () => setTheme((current) => current === "dark" ? "light" : "dark");
   const changeBlog = (field, value) => setBlogForm((current) => ({ ...current, [field]: value }));
-  const editBlog = (post) => { setEditingPostId(post.id); setBlogForm({ ...emptyBlog, ...post }); navigateAdmin("blog"); };
+  const editBlog = async (post) => { if (!(await navigateAdmin("blog"))) return; setEditingPostId(post.id); setBlogForm({ ...emptyBlog, ...post }); };
   const saveBlog = async (event) => { event.preventDefault(); setMessage(""); try { await request(editingPostId ? `/api/admin/blog/${editingPostId}` : "/api/admin/blog", { method: editingPostId ? "PUT" : "POST", body: JSON.stringify(blogForm) }); setBlogForm(emptyBlog); setEditingPostId(null); setMessage("Artículo guardado correctamente"); await loadBlog(); } catch (error) { setMessage(error.message); } };
-  const archiveBlog = async (id) => { if (!window.confirm("¿Archivar este artículo?")) return; try { await request(`/api/admin/blog/${id}`, { method: "DELETE" }); await loadBlog(); } catch (error) { setMessage(error.message); } };
+  const archiveBlog = async (id) => { if (!(await confirm({ title: "Archivar artículo", message: "El artículo dejará de aparecer publicado, pero podrás conservarlo en el panel.", confirmLabel: "Archivar artículo", danger: true }))) return; try { await request(`/api/admin/blog/${id}`, { method: "DELETE" }); setMessage("Artículo archivado"); await loadBlog(); } catch (error) { setMessage(error.message); } };
   const logout = async () => { if (!confirmDiscardAdminDraft()) return; await fetch(`${apiUrl}/api/auth/logout`, { method: "POST", credentials: "include" }).catch(() => {}); setCurrentUser(null); setToken(""); setSessionResolved(true); };
   const handleBack = () => { if (confirmDiscardAdminDraft()) onBack(); };
   const openOnboarding = () => { if (onboardingStorageKey) localStorage.removeItem(onboardingStorageKey); setActiveModule("settings"); setWelcomeOnboardingOpen(true); };
@@ -1730,7 +1862,7 @@ export default function Backoffice({ onBack, onVehiclesChanged, initialMode = "l
         <form className="admin-login" onSubmit={handleLogin}>
           <span className="eyebrow">ZEVROA · PANEL DE CONTROL</span>
           <h1>Acceso <em>administrativo.</em></h1>
-          <p className="account-welcome" style={{ margin: "0 0 16px", color: "var(--auth-muted)", fontSize: "14px", lineHeight: "1.5" }}>
+          <p className="account-welcome admin-login-copy">
             Gestiona tu inventario, cotizaciones, clientes y herramientas comerciales en tiempo real.
           </p>
           <label>Correo<input type="email" value={login.email} onChange={(event) => setLogin({ ...login, email: event.target.value })} placeholder="admin@tuconcesionario.com" autoComplete="username" required /></label>
@@ -1738,9 +1870,9 @@ export default function Backoffice({ onBack, onVehiclesChanged, initialMode = "l
           {loginError && <p className="state-message error">{loginError}</p>}
           <button className="primary-action" type="submit">Entrar al panel</button>
           <button className="text-button" type="button" onClick={() => { setRecoveryEmail(login.email); setRecoveryState({ loading: false, message: "", error: "" }); setAuthMode("forgot"); }}>¿Olvidaste tu contraseña?</button>
-          <div className="dealer-login-switch" style={{ marginTop: "20px", paddingTop: "18px", borderTop: "1px solid var(--auth-line, #ddd)", textAlign: "center" }}>
-            <p style={{ margin: "0 0 10px", fontSize: "14px", color: "var(--auth-muted, #777)" }}>¿Quieres tener tu propio showroom con tu marca y catálogo?</p>
-            <button className="secondary-action" type="button" onClick={() => setAuthMode("register")} style={{ width: "100%" }}>
+          <div className="dealer-login-switch">
+            <p>¿Quieres tener tu propio showroom con tu marca y catálogo?</p>
+            <button className="secondary-action" type="button" onClick={() => setAuthMode("register")}>
               Crear nuevo showroom de concesionario →
             </button>
           </div>
@@ -1776,6 +1908,10 @@ export default function Backoffice({ onBack, onVehiclesChanged, initialMode = "l
       <AnimatePresence><AdminToast message={message} /></AnimatePresence>
     </main>
   );
+}
+
+export default function Backoffice(props) {
+  return <AdminDialogsProvider><BackofficeWorkspace {...props} /></AdminDialogsProvider>;
 }
 
 

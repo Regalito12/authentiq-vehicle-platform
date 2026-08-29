@@ -1,16 +1,50 @@
 {
   "framework": "vite",
   "installCommand": "npm ci && npm --prefix server ci",
-  "buildCommand": "npm run build",
+  "buildCommand": "npm run check:production && npm run build",
   "outputDirectory": "dist",
-  "rewrites": [
-    {
-      "source": "/api/:path*",
-      "destination": "/api"
-    },
+  "functions": {
+    "api/index.js": {
+      "includeFiles": "dist/**"
+    }
+  },
+  "headers": [
     {
       "source": "/(.*)",
-      "destination": "/index.html"
+      "headers": [
+        { "key": "Content-Security-Policy", "value": "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; form-action 'self'; script-src 'self' 'wasm-unsafe-eval' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data: https:; connect-src 'self' https:; media-src 'self' blob: https:; worker-src 'self' blob:; frame-src https://challenges.cloudflare.com; upgrade-insecure-requests" },
+        { "key": "Permissions-Policy", "value": "accelerometer=(), autoplay=(self), camera=(), geolocation=(), microphone=(), payment=(), usb=(), browsing-topics=()" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-Frame-Options", "value": "SAMEORIGIN" }
+      ]
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/internal/appointment-reminders",
+      "schedule": "0 * * * *"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "/api/index.js?__route=/api/$1"
+    },
+    {
+      "src": "/",
+      "dest": "/api/index.js?__route=/"
+    },
+    {
+      "src": "/index.html",
+      "dest": "/api/index.js?__route=/index.html"
+    },
+    {
+      "handle": "filesystem"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/api/index.js?__route=/$1"
     }
   ]
 }
