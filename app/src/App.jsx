@@ -15,6 +15,7 @@ import { AnimatedThemeTogglerStarDemo } from "./components/ui/animated-theme-tog
 import { ArrowUpRightIcon, CalendarBlankIcon, CarSimpleIcon, ChartLineUpIcon, ChatsCircleIcon, FileTextIcon, GlobeHemisphereWestIcon, MagnifyingGlassIcon, SquaresFourIcon, UsersThreeIcon } from "@phosphor-icons/react";
 import { SpeedInsights } from "@vercel/speed-insights/react";
 import UpdateBanner from "./components/UpdateBanner.jsx";
+import { mensajeDeError } from "./utils/errors.js";
 
 class SectionBoundary extends Component {
   constructor(props) { super(props); this.state = { failed: false }; }
@@ -362,7 +363,7 @@ function StudioReveal({ children, className, delay = 0, reduceMotion, as = "div"
   // conservar el escalonado sin depender del tiempo.
   const start = Math.min(0.5, delay);
   const progress = useScrubbed(ref, { from: 0.95 - start * 0.25, to: 0.5 });
-  const opacity = useTransform(progress, [0, 1], [0, 1]);
+  const opacity = useTransform(progress, reduceMotion ? [0, 1] : [0, 1], reduceMotion ? [1, 1] : [0, 1]);
   const y = useTransform(progress, [0, 1], [reduceMotion ? 0 : 30, 0]);
   return <Tag ref={ref} className={className} style={{ opacity, y }}>{children}</Tag>;
 }
@@ -588,7 +589,7 @@ function StudioHeadlineLine({ line, index, total, progress, reduceMotion, intro,
   const start = Math.min(0.85, index * span * 0.7);
   const end = Math.min(1, start + span * 1.5);
   const y = useTransform(progress, [start, end], reduceMotion ? ["0%", "0%"] : ["112%", "0%"]);
-  const opacity = useTransform(progress, [start, end], reduceMotion ? [0, 1] : [1, 1]);
+  const opacity = useTransform(progress, [start, end], [1, 1]);
   // El hero se ve antes de cualquier scroll: ahí la entrada sí es temporal.
   const introAnim = intro
     ? {
@@ -782,7 +783,7 @@ function StudioLanding({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPriv
   const proofImageY = useTransform(proofProgress, [0, 1], reduceMotion ? ["0%", "0%"] : [`${-Math.round(8 * motionScale)}%`, `${Math.round(12 * motionScale)}%`]);
   // El marco de la prueba también se abre y se vuelve a cerrar con el scroll.
   const proofEnter = useScrubbed(proofRef, { from: 0.95, to: 0.45 });
-  const proofOpacity = useTransform(proofEnter, [0, 1], [0.35, 1]);
+  const proofOpacity = useTransform(proofEnter, [0, 1], reduceMotion ? [1, 1] : [0.35, 1]);
   const proofInset = useTransform(proofEnter, [0, 1], reduceMotion ? [0, 0] : [8, 0]);
   const proofClip = useMotionTemplate`inset(${proofInset}% ${proofInset}% ${proofInset}% ${proofInset}% round 20px)`;
   // El puntero separa las capas del hero: la foto va al contrario que el texto.
@@ -1004,7 +1005,7 @@ function StudioDrift({ children, className, depth = 28, delay = 0, reduceMotion,
   // la tarjeta se vuelve a guardar en lugar de quedarse visible.
   const start = Math.min(0.5, delay);
   const enter = useScrubbed(ref, { from: 0.95 - start * 0.2, to: 0.55 });
-  const opacity = useTransform(enter, [0, 1], [0, 1]);
+  const opacity = useTransform(enter, [0, 1], reduceMotion ? [1, 1] : [0, 1]);
   const enterY = useTransform(enter, [0, 1], [reduceMotion ? 0 : 34, 0]);
   return (
     <motion.div ref={ref} className="studio-drift" style={reduceMotion ? undefined : { y }}>
@@ -1135,19 +1136,21 @@ function FinanceCalculator({ price, vehicle, onApplyFinancing, whatsapp = "", bu
   const whatsappFinancingHref = `https://wa.me/${whatsappNumber}?text=${whatsappFinancingMessage}`;
 
   return (
-    <div className="financing-calc-card" aria-label="Simulador financiero">
+    <div className="financing-calc-card" role="group" aria-label="Simulador financiero">
       <div>
         <span className="eyebrow">PLAN FINANCIERO · SIMULADOR</span>
         <h3>Calcula tu <em>cuota mensual.</em></h3>
         <div className="financing-controls">
           <div className="calc-field">
             <div className="calc-field-head">
-              <span>Pago Inicial ({downPercent}%)</span>
+              <span id="calc-down-label">Pago Inicial ({downPercent}%)</span>
               <strong>{formatFinancePrice(downPayment)}</strong>
             </div>
             <input
               type="range"
               className="calc-range-slider"
+              aria-labelledby="calc-down-label"
+              aria-valuetext={`${downPercent} por ciento`}
               min="10"
               max="70"
               step="5"
@@ -1177,12 +1180,14 @@ function FinanceCalculator({ price, vehicle, onApplyFinancing, whatsapp = "", bu
 
           <div className="calc-field">
             <div className="calc-field-head">
-              <span>Tasa Anual Estimada</span>
+              <span id="calc-rate-label">Tasa Anual Estimada</span>
               <strong>{rate}% APR</strong>
             </div>
             <input
               type="range"
               className="calc-range-slider"
+              aria-labelledby="calc-rate-label"
+              aria-valuetext={`${rate} por ciento anual`}
               min="5.0"
               max="18.0"
               step="0.5"
@@ -1268,7 +1273,7 @@ function PriceAlertModal({ vehicle, onClose }) {
       trackEvent("price_alert_submitted", { vehicleId: vehicle.id });
       setStatus({ loading: false, error: "", success: true });
     } catch (err) {
-      setStatus({ loading: false, error: err.message, success: false });
+      setStatus({ loading: false, error: mensajeDeError(err), success: false });
     }
   };
   return (
@@ -1355,7 +1360,7 @@ function BuyerRequestModal({ kind, vehicle = null, onClose }) {
       if (!response.ok) throw new Error(payload.error || "No se pudo registrar tu solicitud");
       trackEvent(isTradeIn ? "trade_in_submitted" : "search_alert_submitted", vehicle ? { vehicleId: vehicle.id } : {});
       setStatus({ loading: false, error: "", success: true });
-    } catch (error) { setStatus({ loading: false, error: error.message, success: false }); }
+    } catch (error) { setStatus({ loading: false, error: mensajeDeError(error), success: false }); }
   };
   return (
     <motion.div className="lead-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
@@ -1503,7 +1508,7 @@ function PublicQuotePage({ token }) {
       if (nextDecision === "accepted") setQuote((current) => ({ ...current, status: "accepted" }));
     } catch (error) {
       setDecisionState("");
-      setDecisionError(error.message || "No se pudo registrar la decisión");
+      setDecisionError(mensajeDeError(error, "No se pudo registrar la decisión"));
     }
   };
   if (state === "loading") return <main className="public-quote-page"><p className="state-message">Preparando tu cotización…</p></main>;
@@ -1990,8 +1995,12 @@ function BrandLogo({ brand, logoUrl = "", size = "normal" }) {
   // la composición. El monograma mantiene el lenguaje de marca hasta que el
   // concesionario suba un asset propio al almacenamiento de la plataforma.
   const resolvedLogoUrl = publicMediaUrl(logoUrl);
-  return <span className={`brand-logo brand-logo-${size}${imageFailed ? " has-fallback" : ""}`} aria-label={`Logo de ${brand}`} data-brand-slug={slug || "custom"}>
-    {resolvedLogoUrl && !imageFailed ? <img src={resolvedLogoUrl} alt="" loading="lazy" decoding="async" onError={() => setImageFailed(true)} /> : <b>{initials || "°"}</b>}
+  // El nombre accesible va en el alt de la imagen, no en un aria-label sobre el
+  // span: un span sin rol es «generic» y ARIA prohíbe nombrarlo, así que el
+  // lector de pantalla lo ignoraba y la marca quedaba sin anunciar. En el
+  // respaldo de iniciales el texto ya es visible, y ahí sí hace falta el rol.
+  return <span className={`brand-logo brand-logo-${size}${imageFailed ? " has-fallback" : ""}`} data-brand-slug={slug || "custom"}>
+    {resolvedLogoUrl && !imageFailed ? <img src={resolvedLogoUrl} alt={`Logo de ${brand}`} loading="lazy" decoding="async" onError={() => setImageFailed(true)} /> : <b role="img" aria-label={`Logo de ${brand}`}>{initials || "°"}</b>}
   </span>;
 }
 
@@ -2080,7 +2089,7 @@ function LeadForm({ vehicle, onClose, customerToken = "" }) {
       if (!response.ok) throw new Error(payload.error || "No se pudo enviar la solicitud");
       trackEvent("offer_submitted", { vehicleId: vehicle.id });
       setStatus({ loading: false, error: "", success: true });
-    } catch (error) { setStatus({ loading: false, error: error.message, success: false }); }
+    } catch (error) { setStatus({ loading: false, error: mensajeDeError(error), success: false }); }
   };
   return <motion.div className="lead-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}><motion.section className="lead-modal" role="dialog" aria-modal="true" aria-labelledby="lead-title" initial={{ y: 14, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ duration: .2, ease: "easeOut" }}><button className="modal-close" type="button" onClick={onClose} aria-label="Cerrar">×</button>{status.success ? <div className="lead-success"><span className="eyebrow">OFERTA RECIBIDA</span><h2>Tu oferta está en revisión.</h2><p>El equipo de {getBrandName()} revisará los datos y se pondrá en contacto contigo.</p><button className="primary-action" type="button" onClick={onClose}>Cerrar</button></div> : <><span className="eyebrow">CONTACTO COMERCIAL</span><h2 id="lead-title">Hacer una oferta.</h2><p className="modal-vehicle">{vehicle.brand} {vehicle.model} · {formatPrice(vehicle.priceUsd)}</p><form className="lead-form" onSubmit={submit}><label>Nombre<input value={form.buyerName} onChange={(event) => change("buyerName", event.target.value)} required /></label><div className="lead-form-grid"><label>Correo<input type="text" inputMode="email" autoComplete="email" value={form.buyerEmail} onChange={(event) => change("buyerEmail", event.target.value)} /></label><PhoneField label="Teléfono" value={form.buyerPhone} onChange={(value) => change("buyerPhone", value)} hint="Selecciona tu país e introduce tu número." /></div><label>Monto de oferta USD<input type="number" min="1" step="0.01" value={form.amountUsd} onChange={(event) => change("amountUsd", event.target.value)} required /></label><label>Mensaje<textarea value={form.message} onChange={(event) => change("message", event.target.value)} placeholder="Cuéntanos algo sobre tu propuesta..." /></label><TurnstileField onTokenChange={setTurnstileToken} /><label className="consent-check"><input type="checkbox" checked={form.privacyConsent} onChange={(event) => change("privacyConsent", event.target.checked)} required /><span>Acepto la política de privacidad y autorizo el uso de mis datos para esta solicitud.</span></label>{status.error && <p className="state-message error">{status.error}</p>}<button className="primary-action" type="submit" disabled={status.loading}>{status.loading ? "Enviando…" : "Enviar oferta"}</button></form></>}</motion.section></motion.div>;
 }
@@ -2099,12 +2108,12 @@ function TestDriveModal({ vehicle, onClose }) {
     fetch(`${apiUrl}/api/appointments/availability?date=${encodeURIComponent(form.date)}`)
       .then(async (response) => { const payload = await response.json(); if (!response.ok) throw new Error(payload.error || "No se pudo consultar la agenda"); return payload.data; })
       .then((data) => { if (!cancelled) setAvailability({ loading: false, slots: data.slots || [], message: data.slots?.some((slot) => slot.available) ? "Elige un horario disponible." : "No hay horarios disponibles para este día." }); })
-      .catch((error) => { if (!cancelled) setAvailability({ loading: false, slots: [], message: error.message }); });
+      .catch((error) => { if (!cancelled) setAvailability({ loading: false, slots: [], message: mensajeDeError(error) }); });
     return () => { cancelled = true; };
   }, [form.date]);
   const submit = async (event) => {
     event.preventDefault(); setStatus({ loading: true, error: "", success: false });
-    try { const response = await fetch(`${apiUrl}/api/appointments`, { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": publicRequestKey("appointment") }, body: JSON.stringify({ ...form, phone: normalizePhone(form.phone), vehicleId: vehicle.id, turnstileToken }) }); const payload = await response.json(); if (!response.ok) throw new Error(payload.error || "No se pudo registrar la cita"); trackEvent("appointment_submitted", { vehicleId: vehicle.id }); setStatus({ loading: false, error: "", success: true }); } catch (error) { setStatus({ loading: false, error: error.message, success: false }); }
+    try { const response = await fetch(`${apiUrl}/api/appointments`, { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": publicRequestKey("appointment") }, body: JSON.stringify({ ...form, phone: normalizePhone(form.phone), vehicleId: vehicle.id, turnstileToken }) }); const payload = await response.json(); if (!response.ok) throw new Error(payload.error || "No se pudo registrar la cita"); trackEvent("appointment_submitted", { vehicleId: vehicle.id }); setStatus({ loading: false, error: "", success: true }); } catch (error) { setStatus({ loading: false, error: mensajeDeError(error), success: false }); }
   };
   const minDate = localIsoDate();
   const dateOptions = Array.from({ length: 10 }, (_, index) => {
@@ -2270,7 +2279,7 @@ function ContactForm() {
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "No se pudo enviar el mensaje");
       setStatus({ loading: false, error: "", success: true }); trackEvent("contact_submitted"); setForm({ name: "", email: "", phone: "", message: "", privacyConsent: false });
-    } catch (error) { setStatus({ loading: false, error: error.message, success: false }); }
+    } catch (error) { setStatus({ loading: false, error: mensajeDeError(error), success: false }); }
   };
   return <section className="contact-section" id="contact"><div><span className="eyebrow">CONTACTO DIRECTO</span><h2>Hablemos de tu próximo vehículo.</h2><p>Déjanos tus datos y un asesor de {getBrandName()} se pondrá en contacto contigo.</p><p className="response-time-note"><strong>¿Qué pasa después?</strong> Revisaremos tu mensaje durante el horario de atención y te responderemos con el siguiente paso.</p></div><form className="contact-form" onSubmit={submit}><label>Nombre<input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required /></label><div className="lead-form-grid"><label>Correo<input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /></label><PhoneField label="Teléfono" value={form.phone} onChange={(value) => setForm({ ...form, phone: value })} hint="Selecciona tu país e introduce tu número." /></div><label>Mensaje<textarea value={form.message} onChange={(event) => setForm({ ...form, message: event.target.value })} required /></label><TurnstileField onTokenChange={setTurnstileToken} /><label className="consent-check"><input type="checkbox" checked={form.privacyConsent} onChange={(event) => setForm({ ...form, privacyConsent: event.target.checked })} required /><span>Acepto la política de privacidad y autorizo el uso de mis datos para responder este mensaje.</span></label>{status.success && <p className="form-message success-message">Mensaje recibido. Te contactaremos pronto. No necesitas enviarlo otra vez.</p>}{status.error && <p className="state-message error">{status.error}</p>}<button className="primary-action" type="submit" disabled={status.loading}>{status.loading ? "Enviando…" : "Enviar mensaje"}</button></form></section>;
 }
@@ -2942,7 +2951,7 @@ function PasswordResetPage({ kind = "customer" }) {
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "No se pudo restablecer la contraseña");
       setState({ loading: false, error: "", success: true });
-    } catch (error) { setState({ loading: false, error: error.message, success: false }); }
+    } catch (error) { setState({ loading: false, error: mensajeDeError(error), success: false }); }
   };
   const returnPath = isCustomer ? "/" : "/backoffice";
   if (!token) return <main className="admin-page admin-login-page"><section className="admin-login"><span className="eyebrow">ZEVROA · SEGURIDAD</span><h1>Este enlace ya no está disponible.</h1><p className="state-message error" role="alert">Solicita un nuevo correo de recuperación para continuar.</p><button className="primary-action" type="button" onClick={() => window.location.assign(returnPath)}>{isCustomer ? "Volver al showroom" : "Ir al inicio de sesión"}</button></section></main>;
@@ -3006,16 +3015,21 @@ function App() {
     const accentColor = normalizeColor(businessSettings.accentColor, "#b28b37");
     root.style.setProperty("--tenant-primary", primaryColor);
     root.style.setProperty("--tenant-accent", accentColor);
-    // Mismo matiz de marca, oscurecido lo justo para pasar 4.5:1 sobre fondo claro.
-    // Las secciones de fondo oscuro (hero, landing, presentación) vuelven a pedir el
-    // tono original vía su propio override de esta misma variable — ver styles.css.
-    root.style.setProperty("--tenant-primary-ink", contrastSafeShade(primaryColor, "#f5f1e9"));
-    root.style.setProperty("--tenant-accent-ink", contrastSafeShade(accentColor, "#f5f1e9"));
+    // Se publican las dos variantes calculadas, NO el token final. Antes esto
+    // escribía `--tenant-primary-ink` directamente y, al ser un estilo inline en
+    // <html>, ganaba siempre contra la regla `html[data-theme="dark"]` de
+    // styles.css — que apunta a ese mismo elemento. Resultado: el modo oscuro
+    // usaba el dorado oscurecido para fondo claro y caía a 3.5:1 en toda la
+    // interfaz. Ahora el CSS elige la variante según el tema y el JS solo aporta
+    // los valores de marca; ver el bloque :root de styles.css.
+    root.style.setProperty("--tenant-primary-ink-light", contrastSafeShade(primaryColor, "#ebe6dc"));
+    root.style.setProperty("--tenant-accent-ink-light", contrastSafeShade(accentColor, "#ebe6dc"));
     root.style.setProperty("--tenant-on-primary", readableInkOn(primaryColor));
     root.style.setProperty("--tenant-primary-hover", lighten(primaryColor));
     // El hero y la barra sin scroll son oscuros: ahí el tono de marca se aclara
     // en vez de oscurecerse, o una marca granate o añil queda ilegible.
     root.style.setProperty("--tenant-primary-on-dark", contrastSafeTint(primaryColor, "#111315"));
+    root.style.setProperty("--tenant-accent-on-dark", contrastSafeTint(accentColor, "#111315"));
     let favicon = document.querySelector("link[data-authentiq-favicon]");
     if (!favicon) { favicon = document.createElement("link"); favicon.rel = "icon"; favicon.dataset.authentiqFavicon = "true"; document.head.appendChild(favicon); }
     favicon.href = businessSettings.faviconUrl || "/favicon.svg";
@@ -3257,7 +3271,7 @@ function App() {
     } catch (requestError) { setAccountStatus({ loading: false, error: requestError.message }); }
   };
   const logoutCustomer = async () => { await fetch(`${apiUrl}/api/customer/auth/logout`, { method: "POST", credentials: "include" }).catch(() => {}); setCustomerToken(""); setCustomer(null); setCustomerActivity({ offers: [], quotes: [], notifications: [] }); setAccountStatus({ loading: false, error: "" }); };
-  const submitCustomerRecovery = async (event) => { event.preventDefault(); setCustomerRecoveryStatus({ loading: true, message: "", error: "" }); try { const response = await fetch(`${apiUrl}/api/customer/auth/password-reset/request`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: accountForm.email }) }); const payload = await response.json(); if (!response.ok) throw new Error(payload.error || "No se pudo preparar la recuperación"); setCustomerRecoveryStatus({ loading: false, message: payload.message, error: "" }); } catch (error) { setCustomerRecoveryStatus({ loading: false, message: "", error: error.message }); } };
+  const submitCustomerRecovery = async (event) => { event.preventDefault(); setCustomerRecoveryStatus({ loading: true, message: "", error: "" }); try { const response = await fetch(`${apiUrl}/api/customer/auth/password-reset/request`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: accountForm.email }) }); const payload = await response.json(); if (!response.ok) throw new Error(payload.error || "No se pudo preparar la recuperación"); setCustomerRecoveryStatus({ loading: false, message: payload.message, error: "" }); } catch (error) { setCustomerRecoveryStatus({ loading: false, message: "", error: mensajeDeError(error) }); } };
   const markCustomerNotificationsRead = async () => { try { await customerRequest("/api/customer/notifications/read", { method: "PATCH" }); setCustomerActivity((current) => ({ ...current, notifications: (current.notifications || []).map((item) => ({ ...item, readAt: new Date().toISOString() })) })); } catch (requestError) { setAccountStatus({ loading: false, error: requestError.message }); } };
   const toggleFavorite = (vehicle) => {
     const wasFavorite = favoriteIds.includes(vehicle.id);
