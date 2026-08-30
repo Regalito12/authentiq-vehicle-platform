@@ -33,8 +33,11 @@ const expectedFiles = [
   "049_rebrand_zevroa.sql",
   "050_rebrand_public_seo.sql",
   "051_tenant_safe_customer_notifications.sql",
+  "052_crm_contacts_and_timeline.sql",
+  "053_invitations_and_mfa.sql",
+  "054_reconcile_google_calendar_schema.sql",
 ];
-const expectedTables = ["appointment_blocks", "organizations", "organization_members", "organization_settings", "organization_integrations", "social_drafts", "billing_subscriptions", "platform_plans", "vehicle_3d_jobs", "password_reset_tokens", "billing_webhook_events", "email_delivery_log", "public_request_idempotency", "customer_notifications"];
+const expectedTables = ["appointment_blocks", "organizations", "organization_members", "organization_settings", "organization_integrations", "social_drafts", "billing_subscriptions", "platform_plans", "vehicle_3d_jobs", "password_reset_tokens", "billing_webhook_events", "email_delivery_log", "public_request_idempotency", "customer_notifications", "crm_contacts", "crm_contact_events", "admin_invitations"];
 const expectedColumns = [
   ["organizations", "custom_domain"],
   ["business_settings", "appointment_capacity"],
@@ -68,6 +71,13 @@ const expectedColumns = [
   ["admin_users", "session_version"],
   ["customer_accounts", "session_version"],
   ["customer_notifications", "organization_id"],
+  ["leads", "contact_id"],
+  ["test_drive_requests", "contact_id"],
+  ["quotes", "contact_id"],
+  ["offers", "contact_id"],
+  ["admin_users", "mfa_enabled"],
+  ["admin_users", "mfa_secret_encrypted"],
+  ["admin_users", "mfa_recovery_codes"],
 ];
 
 const missingFiles = [];

@@ -63,7 +63,7 @@ async function copyVehicle(organizationId, sample) {
      SELECT $1, $2, $3, model, variant, year, condition, price_usd, engine, power,
        transmission, drive, fuel_type, exterior_color, interior_color, doors, seats, location,
        COALESCE(NULLIF(stock_number, '') || '-' || upper(substr($4, 1, 5)), upper(substr($4, 1, 5)) || '-' || substr(id::text, 1, 8)),
-       warranty, features, mileage_km, description, seo_title, seo_description, stock, status, max_discount_percent
+       warranty, features, mileage_km, description, seo_title, seo_description, stock, 'published', max_discount_percent
      FROM vehicles
      WHERE id=$5 AND NOT EXISTS (SELECT 1 FROM vehicles WHERE organization_id=$1)
      RETURNING id`,

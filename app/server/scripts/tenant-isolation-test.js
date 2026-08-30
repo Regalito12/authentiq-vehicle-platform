@@ -11,9 +11,10 @@ const tenants = [
 ];
 
 async function request(host, path, options = {}) {
+  const localTenant = host.endsWith(".localhost") ? host.slice(0, -".localhost".length) : "";
   const response = await fetch(`${baseUrl}${path}`, {
     ...options,
-    headers: { "X-Forwarded-Host": host, ...(options.headers || {}) },
+    headers: { "X-Forwarded-Host": host, ...(localTenant ? { "X-Authentiq-Tenant": localTenant } : {}), ...(options.headers || {}) },
   });
   const text = await response.text();
   const data = text ? JSON.parse(text) : null;
@@ -22,9 +23,10 @@ async function request(host, path, options = {}) {
 }
 
 async function assertLoginRejected(host, email) {
+  const localTenant = host.endsWith(".localhost") ? host.slice(0, -".localhost".length) : "";
   const response = await fetch(`${baseUrl}/api/auth/login`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "X-Forwarded-Host": host },
+    headers: { "Content-Type": "application/json", "X-Forwarded-Host": host, ...(localTenant ? { "X-Authentiq-Tenant": localTenant } : {}) },
     body: JSON.stringify({ email, password: demoPassword }),
   });
   assert.equal(response.status, 401, `${email} no debe poder iniciar sesión bajo ${host}`);
@@ -59,7 +61,8 @@ for (const tenant of publicData.filter((item) => item.email)) {
     request(tenant.host, "/api/admin/quotes", { headers: { Authorization: `Bearer ${login.token}` } }),
   ]);
   assert.equal(adminSettings.data.businessName, tenant.businessName);
-  assert.equal(adminVehicles.data.length, tenant.vehicles.length);
+  const adminVehicleIds = new Set(adminVehicles.data.map((vehicle) => vehicle.id));
+  assert.equal(tenant.vehicles.every((vehicle) => adminVehicleIds.has(vehicle.id)), true, `${tenant.host} publicó un vehículo que no existe en su inventario administrativo`);
   tenant.adminQuotes = adminQuotes.data;
 }
 

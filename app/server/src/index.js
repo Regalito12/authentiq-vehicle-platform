@@ -16,6 +16,8 @@ import { catalogPrerender, vehiclePrerender, catalogJsonLd, vehicleJsonLd } from
 import sharp from "sharp";
 import Stripe from "stripe";
 import { fileURLToPath } from "node:url";
+import { registerCoreSaasRoutes } from "./coreSaasRoutes.js";
+import { registerSecurityRoutes, mfaEnabledForAdmin, challengeToken } from "./securityRoutes.js";
 
 // Se usa solo cuando el correo no existe para que todos los intentos hagan una
 // comparación bcrypt comparable y no revelen la existencia de una cuenta por
@@ -469,7 +471,7 @@ app.use(helmet({
   },
 }));
 app.use((_req, res, next) => {
-  res.setHeader("Permissions-Policy", "camera=(self), microphone=(), geolocation=()");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
   next();
 });
 app.use(cors({ origin: frontendOrigin ? frontendOrigin.split(",").map((value) => value.trim()) : true, credentials: true }));
@@ -1121,6 +1123,9 @@ app.patch("/api/admin/taxonomy/:kind/:id", authenticate, requireRoles("admin", "
   } catch (error) { console.error("Taxonomy update failed", error); res.status(error.code === "23505" ? 409 : 500).json({ error: error.code === "23505" ? "Ese nombre ya existe" : "No se pudo actualizar" }); }
 });
 
+registerCoreSaasRoutes({ app, pool, authenticate, requireRoles, adminOrganizationId, writeAudit });
+registerSecurityRoutes({ app, pool, jwtSecret, authenticate, requireRoles, adminOrganizationId, writeAudit, sendTransactionalEmail, publicSiteUrl, setSessionCookie, sessionResponse });
+
 // Sin paginación de catálogo en el frontend a propósito: ZEVROA se posiciona como
 // selección curada ("no llenamos el catálogo, seleccionamos lo que merece ser conducido"),
 // no como un listado masivo. Este límite es solo una válvula de seguridad de escala:
@@ -1490,6 +1495,11 @@ app.post("/api/auth/login", async (req, res) => {
     }
     const passwordMatches = await bcrypt.compare(password, admin?.password_hash || DUMMY_PASSWORD_HASH);
     if (!admin || !passwordMatches) return res.status(401).json({ error: "Correo o contraseña incorrectos" });
+    // La columna se consulta de forma compatible con bases anteriores: permite
+    // desplegar el código antes de aplicar 053 sin romper el acceso existente.
+    if (await mfaEnabledForAdmin(pool, admin.id)) {
+      return res.json({ mfaRequired: true, challengeToken: challengeToken({ id: admin.id, email: admin.email, role: admin.role, organizationId: admin.organizationId, jwtSecret }) });
+    }
     // Una contraseña restablecida por un administrador solo sirve para volver a entrar:
     // el token es de vida corta y obliga a definir una contraseña propia antes de operar.
     const token = jwt.sign({ id: admin.id, email: admin.email, role: admin.role, name: admin.full_name, organizationId: admin.organizationId, mustChangePassword: admin.mustChangePassword, sessionVersion: admin.sessionVersion || 0 }, jwtSecret, { expiresIn: admin.mustChangePassword ? "15m" : "8h" });

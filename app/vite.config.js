@@ -15,7 +15,7 @@ export default defineConfig({
       cleanupOutdatedCaches: true,
       // Los assets con hash nunca deben resolverse con el HTML del SPA: si el
       // archivo no está, tiene que fallar como archivo, no llegar como página.
-      navigateFallbackDenylist: [/^\/api/, /^\/uploads/, /^\/assets\//],
+      navigateFallbackDenylist: [/^\/api/, /^\/uploads/, /^\/assets\//, /^\/(?:robots\.txt|sitemap\.xml)$/i],
     },
     manifest: {
       name: "ZEVROA · Operación de showroom",
