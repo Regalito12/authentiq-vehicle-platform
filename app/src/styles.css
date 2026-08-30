@@ -4854,17 +4854,18 @@ html.lenis, html.lenis body { height: auto; }
   .studio-rail-progress { margin: 0 20px; }
 }
 
-/* El recorrido del landing permanece vertical incluso cuando el sistema pide
-   reducir movimiento: el usuario debe poder ver las tarjetas atravesar la
-   pantalla al hacer scroll, que es la idea principal de esta sección. */
+/* Cuando una persona pide reducir movimiento, el recorrido deja de ser una
+   escena fija animada. React ya elimina el desplazamiento con Motion; aquí
+   dejamos la lista como contenido normal y la cinta estática. */
 @media (prefers-reduced-motion: reduce) {
-  .studio-marquee-track { animation: studio-marquee 44s linear infinite !important; width: max-content; flex-wrap: nowrap; justify-content: initial; }
-  .studio-marquee-track .studio-marquee-item[aria-hidden="true"] { display: inline-flex; }
-  .studio-rail { height: 520vh; }
-  .studio-rail-sticky { position: sticky; height: 100svh; }
-  .studio-rail-track { width: max-content; overflow: visible; scroll-snap-type: none; }
+  .studio-marquee-track { animation: none !important; width: 100%; flex-wrap: wrap; justify-content: center; }
+  .studio-marquee-track .studio-marquee-item[aria-hidden="true"] { display: none; }
+  .studio-rail { height: auto; padding: 84px 0; }
+  .studio-rail-sticky { position: static; height: auto; overflow: visible; }
+  .studio-rail-track { width: auto; flex-wrap: wrap; justify-content: center; padding-right: max(30px, calc((100% - 1180px) / 2)); }
   .studio-rail-card { scroll-snap-align: none; }
-  .studio-rail-card:hover { transform: translateY(-6px); }
+  .studio-rail-card:hover { transform: none; }
+  .studio-rail-progress { display: none; }
 }
 
 /* Billing: la cuenta se entiende de arriba abajo, sin esconder el límite ni el siguiente paso. */

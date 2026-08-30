@@ -744,12 +744,10 @@ function StudioLangToggle({ lang, onChange, label }) {
 
 function StudioLanding({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPrivacy, onOpenTerms, testimonials = [], whatsapp = "" }) {
   const prefersReducedMotion = useReducedMotion();
-  // El landing siempre conserva sus revelados y su profundidad visual para que
-  // no parezca una página rota cuando el sistema tiene activada esa preferencia.
-  // El scroll con inercia sí sigue siendo opcional: no secuestramos la rueda a
-  // quien pidió menos movimiento, pero el contenido continúa animándose con el
-  // scroll nativo y con una amplitud contenida.
-  const reduceMotion = false;
+  // La preferencia del sistema es una decisión de accesibilidad, no una pista
+  // estética. El landing conserva jerarquía y contenido sin desplazamientos,
+  // parallax, revelados ni transiciones cuando la persona pide menos movimiento.
+  const reduceMotion = prefersReducedMotion;
   useSmoothScroll(!prefersReducedMotion);
   const [lang, setLang] = useState(() => {
     try {

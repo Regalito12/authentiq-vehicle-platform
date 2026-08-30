@@ -303,6 +303,19 @@ async function main() {
     await wait(1000);
     const reducedRun = await cdp.evaluate(`(() => ({ transitions: window.__vt || 0, path: location.pathname }))()`);
     check("Con movimiento reducido la ficha abre sin animar", reducedRun.path.startsWith("/vehiculos/") && reducedRun.transitions === 0, `ruta ${reducedRun.path}, llamadas ${reducedRun.transitions}`);
+    // El landing también debe obedecer la preferencia. Antes una regla tardía
+    // reactivaba la cinta de marcas aunque el navegador pidiera menos movimiento.
+    await navigate(siteUrl, "Boolean(document.querySelector('.studio-hero'))");
+    const reducedLanding = await cdp.evaluate(`(() => {
+      const marquee = document.querySelector('.studio-marquee-track');
+      const rail = document.querySelector('.studio-rail-sticky');
+      return {
+        marqueeAnimation: marquee ? getComputedStyle(marquee).animationName : "missing",
+        railPosition: rail ? getComputedStyle(rail).position : "missing",
+      };
+    })()`);
+    check("Con movimiento reducido el landing detiene la cinta", reducedLanding.marqueeAnimation === "none", `animación=${reducedLanding.marqueeAnimation}`);
+    check("Con movimiento reducido el landing no fija el recorrido", reducedLanding.railPosition === "static", `posición=${reducedLanding.railPosition}`);
     await cdp.send("Emulation.setEmulatedMedia", { features: [] });
 
     // ---- Ficha de vehículo con modelo 3D ---------------------------------
