@@ -7,7 +7,9 @@ import { VitePWA } from "vite-plugin-pwa";
 // perdiendo el estado del backoffice.
 export default defineConfig({
   plugins: [react(), VitePWA({
-    registerType: "autoUpdate",
+    // La aplicación no debe recargar a mitad de un formulario. El cliente
+    // muestra un aviso y aplica el release cuando la persona lo confirma.
+    registerType: "prompt",
     includeAssets: ["favicon.svg", "pwa-icon.svg"],
     workbox: {
       // Sin esto, la precaché de un release anterior sobrevive al despliegue y el

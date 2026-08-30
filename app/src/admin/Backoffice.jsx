@@ -352,10 +352,22 @@ function AdminEmptyState({ eyebrow = "SIN ACTIVIDAD", title, text, actionLabel, 
   return <div className="admin-empty-state"><span className="admin-empty-mark" aria-hidden="true">◌</span><div><span className="eyebrow">{eyebrow}</span><strong>{title}</strong><p>{text}</p></div>{actionLabel && onAction && <button className="secondary-action" type="button" onClick={onAction}>{actionLabel} →</button>}</div>;
 }
 
-function AdminToast({ message }) {
+function AdminToast({ message, action }) {
   if (!message) return null;
   // La salida es más rápida que la entrada (~75%): confirma sin demorar al usuario.
-  return <motion.div className="admin-toast" role="status" aria-live="polite" initial={{ opacity: 0, y: 12, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1, transition: { duration: .22, ease: [0.22, 1, 0.36, 1] } }} exit={{ opacity: 0, y: 8, transition: { duration: .15 } }}><span className="admin-toast-mark" aria-hidden="true">✓</span><span>{message}</span></motion.div>;
+  return <motion.div className="admin-toast" role="status" aria-live="polite" initial={{ opacity: 0, y: 12, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1, transition: { duration: .22, ease: [0.22, 1, 0.36, 1] } }} exit={{ opacity: 0, y: 8, transition: { duration: .15 } }}><span className="admin-toast-mark" aria-hidden="true">✓</span><span>{message}</span>{action && <button type="button" className="admin-toast-action" onClick={action.onClick}>{action.label}</button>}</motion.div>;
+}
+
+function AdminSavedStatus({ savedAt }) {
+  const [, refresh] = useState(0);
+  useEffect(() => {
+    if (!savedAt) return undefined;
+    const timer = window.setInterval(() => refresh((value) => value + 1), 60000);
+    return () => window.clearInterval(timer);
+  }, [savedAt]);
+  if (!savedAt) return <small className="admin-save-status">Listo para trabajar</small>;
+  const elapsed = Math.max(0, Math.floor((Date.now() - savedAt.getTime()) / 60000));
+  return <small className="admin-save-status" role="status" aria-live="polite">✓ Guardado {elapsed === 0 ? "ahora" : `hace ${elapsed} min`}</small>;
 }
 
 function DashboardSkeleton() {
@@ -1801,6 +1813,8 @@ function BackofficeWorkspace({ onBack, onVehiclesChanged, initialMode = "login",
   const [editingId, setEditingId] = useState(null);
   const [stickerVehicle, setStickerVehicle] = useState(null);
   const [message, setMessage] = useState("");
+  const [lastSavedAt, setLastSavedAt] = useState(null);
+  const [toastAction, setToastAction] = useState(null);
   const [loading, setLoading] = useState(false);
   const [moduleLoading, setModuleLoading] = useState(false);
   const [theme, setTheme] = useState(() => localStorage.getItem("authentiq_theme") || "light");
@@ -1816,6 +1830,13 @@ function BackofficeWorkspace({ onBack, onVehiclesChanged, initialMode = "login",
     return () => window.removeEventListener("authentiq:settings-dirty", syncSettingsDraft);
   }, []);
   useEffect(() => { if (!message) return undefined; const timer = window.setTimeout(() => setMessage(""), 3200); return () => window.clearTimeout(timer); }, [message]);
+  useEffect(() => {
+    if (!message) return;
+    if (/(guardad|actualizad|archivad|publicad|restaurad|duplicad|exportad|generad|recibid|confirmad|copiad|cread)/i.test(message)) setLastSavedAt(new Date());
+    if (!toastAction) return;
+    const timer = window.setTimeout(() => setToastAction(null), 3200);
+    return () => window.clearTimeout(timer);
+  }, [message, toastAction]);
   useEffect(() => {
     const openModule = (event) => { if (event.detail) navigateAdmin(event.detail); };
     window.addEventListener("zevroa:open-admin-module", openModule);
@@ -1963,7 +1984,7 @@ function BackofficeWorkspace({ onBack, onVehiclesChanged, initialMode = "login",
   const save = async (event) => { event.preventDefault(); setMessage(""); const images = String(form.images || "").split(",").map((image) => image.trim()).filter(Boolean); const isPublishing = ["pending_review", "published"].includes(form.status); if (isPublishing && (!images.length || String(form.description || "").trim().length < 40)) { setMessage("Para publicar agrega al menos una foto y una descripción de 40 caracteres."); return; } const model3dUrl = String(form.media3dUrl || "").trim(); const videoUrl = String(form.videoUrl || "").trim(); const media = [{ type: "model_3d", url: model3dUrl }, { type: "video", url: videoUrl, posterUrl: String(form.videoPosterUrl || "").trim() || images[0] || "" }, { type: "panorama_360", url: form.panorama360Url }].filter((item) => String(item.url || "").trim()); const autoSeoTitle = String(form.seoTitle || "").trim() || `${form.brand} ${form.model} ${form.year} | ZEVROA`; const autoSeoDescription = String(form.seoDescription || "").trim() || String(form.description || "").trim().slice(0, 160); /* Posicional: sin filter(Boolean), que desplazaba los alt a la imagen equivocada. */ const altLines = String(form.imageAltTexts || "").split(/\r?\n/).map((item) => item.trim()); const imageAltTexts = images.map((_, index) => altLines[index] || `${form.brand} ${form.model} ${form.year} · vista ${index + 1}`); const body = { ...form, seoTitle: autoSeoTitle, seoDescription: autoSeoDescription, media3dUrl: model3dUrl, year: Number(form.year), priceUsd: Number(form.priceUsd), doors: form.doors === "" ? null : Number(form.doors), seats: form.seats === "" ? null : Number(form.seats), mileageKm: Number(form.mileageKm), stock: Number(form.stock), maxDiscountPercent: Number(form.maxDiscountPercent), features: String(form.features || "").split(",").map((item) => item.trim()).filter(Boolean), images, imageAltTexts, media }; try { const payload = await request(editingId ? `/api/admin/vehicles/${editingId}` : "/api/admin/vehicles", { method: editingId ? "PUT" : "POST", body: JSON.stringify(body) }); onVehiclesChanged?.(payload?.data); setForm(emptyVehicle); setEditingId(null); setMessage("Vehículo guardado correctamente"); await Promise.all([loadVehicles(), loadDashboard()]); } catch (error) { setMessage(error.message); } };
   const uploadImage = async (file) => { const body = new FormData(); body.append("file", file); const response = await fetch(`${apiUrl}/api/admin/media-upload`, { method: "POST", credentials: "include", body }); const payload = await response.json(); if (!response.ok) throw new Error(payload.error || "No se pudo subir el archivo"); return payload.data.url; };
   const uploadMediaPackage = async (files) => { const body = new FormData(); files.forEach((file) => body.append("files", file, file.webkitRelativePath || file.name)); const response = await fetch(`${apiUrl}/api/admin/media-package-upload`, { method: "POST", credentials: "include", body }); const payload = await response.json(); if (!response.ok) { const missing = payload.missingCount ? ` Faltan ${payload.missingCount} dependencias.` : ""; throw new Error(`${payload.error || "No se pudo subir la carpeta 3D"}${missing}`); } return payload.data.url; };
-  const deactivate = async (id) => { if (!(await confirm({ title: "Archivar vehículo", message: "El vehículo dejará de aparecer en el inventario activo y no será visible públicamente.", confirmLabel: "Archivar vehículo", danger: true }))) return; try { await request(`/api/admin/vehicles/${id}`, { method: "DELETE" }); setMessage("Vehículo archivado"); await Promise.all([loadVehicles(), loadDashboard()]); } catch (error) { setMessage(error.message); } };
+  const deactivate = async (id) => { if (!(await confirm({ title: "Archivar vehículo", message: "El vehículo dejará de aparecer en el inventario activo y no será visible públicamente.", confirmLabel: "Archivar vehículo", danger: true }))) return; try { await request(`/api/admin/vehicles/${id}`, { method: "DELETE" }); setMessage("Vehículo archivado"); setToastAction({ label: "Deshacer", onClick: async () => { try { await request(`/api/admin/vehicles/${id}/status`, { method: "PATCH", body: JSON.stringify({ status: "draft" }) }); setToastAction(null); setMessage("Vehículo restaurado como borrador"); await Promise.all([loadVehicles(), loadDashboard()]); } catch (error) { setToastAction(null); setMessage(error.message); } } }); await Promise.all([loadVehicles(), loadDashboard()]); } catch (error) { setMessage(error.message); } };
   const duplicateVehicle = async (id) => { try { await request(`/api/admin/vehicles/${id}/duplicate`, { method: "POST" }); setMessage("Vehículo duplicado como borrador"); await Promise.all([loadVehicles(), loadDashboard()]); } catch (error) { setMessage(error.message); } };
   const changeVehicleStatus = async (id, status) => { const statusLabel = status === "sold" ? "vendido" : status === "inactive" ? "inactivo" : status === "published" ? "publicado" : "borrador"; if (["sold", "inactive", "published"].includes(status) && !(await confirm({ title: `${status === "published" ? "Publicar" : "Marcar como"} vehículo`, message: status === "published" ? "Quedará visible en el catálogo y podrá compartirse públicamente." : `El estado del vehículo pasará a ${statusLabel}.`, confirmLabel: status === "published" ? "Publicar vehículo" : "Cambiar estado", danger: status !== "published" }))) return; try { await request(`/api/admin/vehicles/${id}/status`, { method: "PATCH", body: JSON.stringify({ status }) }); setMessage("Estado actualizado"); await Promise.all([loadVehicles(), loadDashboard()]); } catch (error) { setMessage(error.message); } };
   const bulkVehicles = async (ids, operation) => { try { const payload = await request("/api/admin/vehicles/bulk", { method: "POST", body: JSON.stringify({ ids, operation }) }); setMessage(`${payload.data.updated} vehículos actualizados`); await Promise.all([loadVehicles(), loadDashboard()]); } catch (error) { setMessage(error.message); } };
@@ -2108,7 +2129,7 @@ function BackofficeWorkspace({ onBack, onVehiclesChanged, initialMode = "login",
       {impersonation && <div className="impersonation-banner"><span>Modo soporte · viendo la cuenta de <strong>{currentUser?.name || currentUser?.email}</strong>. Los cambios se guardan en su cuenta real.</span><button className="text-button" type="button" onClick={exitImpersonation}>Salir del modo soporte</button></div>}
       <AdminNav activeModule={activeModule} onChange={navigateAdmin} onBack={handleBack} onLogout={logout} role={currentUser?.role} unreadNotifications={unreadNotifications} notifications={notifications} onReadNotifications={markNotificationsRead} onPreview={previewVehicle} onOpenOnboarding={openOnboarding} theme={theme} onToggleTheme={toggleTheme} vehicles={vehicles} businessName={organization?.name || settings?.businessName || "ZEVROA"} />
       <section className="admin-content-column">
-        <div className="admin-content-heading"><span>Espacio de trabajo</span><strong>{organization?.name || settings?.businessName || "Tu showroom"}</strong></div>
+        <div className="admin-content-heading"><span>Espacio de trabajo</span><div><strong>{organization?.name || settings?.businessName || "Tu showroom"}</strong><AdminSavedStatus savedAt={lastSavedAt} /></div></div>
         <AnimatePresence mode="wait" initial={false}>
           <motion.div key={activeModule} className="admin-module-transition" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }} transition={{ duration: 0.2, ease: "easeOut" }}>
             <Suspense fallback={<div className="admin-loading-state" role="status"><span className="loading-orbit" aria-hidden="true" />Preparando esta herramienta…</div>}>{activeModule === "taxonomy" ? <TaxonomyModule taxonomy={taxonomy} loading={moduleLoading} onRefresh={loadTaxonomy} onCreate={createTaxonomy} onUpdate={updateTaxonomy} /> : activeView}</Suspense>
@@ -2118,7 +2139,7 @@ function BackofficeWorkspace({ onBack, onVehiclesChanged, initialMode = "login",
       <AnimatePresence>{appointmentLead && <LeadAppointmentModal lead={appointmentLead} onClose={() => setAppointmentLead(null)} onCreate={createAppointmentFromLead} />}</AnimatePresence>
       <AnimatePresence>{welcomeOnboardingOpen && onboarding && <WelcomeOnboarding onboarding={onboarding} organization={organization} onNavigate={navigateAdmin} onDismiss={dismissOnboarding} onOpenPublic={openPublic} />}</AnimatePresence>
       <AnimatePresence>{stickerVehicle && <Suspense fallback={null}><WindowStickerModal vehicle={stickerVehicle} organization={organization} settings={settings} onClose={() => setStickerVehicle(null)} /></Suspense>}</AnimatePresence>
-      <AnimatePresence><AdminToast message={message} /></AnimatePresence>
+      <AnimatePresence><AdminToast message={message} action={toastAction} /></AnimatePresence>
     </main>
   );
 }

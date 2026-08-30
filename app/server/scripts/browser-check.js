@@ -533,6 +533,10 @@ async function main() {
           // módulo que lo renderizaba quedó sin usar y nadie lo notó: compilaba
           // igual. Esta comprobación impide que vuelva a desaparecer en silencio.
           if (key === "integrations") {
+            // El estudio se carga de forma diferida para no encarecer Inicio.
+            // Esperar su montaje evita confundir la carga normal del chunk con
+            // una herramienta inaccesible.
+            await waitFor(cdp, "Boolean(document.querySelector('.social-flyer-studio'))", { timeout: 3500 });
             const flyer = await cdp.evaluate(`(() => {
               const studio = document.querySelector('.social-flyer-studio');
               if (!studio) return { present: false };
