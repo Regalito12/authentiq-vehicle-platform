@@ -3766,6 +3766,11 @@ function publicNotFoundHtml({ businessName = "ZEVROA", origin = "", title = "Pá
 // con "index, follow" y un título de catálogo: un 404 blando que permitía a Google
 // indexar URLs inventadas de cada concesionario. Debe coincidir con `knownPath`
 // en App.jsx.
+function normalizePublicPathname(value) {
+  const pathname = String(value || "/");
+  return pathname.length > 1 ? pathname.replace(/\/+$/, "") : "/";
+}
+
 function publicPathForRequest(req) {
   const queryPath = req.query?.path ? `/${String(req.query.path).replace(/^\/+/, "")}` : null;
   const candidates = [req.query?.__route, queryPath, req.headers?.["x-forwarded-uri"], req.headers?.["x-original-url"], req.headers?.["x-matched-path"], req.originalUrl, req.url, req.path];
@@ -3773,7 +3778,7 @@ function publicPathForRequest(req) {
     if (!raw) continue;
     try {
       const pathname = new URL(String(raw), "http://zevroa.local").pathname;
-      if (pathname && pathname !== "/api" && !pathname.startsWith("/api/")) return pathname;
+      if (pathname && pathname !== "/api" && !pathname.startsWith("/api/")) return normalizePublicPathname(pathname);
     } catch { /* Ignore malformed proxy metadata and try the next candidate. */ }
   }
   return "/";

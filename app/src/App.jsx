@@ -30,11 +30,16 @@ class SectionBoundary extends Component {
 
 // El panel es una aplicación distinta del catálogo. Se carga al abrirlo o cuando la
 // persona demuestra intención de entrar, no durante la visita inicial al landing.
+const normalizePathname = (value) => {
+  const pathname = String(value || "/");
+  return pathname.length > 1 ? pathname.replace(/\/+$/, "") : "/";
+};
+const initialPathname = normalizePathname(window.location.pathname);
 const loadBackoffice = () => import("./admin/Backoffice.jsx");
 // En la entrada administrativa empezamos la descarga mientras React monta la
 // shell. En el landing seguimos sin pagar el bundle del panel; esto evita que
 // el primer acceso muestre el fallback durante varios segundos en dev/móvil.
-const backofficePreload = window.location.pathname === "/backoffice" ? loadBackoffice() : null;
+const backofficePreload = initialPathname === "/backoffice" ? loadBackoffice() : null;
 const Backoffice = lazy(() => backofficePreload || loadBackoffice());
 
 // Conserva el subdominio local del dealer (p. ej. dealer-demo.localhost). Así la
@@ -2313,9 +2318,9 @@ function LocationSection({ settings = {} }) {
 
 function CookieConsentBanner() {
   const [visible, setVisible] = useState(() => localStorage.getItem("authentiq_cookie_consent") !== "accepted");
-  const [path, setPath] = useState(() => window.location.pathname);
+  const [path, setPath] = useState(() => normalizePathname(window.location.pathname));
   useEffect(() => {
-    const syncPath = () => setPath(window.location.pathname);
+    const syncPath = () => setPath(normalizePathname(window.location.pathname));
     window.addEventListener("popstate", syncPath);
     window.addEventListener("zevroa:navigation", syncPath);
     return () => {
@@ -2977,8 +2982,8 @@ function App() {
   const [quickAction, setQuickAction] = useState(null);
   const [buyerRequestKind, setBuyerRequestKind] = useState(null);
   const [customerActivity, setCustomerActivity] = useState({ offers: [], quotes: [], notifications: [] });
-  const [pathname, setPathname] = useState(() => window.location.pathname);
-  const [previewVehicle] = useState(() => { if (window.location.pathname !== "/preview") return null; try { return JSON.parse(sessionStorage.getItem("authentiq_vehicle_preview") || "null"); } catch { return null; } });
+  const [pathname, setPathname] = useState(initialPathname);
+  const [previewVehicle] = useState(() => { if (initialPathname !== "/preview") return null; try { return JSON.parse(sessionStorage.getItem("authentiq_vehicle_preview") || "null"); } catch { return null; } });
   const [brand, setBrand] = useState("all");
   const [category, setCategory] = useState("all");
   const [search, setSearch] = useState("");
@@ -2997,7 +3002,7 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [tenantNotFound, setTenantNotFound] = useState(false);
-  const [screen, setScreen] = useState(() => impersonatePayload || window.location.pathname === "/backoffice" ? "admin" : (institutionalRoutes[window.location.pathname] || "catalog"));
+  const [screen, setScreen] = useState(() => impersonatePayload || initialPathname === "/backoffice" ? "admin" : (institutionalRoutes[initialPathname] || "catalog"));
   const [showDemoCatalog, setShowDemoCatalog] = useState(false);
   const [adminInitialMode, setAdminInitialMode] = useState("login");
   const [posts, setPosts] = useState([]);
@@ -3107,7 +3112,7 @@ function App() {
   useEffect(() => {
     const handlePopState = () => {
       const applyHistoryRoute = () => {
-        const nextPath = window.location.pathname;
+        const nextPath = normalizePathname(window.location.pathname);
         setPathname(nextPath);
         setScreen(nextPath === "/backoffice" ? "admin" : (institutionalRoutes[nextPath] || "catalog"));
         setSelected(null);
@@ -3120,10 +3125,11 @@ function App() {
   }, [prefersReducedMotion]);
 
   const navigate = (path) => {
+    const routePath = normalizePathname(path);
     const demoSearch = requestedDealerSlug ? `?dealer=${encodeURIComponent(requestedDealerSlug)}` : "";
     const applyRoute = () => {
-      window.history.pushState({}, "", `${path}${demoSearch}`);
-      setPathname(path);
+      window.history.pushState({}, "", `${routePath}${demoSearch}`);
+      setPathname(routePath);
       window.dispatchEvent(new Event("zevroa:navigation"));
       setSelected(null);
       window.scrollTo({ top: 0, behavior: "smooth" });
