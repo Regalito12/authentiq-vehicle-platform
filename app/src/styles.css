@@ -5907,3 +5907,82 @@ html[data-theme="dark"] .studio-landing .phone-country-select { border-color: va
    3:1, así que se usa un oro intermedio (3.37:1) en vez de la tinta plena de
    los kickers: cumple y conserva el carácter de marca en el titular. */
 .studio-close .studio-line-em { color: #a47a1e; }
+
+/* Backoffice visual pass: el panel debe sentirse como una herramienta de
+   trabajo premium, no como otra página editorial. Esta capa final consolida
+   la jerarquía sin cambiar rutas ni acciones existentes. */
+.admin-page {
+  --admin-surface: #fffefa;
+  --admin-surface-soft: #f4f2ed;
+  --admin-border: #e3dfd7;
+  --admin-ink: #171918;
+  --admin-muted: #706f69;
+  background: #f8f7f3;
+  color: var(--admin-ink);
+}
+.admin-header { align-items: center; border-bottom-color: var(--admin-border); background: rgba(248,247,243,.92); backdrop-filter: blur(18px); }
+.admin-title-row { display: flex; align-items: center; gap: 12px; }
+.admin-title-row .admin-app-title { color: var(--admin-ink); font-family: "DM Sans", "Inter Tight", sans-serif; font-size: 18px; font-weight: 650; letter-spacing: -.02em; }
+.admin-title-row .admin-app-title span { display: inline-block; margin-left: 8px; color: var(--admin-muted); font-size: 14px; font-weight: 450; letter-spacing: 0; }
+.role-chip { border-radius: 999px; padding: 5px 9px; background: #efe5cc; color: #765716; font-size: 14px; letter-spacing: .04em; }
+.admin-header-actions { gap: 6px; }
+.admin-header-actions > button, .admin-header-actions .notification-button { min-height: 36px; border: 1px solid transparent; border-radius: 8px; padding: 8px 10px; color: var(--admin-muted); font-family: "DM Sans", "Inter Tight", sans-serif; font-size: 14px; letter-spacing: 0; text-transform: none; }
+.admin-header-actions > button:hover, .admin-header-actions .notification-button:hover { border-color: var(--admin-border); background: var(--admin-surface); color: var(--admin-ink); }
+.admin-header-actions .onboarding-launch-button { color: #805f18; }
+.admin-presentation-launch { border-bottom: 1px solid var(--admin-border); background: #fbfaf7; color: var(--admin-muted); }
+.admin-presentation-launch .secondary-action { color: #805f18; font-family: "DM Sans", sans-serif; letter-spacing: 0; text-transform: none; }
+.admin-navigation-shell { border: 1px solid var(--admin-border); border-radius: 14px; background: rgba(255,254,250,.88); box-shadow: 0 12px 28px rgba(32,29,20,.045); }
+.admin-navigation-brand { border-bottom-color: var(--admin-border); }
+.admin-navigation-kicker, .admin-nav-label { color: #8a6a26; font-size: 14px !important; letter-spacing: .08em; }
+.admin-navigation-brand strong { font-family: "DM Sans", sans-serif; font-size: 17px; }
+.admin-navigation-brand small { color: var(--admin-muted); font-size: 14px; }
+.admin-nav { padding-top: 18px; }
+.admin-nav-core, .admin-nav-more-panel { gap: 3px; }
+.admin-nav-item { min-height: 42px; border-radius: 9px; color: var(--admin-muted); font-family: "DM Sans", "Inter Tight", sans-serif; font-size: 14px !important; font-weight: 500; letter-spacing: 0; }
+.admin-nav-item:hover { background: #f3f0e9; color: var(--admin-ink); }
+.admin-nav-item.active { background: #1b211f; color: #fffefa; box-shadow: 0 4px 10px rgba(20,24,22,.12); }
+.admin-nav-item.active .admin-nav-icon { color: #dfb85c; }
+.admin-nav-advanced { border-top-color: var(--admin-border); }
+.admin-nav-more-toggle { color: var(--admin-muted); font-family: "DM Sans", sans-serif; font-size: 14px !important; letter-spacing: 0; }
+.admin-context-bar { border-top-color: var(--admin-border); }
+.admin-context-bar b { font-family: "DM Sans", sans-serif; }
+.admin-context-bar small { color: var(--admin-muted); font-size: 14px; }
+.admin-content-column { padding-top: 18px; }
+.admin-content-heading { border-bottom-color: var(--admin-border); color: var(--admin-muted); font-family: "DM Sans", sans-serif; font-size: 14px; letter-spacing: .06em; }
+.inventory-hub { padding-top: 12px; }
+.inventory-overview-head { align-items: center; margin-bottom: 28px; }
+.inventory-overview-head h2 { max-width: 620px; margin-top: 10px; color: var(--admin-ink); font-family: "DM Sans", "Inter Tight", sans-serif; font-size: clamp(32px, 4vw, 48px); font-weight: 600; letter-spacing: -.065em; line-height: 1.02; }
+.inventory-overview-head p { max-width: 590px; color: var(--admin-muted); font-size: 14px; }
+.inventory-new-button { border-radius: 9px; padding: 12px 17px; font-family: "DM Sans", sans-serif; font-size: 14px; letter-spacing: 0; text-transform: none; box-shadow: 0 7px 16px rgba(44,35,17,.12); }
+.inventory-overview-stats { gap: 12px; margin-bottom: 26px; }
+.inventory-overview-stats article { min-height: 116px; border: 1px solid var(--admin-border); border-radius: 12px; background: var(--admin-surface); box-shadow: 0 6px 16px rgba(32,29,20,.025); transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease; }
+.inventory-overview-stats article:hover { border-color: #cbb477; box-shadow: 0 10px 22px rgba(32,29,20,.07); transform: translateY(-2px); }
+.inventory-overview-stats article span { color: var(--admin-muted); font-family: "DM Sans", sans-serif; font-size: 14px; letter-spacing: 0; text-transform: none; }
+.inventory-overview-stats article strong { color: var(--admin-ink); font-family: "DM Sans", sans-serif; font-size: 32px; font-weight: 550; letter-spacing: -.05em; }
+.inventory-overview-stats article small { color: #77756e; font-family: "DM Sans", sans-serif; font-size: 14px; }
+.inventory-virtual-list { display: grid; gap: 10px; }
+.inventory-virtual-row { gap: 14px; border-color: var(--admin-border); border-radius: 13px; background: var(--admin-surface); box-shadow: 0 5px 14px rgba(32,29,20,.025); transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease; }
+.inventory-virtual-row:hover { border-color: #cfb875; box-shadow: 0 10px 24px rgba(32,29,20,.07); transform: translateY(-1px); }
+.inventory-cell-main strong { color: var(--admin-ink); font-family: "DM Sans", sans-serif; font-size: 15px; font-weight: 650; }
+.inventory-cell-main small, .inventory-virtual-meta { color: var(--admin-muted); font-family: "DM Sans", sans-serif; font-size: 14px; letter-spacing: 0; }
+.inventory-virtual-meta > strong { color: var(--admin-ink); font-family: "DM Sans", sans-serif; font-size: 17px; }
+.inventory-virtual-actions { gap: 7px; border-top-color: var(--admin-border); }
+.inventory-virtual-actions .text-button, .inventory-virtual-actions .status-quick-action { min-height: 32px; border: 1px solid transparent; border-radius: 7px; padding: 6px 8px; color: #68665f; font-family: "DM Sans", sans-serif; font-size: 14px; letter-spacing: 0; text-transform: none; }
+.inventory-virtual-actions .text-button:hover { border-color: var(--admin-border); background: #f5f2eb; color: var(--admin-ink); }
+.inventory-virtual-actions .text-button:first-of-type { border-color: #cdb776; color: #765716; background: #fbf6e9; font-weight: 600; }
+.inventory-virtual-actions .danger-text:hover { border-color: #e1b7ad; background: #fff4f1; color: #a04436; }
+.inventory-virtual-actions .status-quick-action { border-color: var(--admin-border); background: #fffefa; }
+.status-pill { border-radius: 999px; padding: 5px 9px; font-family: "DM Sans", sans-serif; font-size: 14px; letter-spacing: 0; text-transform: none; }
+.admin-login h1 em { color: #8d691c; }
+html[data-theme="dark"] .admin-page { background: #151817; --admin-surface: #1e2321; --admin-surface-soft: #202624; --admin-border: #353b37; --admin-ink: #f2f0e9; --admin-muted: #a8aea8; }
+html[data-theme="dark"] .admin-header, html[data-theme="dark"] .admin-presentation-launch { background: rgba(21,24,23,.92); border-color: var(--admin-border); }
+html[data-theme="dark"] .admin-navigation-shell, html[data-theme="dark"] .inventory-overview-stats article, html[data-theme="dark"] .inventory-virtual-row { background: var(--admin-surface); border-color: var(--admin-border); }
+html[data-theme="dark"] .admin-nav-item:hover, html[data-theme="dark"] .inventory-virtual-actions .text-button:hover { background: #29302c; }
+html[data-theme="dark"] .inventory-overview-head h2, html[data-theme="dark"] .inventory-overview-stats article strong, html[data-theme="dark"] .inventory-cell-main strong, html[data-theme="dark"] .inventory-virtual-meta > strong { color: var(--admin-ink); }
+@media (max-width: 760px) {
+  .admin-title-row .admin-app-title span { display: none; }
+  .inventory-overview-head { gap: 18px; }
+  .inventory-overview-head h2 { font-size: clamp(31px, 10vw, 42px); }
+  .inventory-overview-stats article { min-height: 104px; padding: 14px; }
+}
+@media (prefers-reduced-motion: reduce) { .inventory-overview-stats article, .inventory-virtual-row { transition: none; } }
