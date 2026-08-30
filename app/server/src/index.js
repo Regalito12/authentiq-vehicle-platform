@@ -1370,7 +1370,11 @@ async function sendTransactionalEmail({ to, subject, text, html, organizationId 
       headers: { Authorization: `Bearer ${resendApiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({ from: resendFromEmail, to: [to], subject, text, html }),
     });
-    if (!response.ok) throw new Error(`Resend respondió ${response.status}`);
+    const providerPayload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const providerMessage = String(providerPayload?.message || providerPayload?.name || providerPayload?.error || "sin detalle").slice(0, 240);
+      throw new Error(`Resend respondió ${response.status}: ${providerMessage}`);
+    }
     if (deliveryId) await pool.query("UPDATE email_delivery_log SET status='sent', sent_at=NOW(), last_error=NULL WHERE id=$1", [deliveryId]).catch(() => {});
     return { sent: true };
   } catch (error) {
