@@ -1,6 +1,6 @@
 # Recursos de la landing
 
-## authentiq-cinematic-drive.mp4
+## zevroa-cinematic-drive.mp4
 
 - Fuente: [Pexels · video 5309395](https://www.pexels.com/video/a-person-on-a-luxury-sports-car-driving-fast-5309395/)
 - Autor publicado: Taryn Elliott
@@ -8,7 +8,7 @@
 - Descargado: 2026-08-24
 - Uso: fondo visual de la landing de ZEVROA. No representa patrocinio, afiliación ni inventario de una marca concreta.
 
-## authentiq-cinematic-drive-poster.jpg
+## zevroa-cinematic-drive-poster.jpg
 
 - Fotograma promocional de la misma fuente y licencia del video anterior.
 - Uso: póster de carga para evitar un salto visual antes de iniciar el video.

@@ -9,7 +9,7 @@ if (botProtectionRequired && !turnstileSiteKey) {
 }
 
 if (!apiUrl) {
-  console.log("PRODUCTION ENV PASS · API same-origin (Render sirve frontend y API desde el mismo servicio)");
+  console.log("PRODUCTION ENV PASS · API same-origin (el hosting sirve frontend y API desde el mismo servicio)");
   process.exit(0);
 }
 

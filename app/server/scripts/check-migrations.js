@@ -3,10 +3,13 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import pg from "pg";
 import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
 
 const { Pool } = pg;
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const databaseDir = path.resolve(scriptDir, "../../database");
+const manifestCheck = spawnSync(process.execPath, [path.join(scriptDir, "check-migration-manifest.mjs")], { stdio: "inherit" });
+if (manifestCheck.status !== 0) process.exit(manifestCheck.status || 1);
 const expectedFiles = [
   "029_appointments_foundation.sql",
   "030_appointment_blocks.sql",
@@ -28,8 +31,14 @@ const expectedFiles = [
   "047_billing_events_and_email_outbox.sql",
   "048_public_request_idempotency.sql",
   "049_rebrand_zevroa.sql",
+  "050_rebrand_public_seo.sql",
+  "051_tenant_safe_customer_notifications.sql",
+  "052_crm_contacts_and_timeline.sql",
+  "053_invitations_and_mfa.sql",
+  "054_reconcile_google_calendar_schema.sql",
+  "055_crm_contact_relationships.sql",
 ];
-const expectedTables = ["appointment_blocks", "organizations", "organization_members", "organization_settings", "organization_integrations", "social_drafts", "billing_subscriptions", "platform_plans", "vehicle_3d_jobs", "password_reset_tokens", "billing_webhook_events", "email_delivery_log", "public_request_idempotency"];
+const expectedTables = ["appointment_blocks", "organizations", "organization_members", "organization_settings", "organization_integrations", "social_drafts", "billing_subscriptions", "platform_plans", "vehicle_3d_jobs", "password_reset_tokens", "billing_webhook_events", "email_delivery_log", "public_request_idempotency", "customer_notifications", "crm_contacts", "crm_contact_events", "admin_invitations"];
 const expectedColumns = [
   ["organizations", "custom_domain"],
   ["business_settings", "appointment_capacity"],
@@ -62,6 +71,21 @@ const expectedColumns = [
   ["organization_settings", "testimonials"],
   ["admin_users", "session_version"],
   ["customer_accounts", "session_version"],
+  ["customer_notifications", "organization_id"],
+  ["leads", "contact_id"],
+  ["test_drive_requests", "contact_id"],
+  ["quotes", "contact_id"],
+  ["offers", "contact_id"],
+  ["admin_users", "mfa_enabled"],
+  ["admin_users", "mfa_secret_encrypted"],
+  ["admin_users", "mfa_recovery_codes"],
+];
+const expectedRoutines = [
+  "zevroa_resolve_crm_contact",
+  "zevroa_sync_lead_contact",
+  "zevroa_sync_appointment_contact",
+  "zevroa_sync_offer_contact",
+  "zevroa_sync_quote_contact",
 ];
 
 const missingFiles = [];
@@ -92,14 +116,18 @@ try {
   );
   const foundColumns = new Set(columnResult.rows.map((row) => `${row.table_name}.${row.column_name}`));
   const missingColumns = expectedColumns.filter(([table, column]) => !foundColumns.has(`${table}.${column}`));
+  const routineResult = await pool.query("SELECT routine_name FROM information_schema.routines WHERE routine_schema = 'public' AND routine_name = ANY($1::text[])", [expectedRoutines]);
+  const foundRoutines = new Set(routineResult.rows.map((row) => row.routine_name));
+  const missingRoutines = expectedRoutines.filter((routine) => !foundRoutines.has(routine));
 
-  if (missingTables.length || missingColumns.length) {
+  if (missingTables.length || missingColumns.length || missingRoutines.length) {
     if (missingTables.length) console.error(`MIGRATIONS FAIL · faltan tablas: ${missingTables.join(", ")}`);
     if (missingColumns.length) console.error(`MIGRATIONS FAIL · faltan columnas: ${missingColumns.map(([table, column]) => `${table}.${column}`).join(", ")}`);
+    if (missingRoutines.length) console.error(`MIGRATIONS FAIL · faltan rutinas: ${missingRoutines.join(", ")}`);
     process.exitCode = 1;
   } else {
     console.log(`MIGRATIONS PASS · archivos ${expectedFiles.join(" → ")}`);
-    console.log(`tablas=${expectedTables.length} columnas=${expectedColumns.length} database=connected`);
+    console.log(`tablas=${expectedTables.length} columnas=${expectedColumns.length} rutinas=${expectedRoutines.length} database=connected`);
   }
 } finally {
   await pool.end();

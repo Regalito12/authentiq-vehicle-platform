@@ -25,11 +25,12 @@ function loadTurnstile() {
   return turnstileLoader;
 }
 
-export function TurnstileField({ onTokenChange }) {
+export function TurnstileField({ onTokenChange, onStateChange }) {
   const containerRef = useRef(null);
   const [state, setState] = useState("loading");
   useEffect(() => {
     onTokenChange("");
+    onStateChange?.("loading");
     if (!turnstileSiteKey) return undefined;
     let active = true;
     let widgetId = null;
@@ -38,16 +39,16 @@ export function TurnstileField({ onTokenChange }) {
       widgetId = turnstile.render(containerRef.current, {
         sitekey: turnstileSiteKey,
         theme: "auto",
-        callback: (token) => { if (active) { onTokenChange(token); setState("ready"); } },
-        "expired-callback": () => { if (active) { onTokenChange(""); setState("expired"); } },
-        "error-callback": () => { if (active) { onTokenChange(""); setState("error"); } },
+        callback: (token) => { if (active) { onTokenChange(token); setState("ready"); onStateChange?.("ready"); } },
+        "expired-callback": () => { if (active) { onTokenChange(""); setState("expired"); onStateChange?.("expired"); } },
+        "error-callback": () => { if (active) { onTokenChange(""); setState("error"); onStateChange?.("error"); } },
       });
-    }).catch(() => { if (active) setState("error"); });
+    }).catch(() => { if (active) { setState("error"); onStateChange?.("error"); } });
     return () => {
       active = false;
       if (widgetId !== null && window.turnstile) window.turnstile.remove(widgetId);
     };
-  }, [onTokenChange]);
+  }, [onTokenChange, onStateChange]);
   if (!turnstileSiteKey) return null;
-  return <div className="turnstile-field"><div ref={containerRef} />{state === "error" && <p className="state-message error">No pudimos cargar la verificación de seguridad. Revisa tu conexión e intenta nuevamente.</p>}{state === "expired" && <p className="state-message error">La verificación venció. Complétala otra vez para continuar.</p>}</div>;
+  return <div className="turnstile-field" aria-live="polite"><div ref={containerRef} />{state === "error" && <p className="state-message error">No pudimos cargar la verificación de seguridad. Revisa tu conexión y vuelve a intentar. Si continúa, usa el contacto por WhatsApp.</p>}{state === "expired" && <p className="state-message error">La verificación venció. Complétala otra vez para continuar.</p>}</div>;
 }

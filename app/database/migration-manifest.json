@@ -1,0 +1,28 @@
+{
+  "format": 1,
+  "baseline": {
+    "id": "zevroa-legacy-baseline-2026-08-28",
+    "description": "Historial heredado consolidado antes de adoptar manifiesto verificable. No se renombran archivos históricos.",
+    "remoteReconciliationRequired": true,
+    "legacyDuplicatePrefixes": ["003", "012", "029", "030", "031"]
+  },
+  "trackedMigrations": [
+    { "file": "045_storefront_trust_content.sql", "sha256": "6cc8be3bb43c1e29de75922da8017f57f69f400baffa36b30dbca2890ee503fc", "reversible": false, "notes": "Contenido y confianza de la tienda." },
+    { "file": "046_password_recovery_and_sessions.sql", "sha256": "e6a75399eab5f0c23887fa76f5db507914d803f93faf2914a2c621405accfc27", "reversible": false, "notes": "Sesiones y recuperación de contraseña." },
+    { "file": "047_billing_events_and_email_outbox.sql", "sha256": "ac64652bd8ce557c245d6a55c3cb6c01ac3710f631ef287c0b6b621aeee71408", "reversible": false, "notes": "Outbox e idempotencia de proveedores." },
+    { "file": "048_public_request_idempotency.sql", "sha256": "540a59861a9f1802cfd5476beaadce101e59362660ba25d89922d9c2c4652bdd", "reversible": false, "notes": "Idempotencia de formularios públicos." },
+    { "file": "049_rebrand_zevroa.sql", "sha256": "9435f48e5f4696de07eb22d0cc6763cbf0389803c96bc1cf79a4a3c1a25518ba", "reversible": false, "notes": "Marca Zevroa." },
+    { "file": "050_rebrand_public_seo.sql", "sha256": "2017bd24d27f610485baaf92c179659fe1792bc9af49235bd628026f242d9a5d", "reversible": true, "notes": "SEO público. Revertir con una migración nueva de contenido, nunca editando este archivo." }
+    ,{ "file": "051_tenant_safe_customer_notifications.sql", "sha256": "15d1447a3a1c50db2aa01f55a3279c73e267ca3689ea5f7ecc7dd61032fbbf41", "reversible": true, "notes": "Aislamiento de notificaciones de compradores por concesionario." }
+    ,{ "file": "052_crm_contacts_and_timeline.sql", "sha256": "bbb8740d68761814f45d4727f72907008ae45d7dd27d5f759597718dfda143d3", "reversible": false, "notes": "Contactos comerciales únicos, timeline y enlace de leads por concesionario." }
+    ,{ "file": "053_invitations_and_mfa.sql", "sha256": "331192b3bc3dd4ca5108f95ab98ab692f0df32aef71480af28e98623f84d8f81", "reversible": false, "notes": "Invitaciones seguras de equipo y MFA TOTP con secretos cifrados." }
+    ,{ "file": "054_reconcile_google_calendar_schema.sql", "sha256": "a4923fa777f2f01ac9c0c6ef5de2c4fc958a7aa12111d7867067f5c996ceb3d7", "reversible": true, "notes": "Reconciliación idempotente de la columna de sincronización de Google Calendar." }
+    ,{ "file": "055_crm_contact_relationships.sql", "sha256": "9cd9f6f2a130909d5f1ab3a04cd468cfc58d2a200a1d5fb920a4d6fbb1123bf1", "reversible": false, "notes": "Enlaces seguros de CRM para citas, ofertas y cotizaciones." }
+  ],
+  "rules": {
+    "newMigrationPrefixMustBeUnique": true,
+    "newMigrationMustBeAddedToManifest": true,
+    "historicalFilesAreImmutable": true,
+    "productionRequiresVerifiedBackup": true
+  }
+}

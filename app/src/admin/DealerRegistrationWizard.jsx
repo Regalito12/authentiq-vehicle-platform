@@ -149,7 +149,9 @@ export default function DealerRegistrationWizard({ onRegisterSuccess, onCancel, 
 
   const origin = window.location.origin;
   const previewUrl = `${origin}/?preview=1`;
-  const platformDomain = (import.meta.env.VITE_PLATFORM_BASE_DOMAIN || "zevroa.com").replace(/^https?:\/\//i, "").replace(/\/$/, "");
+  // No prometemos un subdominio hasta que el DNS wildcard esté activado. Mientras
+  // tanto el enlace privado del flujo sigue siendo real y usable.
+  const platformDomain = String(import.meta.env.VITE_PLATFORM_BASE_DOMAIN || "").replace(/^https?:\/\//i, "").replace(/\/$/, "");
   const passwordLongEnough = form.adminPassword.length >= 8;
   const passwordsMatch = Boolean(form.confirmPassword) && form.adminPassword === form.confirmPassword;
 
@@ -245,14 +247,14 @@ export default function DealerRegistrationWizard({ onRegisterSuccess, onCancel, 
               onChange={handleSlugChange}
               required
             />
-            {/* La dirección real, escrita entera y en vivo: "/?dealer=slug" es una ruta
-                interna que no le dice nada al dealer sobre qué va a compartir. */}
-            <span className="slug-preview" aria-hidden="true">https://<b>{form.slug || "tu-concesionario"}</b>.{platformDomain}</span>
+            {platformDomain
+              ? <span className="slug-preview" aria-hidden="true">https://<b>{form.slug || "tu-concesionario"}</b>.{platformDomain}</span>
+              : <span className="slug-preview">Tu enlace público se habilita al activar el dominio del showroom.</span>}
             <small className={`slug-availability${slugCheck?.state === "free" ? " is-free" : slugCheck?.state === "taken" ? " is-taken" : ""}`} aria-live="polite">
               {slugCheck?.state === "checking" && "Comprobando disponibilidad…"}
               {slugCheck?.state === "free" && "Esta dirección está libre y será tuya."}
               {slugCheck?.state === "taken" && slugCheck.message}
-              {!slugCheck && "Esta será la dirección de tu showroom. Usa minúsculas, números y guiones; podrás cambiarla antes de publicar."}
+              {!slugCheck && "Reserva la dirección de tu showroom. Usa minúsculas, números y guiones; podrás cambiarla antes de publicar."}
             </small>
           </label>
 

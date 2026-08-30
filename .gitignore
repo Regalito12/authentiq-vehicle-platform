@@ -13,8 +13,20 @@ app/dist/
 # Ver DEPLOYMENT-CHECKLIST.md sobre backup de UPLOADS_DIR.
 app/server/uploads/
 
-# Salida de la verificación en navegador (capturas de pantalla, se regeneran)
+# Salida de la verificación en navegador (capturas de pantalla, se regeneran
+# con `npm --prefix server run test:browser`). El script escribe en app/ según
+# desde dónde se invoque, así que se ignoran ambas rutas.
 app/server/browser-check/
+app/browser-check/
+
+# Evidencia local y kits auxiliares: se conservan en el equipo, pero no son
+# parte del producto ni deben entrar por accidente en un release.
+browser-check/
+backups/
+animation-studio-kit/
+
+# Salida de la skill de diseño: material de trabajo, no del producto.
+.impeccable/
 
 # Artefactos de herramientas ajenas al proyecto, no al producto
 .codex-remote-attachments/
@@ -23,3 +35,6 @@ app/.img2threejs/
 # Sistema operativo / editor
 .DS_Store
 Thumbs.db
+
+.vercel
+.env*

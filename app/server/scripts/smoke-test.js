@@ -95,6 +95,12 @@ await check("Las rutas publicas conocidas siguen abiertas", async () => {
   }
 });
 
+await check("Una cotización inexistente responde 404", async () => {
+  const { response, body } = await request("/cotizaciones/no-existe");
+  assert(response.status === 404, `respondio ${response.status}`);
+  assert(String(body || "").includes("noindex"), "la cotizacion inexistente no se marca como no indexable");
+});
+
 // El slug se convierte en subdominio del dealer: si alguien se registra como
 // "www" o "api" se queda con infraestructura de la plataforma.
 await check("Los identificadores reservados se rechazan", async () => {

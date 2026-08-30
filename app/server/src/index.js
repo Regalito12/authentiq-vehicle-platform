@@ -16,11 +16,14 @@ import { catalogPrerender, vehiclePrerender, catalogJsonLd, vehicleJsonLd } from
 import sharp from "sharp";
 import Stripe from "stripe";
 import { fileURLToPath } from "node:url";
+import { registerCoreSaasRoutes } from "./coreSaasRoutes.js";
+import { registerSecurityRoutes, mfaEnabledForAdmin, challengeToken } from "./securityRoutes.js";
 
 // Se usa solo cuando el correo no existe para que todos los intentos hagan una
 // comparación bcrypt comparable y no revelen la existencia de una cuenta por
 // diferencias de tiempo. Nunca es una contraseña válida de ningún usuario.
 const DUMMY_PASSWORD_HASH = "$2b$12$3yFc1m.yll8R8pI6T9aqgu4sXMid7I.1bZhBHlNZOXFzNRtDljotW";
+const LEGACY_DEMO_EMAILS = new Set(["admin@authentiq.local", "demo@dealer.local", "demo@velocity.local"]);
 
 const { Pool } = pg;
 const app = express();
@@ -31,7 +34,19 @@ const port = Number(process.env.PORT || 3001);
 const privacyPolicyVersion = process.env.PRIVACY_POLICY_VERSION || "2026-08-09";
 const jwtSecret = process.env.JWT_SECRET || "local-dev-secret-change-before-deploy";
 if (process.env.NODE_ENV === "production" && !process.env.JWT_SECRET) throw new Error("JWT_SECRET es obligatorio en producción");
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+// Vercel puede mantener varias instancias de esta función al mismo tiempo. El
+// valor por defecto de `pg` abre hasta 10 conexiones por instancia y, con un
+// pooler en modo sesión, eso agota el límite aunque la aplicación tenga poco
+// tráfico. Un pool pequeño por instancia protege producción; en local conserva
+// un límite cómodo y todos los valores pueden ajustarse sin tocar el código.
+const configuredPoolMax = Number(process.env.PG_POOL_MAX);
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  max: Number.isFinite(configuredPoolMax) && configuredPoolMax > 0 ? configuredPoolMax : (isVercelRuntime ? 2 : 10),
+  idleTimeoutMillis: Number(process.env.PG_IDLE_TIMEOUT_MS || (isVercelRuntime ? 10000 : 30000)),
+  connectionTimeoutMillis: Number(process.env.PG_CONNECTION_TIMEOUT_MS || 5000),
+  maxUses: Number(process.env.PG_MAX_USES || (isVercelRuntime ? 250 : 0)),
+});
 const uploadsDir = path.resolve(serverDir, process.env.UPLOADS_DIR || (isVercelRuntime ? path.join(process.env.TMPDIR || process.env.TMP || "/tmp", "zevroa-uploads") : "../uploads"));
 const publicApiUrl = String(process.env.PUBLIC_API_URL || "").replace(/\/+$/, "");
 const publicSiteUrl = String(process.env.PUBLIC_SITE_URL || "").replace(/\/+$/, "");
@@ -73,6 +88,7 @@ const resendFromEmail = String(process.env.RESEND_FROM_EMAIL || "").trim();
 const emailDeliveryConfigured = Boolean(resendApiKey && resendFromEmail);
 const botProtectionRequired = String(process.env.BOT_PROTECTION_REQUIRED || "false").trim().toLowerCase() === "true";
 const turnstileSecretKey = String(process.env.TURNSTILE_SECRET_KEY || "").trim();
+const turnstileSiteKey = String(process.env.VITE_TURNSTILE_SITE_KEY || "").trim();
 const billingProvider = String(process.env.BILLING_PROVIDER || "none").trim().toLowerCase();
 const billingCheckoutUrl = String(process.env.BILLING_CHECKOUT_URL || "").trim();
 const stripeSecretKey = String(process.env.STRIPE_SECRET_KEY || "").trim();
@@ -89,6 +105,7 @@ if (process.env.NODE_ENV === "production") {
   if (!publicApiUrl || !publicSiteUrl || !frontendOrigin || /localhost|127\.0\.0\.1/i.test(`${publicApiUrl} ${publicSiteUrl} ${frontendOrigin}`)) throw new Error("PUBLIC_API_URL, PUBLIC_SITE_URL y FRONTEND_ORIGIN deben apuntar al dominio de producción");
   if (!remoteStorageEnabled) throw new Error("Supabase Storage es obligatorio en producción; no se permite almacenamiento temporal");
   if (botProtectionRequired && !turnstileSecretKey) throw new Error("TURNSTILE_SECRET_KEY es obligatorio cuando BOT_PROTECTION_REQUIRED=true");
+  if (turnstileSecretKey && !turnstileSiteKey) throw new Error("VITE_TURNSTILE_SITE_KEY es obligatorio cuando TURNSTILE_SECRET_KEY está configurado");
   if (googleCalendarConfigured && !googleCalendarTokenKey) throw new Error("GOOGLE_CALENDAR_TOKEN_ENCRYPTION_KEY es obligatorio cuando Google Calendar está configurado");
 }
 app.set("trust proxy", 1);
@@ -454,10 +471,17 @@ app.use(helmet({
   },
 }));
 app.use((_req, res, next) => {
-  res.setHeader("Permissions-Policy", "camera=(self), microphone=(), geolocation=()");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
   next();
 });
 app.use(cors({ origin: frontendOrigin ? frontendOrigin.split(",").map((value) => value.trim()) : true, credentials: true }));
+// El dominio canónico de ZEVROA es el apex. Mantener `www` como alias de
+// contenido crea dos versiones indexables y complica la resolución de dealers.
+// El 308 conserva método y querystring.
+app.use((req, res, next) => {
+  if (requestHostname(req) !== "www.zevroa.com") return next();
+  return res.redirect(308, `https://zevroa.com${req.originalUrl || req.url}`);
+});
 app.use("/api/webhooks/stripe", express.raw({ type: "application/json", limit: "1mb" }));
 app.use(express.json({ limit: "1mb" }));
 app.use("/uploads", express.static(uploadsDir, {
@@ -598,7 +622,11 @@ function clearSessionCookie(res, name) {
 }
 
 function requestHostname(req) {
-  return String(req.headers["x-forwarded-host"] || req.headers.host || "").split(",")[0].trim().split(":")[0].toLowerCase();
+  // En Vercel, x-forwarded-host puede conservar el hostname interno del
+  // deployment. El Host de la petición es el dominio que el comprador abrió
+  // (incluido <dealer>.zevroa.com); usa el reenviado solo como respaldo para
+  // proxies que no preserven Host.
+  return String(req.headers.host || req.headers["x-forwarded-host"] || "").split(",")[0].trim().split(":")[0].toLowerCase();
 }
 
 function publicOriginForOrganization(req, organization) {
@@ -715,6 +743,15 @@ async function getOrganizationContext(req) {
     ? hostname.slice(0, -(platformBaseDomain.length + 1))
     : null;
   const validSubdomainSlug = subdomainSlug && /^[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?$/.test(subdomainSlug) ? subdomainSlug : null;
+  // Solo el dominio principal puede caer en la organización pública por defecto.
+  // Un subdominio desconocido nunca debe mostrar el catálogo de otro dealer por
+  // accidente: debe terminar en el 404 de showroom no encontrado.
+  const isPlatformHostname = Boolean(
+    localHost
+      || (platformBaseDomain && [platformBaseDomain, `www.${platformBaseDomain}`].includes(hostname))
+      || (configuredPublicHostname && hostname === configuredPublicHostname),
+  );
+  const fallbackPublicSlug = isPlatformHostname ? DEFAULT_ORGANIZATION_SLUG : null;
   const result = await pool.query(
     `SELECT id, slug, name, logo_url AS "logoUrl", custom_domain AS "customDomain", is_active AS "isActive"
      FROM organizations
@@ -726,7 +763,7 @@ async function getOrganizationContext(req) {
         )
       ORDER BY CASE WHEN LOWER(custom_domain) = $1 THEN 0 WHEN slug = $5 THEN 1 ELSE 2 END
       LIMIT 1`,
-    [hostname, resolvedSlug, DEFAULT_ORGANIZATION_SLUG, allowUnapprovedSlug, validSubdomainSlug],
+    [hostname, resolvedSlug, fallbackPublicSlug, allowUnapprovedSlug, validSubdomainSlug],
   );
   if (!result.rowCount) {
     const error = new Error("Organización no encontrada");
@@ -1017,7 +1054,31 @@ function validateQuote(quote) {
 }
 
 function createQuoteNumber() {
-  return `AUTH-${new Date().getFullYear()}-${Date.now()}`;
+  return `ZEV-${new Date().getFullYear()}-${crypto.randomBytes(5).toString("hex").toUpperCase()}`;
+}
+
+// La pantalla de acceso consulta este endpoint al montar. Un visitante no tiene
+// sesión todavía; devolver un estado vacío evita ensuciar consola/telemetría sin
+// relajar ninguno de los endpoints administrativos protegidos.
+function optionalAuthenticate(req, res, next) {
+  const header = req.headers.authorization || "";
+  const token = header.startsWith("Bearer ") ? header.slice(7) : readCookie(req, ADMIN_SESSION_COOKIE);
+  if (!token) return res.json({ user: null });
+  return authenticate(req, res, next);
+}
+
+function optionalAuthenticateCustomer(req, res, next) {
+  const header = req.headers.authorization || "";
+  const token = header.startsWith("Bearer ") ? header.slice(7) : readCookie(req, CUSTOMER_SESSION_COOKIE);
+  if (!token) return res.json({ data: null });
+  return authenticateCustomer(req, res, next);
+}
+
+function sessionResponse(user, token) {
+  // En producción la cookie HttpOnly es el canal normal. Solo los entornos no
+  // productivos exponen el token para que las suites locales reutilicen sesión
+  // sin implementar un cookie jar.
+  return process.env.NODE_ENV === "production" ? { user } : { token, user };
 }
 
 async function upsertTaxonomy(client, table, name, logoUrl = null, organizationId = null) {
@@ -1079,6 +1140,9 @@ app.patch("/api/admin/taxonomy/:kind/:id", authenticate, requireRoles("admin", "
   } catch (error) { console.error("Taxonomy update failed", error); res.status(error.code === "23505" ? 409 : 500).json({ error: error.code === "23505" ? "Ese nombre ya existe" : "No se pudo actualizar" }); }
 });
 
+registerCoreSaasRoutes({ app, pool, authenticate, requireRoles, adminOrganizationId, writeAudit });
+registerSecurityRoutes({ app, pool, jwtSecret, authenticate, requireRoles, adminOrganizationId, writeAudit, sendTransactionalEmail, publicSiteUrl, setSessionCookie, sessionResponse });
+
 // Sin paginación de catálogo en el frontend a propósito: ZEVROA se posiciona como
 // selección curada ("no llenamos el catálogo, seleccionamos lo que merece ser conducido"),
 // no como un listado masivo. Este límite es solo una válvula de seguridad de escala:
@@ -1097,7 +1161,7 @@ async function createLead({ organizationId, leadType, vehicleId = null, name, em
   const result = await pool.query(
     `INSERT INTO leads (organization_id, lead_type, vehicle_id, name, email, phone, message, source, privacy_consent, privacy_consent_at, privacy_policy_version, consent_source)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,CASE WHEN $9 THEN NOW() ELSE NULL END,$10,$8)
-     RETURNING id, status, created_at AS "createdAt"`,
+     RETURNING id, contact_id AS "contactId", status, created_at AS "createdAt"`,
     [organizationId, leadType, vehicleId, name, email, phone, message, source, privacyConsent, privacyPolicyVersion],
   );
   return result.rows[0];
@@ -1342,6 +1406,7 @@ async function deliverAdminNotification({ organizationId, type = "lead", title, 
   if (emailDeliveryConfigured) {
     await Promise.allSettled([...new Set(admins.rows.map((row) => String(row.email || "").trim().toLowerCase()).filter(Boolean))].map((email) => sendTransactionalEmail({
       to: email,
+      organizationId,
       subject: `[ZEVROA] ${title}`,
       text: body,
       html: `<p><strong>${escapeHtml(title)}</strong></p><p>${escapeHtml(body)}</p><p>Revisa el backoffice de tu showroom para continuar.</p>`,
@@ -1353,12 +1418,16 @@ async function deliverAdminNotification({ organizationId, type = "lead", title, 
   }
 }
 
-async function notifyCustomer({ customerId, type = "activity", title, body, entityType = null, entityId = null }) {
-  if (!customerId) return;
+async function notifyCustomer({ organizationId, customerId, type = "activity", title, body, entityType = null, entityId = null }) {
+  if (!organizationId || !customerId) return;
   await pool.query(
-    "INSERT INTO customer_notifications (customer_id, notification_type, title, body, entity_type, entity_id) VALUES ($1,$2,$3,$4,$5,$6)",
-    [customerId, type, title, body, entityType, entityId],
+    "INSERT INTO customer_notifications (organization_id, customer_id, notification_type, title, body, entity_type, entity_id) VALUES ($1,$2,$3,$4,$5,$6,$7)",
+    [organizationId, customerId, type, title, body, entityType, entityId],
   );
+}
+
+function isValidEmail(value) {
+  return typeof value === "string" && value.length <= 160 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
 async function dispatchAppointmentReminders() {
@@ -1391,6 +1460,7 @@ async function dispatchAppointmentReminders() {
       if (emailDeliveryConfigured && appointment.customerEmail) {
         const emailResult = await sendTransactionalEmail({
           to: appointment.customerEmail,
+          organizationId,
           subject: `Recordatorio de cita · ${appointment.vehicle}`,
           text: `Te esperamos para ver tu ${appointment.vehicle} el ${appointment.date} a las ${String(appointment.time).slice(0, 5)}.`,
           html: `<p>Te esperamos para ver tu <strong>${escapeHtml(appointment.vehicle)}</strong>.</p><p>Fecha: ${escapeHtml(appointment.date)} · Hora: ${escapeHtml(String(appointment.time).slice(0, 5))}</p>`,
@@ -1418,6 +1488,13 @@ app.post("/api/auth/login", async (req, res) => {
   const email = String(req.body?.email || "").trim().toLowerCase();
   const password = String(req.body?.password || "");
   try {
+    // Las cuentas sembradas para el entorno local nunca pueden convertirse en
+    // una puerta de entrada a producción, aunque una base antigua conserve la
+    // fila activa. La comparación dummy mantiene un tiempo de respuesta similar.
+    if (process.env.NODE_ENV === "production" && LEGACY_DEMO_EMAILS.has(email)) {
+      await bcrypt.compare(password, DUMMY_PASSWORD_HASH);
+      return res.status(401).json({ error: "Correo o contraseña incorrectos" });
+    }
     const organization = await getOrganizationContext(req);
     const result = await pool.query("SELECT id, full_name, email, role, password_hash, must_change_password AS \"mustChangePassword\", organization_id AS \"organizationId\", session_version AS \"sessionVersion\" FROM admin_users WHERE LOWER(email) = $1 AND (organization_id = $2 OR role = 'platform_admin') AND is_active = TRUE", [email, organization.id]);
     let admin = result.rows[0];
@@ -1435,11 +1512,16 @@ app.post("/api/auth/login", async (req, res) => {
     }
     const passwordMatches = await bcrypt.compare(password, admin?.password_hash || DUMMY_PASSWORD_HASH);
     if (!admin || !passwordMatches) return res.status(401).json({ error: "Correo o contraseña incorrectos" });
+    // La columna se consulta de forma compatible con bases anteriores: permite
+    // desplegar el código antes de aplicar 053 sin romper el acceso existente.
+    if (await mfaEnabledForAdmin(pool, admin.id)) {
+      return res.json({ mfaRequired: true, challengeToken: challengeToken({ id: admin.id, email: admin.email, role: admin.role, organizationId: admin.organizationId, jwtSecret }) });
+    }
     // Una contraseña restablecida por un administrador solo sirve para volver a entrar:
     // el token es de vida corta y obliga a definir una contraseña propia antes de operar.
     const token = jwt.sign({ id: admin.id, email: admin.email, role: admin.role, name: admin.full_name, organizationId: admin.organizationId, mustChangePassword: admin.mustChangePassword, sessionVersion: admin.sessionVersion || 0 }, jwtSecret, { expiresIn: admin.mustChangePassword ? "15m" : "8h" });
     setSessionCookie(res, ADMIN_SESSION_COOKIE, token, admin.mustChangePassword ? 900 : 28800);
-    res.json({ token, user: { id: admin.id, name: admin.full_name, email: admin.email, role: admin.role, organizationId: admin.organizationId, mustChangePassword: admin.mustChangePassword } });
+    res.json(sessionResponse({ id: admin.id, name: admin.full_name, email: admin.email, role: admin.role, organizationId: admin.organizationId, mustChangePassword: admin.mustChangePassword }, token));
   } catch (error) {
     if (isOrganizationNotFound(error)) return sendOrganizationNotFound(res);
     console.error("Admin login failed", error);
@@ -1447,7 +1529,7 @@ app.post("/api/auth/login", async (req, res) => {
   }
 });
 
-app.get("/api/auth/me", authenticate, async (req, res) => {
+app.get("/api/auth/me", optionalAuthenticate, async (req, res) => {
   try {
     const result = await pool.query(
       'SELECT id, full_name AS "name", email, role, organization_id AS "organizationId", must_change_password AS "mustChangePassword" FROM admin_users WHERE id=$1 AND is_active=TRUE LIMIT 1',
@@ -1487,7 +1569,7 @@ app.post("/api/auth/password-reset/confirm", async (req, res) => {
     const admin = account.rows[0];
     const sessionToken = jwt.sign({ id: admin.id, email: admin.email, name: admin.name, role: admin.role, organizationId: admin.organizationId, sessionVersion: admin.sessionVersion, mustChangePassword: false }, jwtSecret, { expiresIn: "8h" });
     setSessionCookie(res, ADMIN_SESSION_COOKIE, sessionToken, 28800);
-    res.json({ token: sessionToken, user: { id: admin.id, name: admin.name, email: admin.email, role: admin.role, organizationId: admin.organizationId, mustChangePassword: false } });
+    res.json(sessionResponse({ id: admin.id, name: admin.name, email: admin.email, role: admin.role, organizationId: admin.organizationId, mustChangePassword: false }, sessionToken));
   } catch (error) { await client.query("ROLLBACK").catch(() => {}); console.error("Admin password reset confirmation failed", error); res.status(500).json({ error: "No se pudo restablecer la contraseña" }); } finally { client.release(); }
 });
 
@@ -1660,7 +1742,7 @@ app.post("/api/customer/auth/register", verifyPublicForm, async (req, res) => {
     const account = result.rows[0];
     const token = jwt.sign({ id: account.id, email: account.email, name: account.full_name, kind: "customer", sessionVersion: account.session_version || 0 }, jwtSecret, { expiresIn: "30d" });
     setSessionCookie(res, CUSTOMER_SESSION_COOKIE, token, 2592000);
-    res.status(201).json({ token, user: { id: account.id, name: account.full_name, email: account.email, phone: account.phone } });
+    res.status(201).json(sessionResponse({ id: account.id, name: account.full_name, email: account.email, phone: account.phone }, token));
   } catch (error) {
     if (error.code === "23505") return res.status(409).json({ error: "Ya existe una cuenta con ese correo" });
     console.error("Customer registration failed", error);
@@ -1677,7 +1759,7 @@ app.post("/api/customer/auth/login", async (req, res) => {
     if (!account || !(await bcrypt.compare(password, account.password_hash))) return res.status(401).json({ error: "Correo o contraseña incorrectos" });
     const token = jwt.sign({ id: account.id, email: account.email, name: account.full_name, kind: "customer", sessionVersion: account.sessionVersion || 0 }, jwtSecret, { expiresIn: "30d" });
     setSessionCookie(res, CUSTOMER_SESSION_COOKIE, token, 2592000);
-    res.json({ token, user: { id: account.id, name: account.full_name, email: account.email, phone: account.phone } });
+    res.json(sessionResponse({ id: account.id, name: account.full_name, email: account.email, phone: account.phone }, token));
   } catch (error) {
     console.error("Customer login failed", error);
     res.status(500).json({ error: "No se pudo iniciar sesión" });
@@ -1710,11 +1792,11 @@ app.post("/api/customer/auth/password-reset/confirm", async (req, res) => {
     const customer = account.rows[0];
     const sessionToken = jwt.sign({ id: customer.id, email: customer.email, name: customer.name, kind: "customer", sessionVersion: customer.sessionVersion }, jwtSecret, { expiresIn: "30d" });
     setSessionCookie(res, CUSTOMER_SESSION_COOKIE, sessionToken, 2592000);
-    res.json({ token: sessionToken, user: { id: customer.id, name: customer.name, email: customer.email, phone: customer.phone } });
+    res.json(sessionResponse({ id: customer.id, name: customer.name, email: customer.email, phone: customer.phone }, sessionToken));
   } catch (error) { await client.query("ROLLBACK").catch(() => {}); console.error("Customer password reset confirmation failed", error); res.status(500).json({ error: "No se pudo restablecer la contraseña" }); } finally { client.release(); }
 });
 
-app.get("/api/customer/me", authenticateCustomer, async (req, res) => {
+app.get("/api/customer/me", optionalAuthenticateCustomer, async (req, res) => {
   try {
     const result = await pool.query("SELECT id, full_name AS name, email, phone FROM customer_accounts WHERE id=$1 AND is_active=TRUE", [req.customer.id]);
     if (!result.rowCount) return res.status(401).json({ error: "La cuenta ya no está disponible" });
@@ -1778,7 +1860,7 @@ app.get("/api/customer/activity", authenticateCustomer, async (req, res) => {
     const organization = await getOrganizationContext(req);
     const [offers, notifications, quotes] = await Promise.all([
       pool.query(`SELECT o.id, o.status, o.amount_usd AS "amountUsd", o.message, o.created_at AS "createdAt", b.name AS brand, v.model, v.year FROM offers o JOIN vehicles v ON v.id=o.vehicle_id JOIN vehicle_brands b ON b.id=v.brand_id WHERE o.customer_id=$1 AND o.organization_id=$2 ORDER BY o.created_at DESC LIMIT 20`, [req.customer.id, organization.id]),
-      pool.query(`SELECT id, notification_type AS "type", title, body, entity_type AS "entityType", entity_id AS "entityId", read_at AS "readAt", created_at AS "createdAt" FROM customer_notifications WHERE customer_id=$1 ORDER BY created_at DESC LIMIT 20`, [req.customer.id]),
+      pool.query(`SELECT id, notification_type AS "type", title, body, entity_type AS "entityType", entity_id AS "entityId", read_at AS "readAt", created_at AS "createdAt" FROM customer_notifications WHERE customer_id=$1 AND organization_id=$2 ORDER BY created_at DESC LIMIT 20`, [req.customer.id, organization.id]),
       pool.query(`SELECT q.id, q.quote_number AS "quoteNumber", q.status, q.total_usd AS "totalUsd", q.currency, q.valid_until AS "validUntil", q.created_at AS "createdAt", b.name AS brand, v.model, v.year FROM quotes q LEFT JOIN vehicles v ON v.id=q.vehicle_id LEFT JOIN vehicle_brands b ON b.id=v.brand_id WHERE q.customer_id=$1 AND q.organization_id=$2 ORDER BY q.created_at DESC LIMIT 20`, [req.customer.id, organization.id]),
     ]);
     res.json({ data: { offers: offers.rows, notifications: notifications.rows, quotes: quotes.rows } });
@@ -1791,7 +1873,8 @@ app.get("/api/customer/activity", authenticateCustomer, async (req, res) => {
 
 app.patch("/api/customer/notifications/read", authenticateCustomer, async (req, res) => {
   try {
-    await pool.query("UPDATE customer_notifications SET read_at=NOW() WHERE customer_id=$1 AND read_at IS NULL", [req.customer.id]);
+    const organization = await getOrganizationContext(req);
+    await pool.query("UPDATE customer_notifications SET read_at=NOW() WHERE customer_id=$1 AND organization_id=$2 AND read_at IS NULL", [req.customer.id, organization.id]);
     res.status(204).end();
   } catch (error) {
     console.error("Customer notifications read failed", error);
@@ -1851,7 +1934,7 @@ app.post("/api/offers", verifyPublicForm, publicRequestIdempotency, async (req, 
   const privacyConsent = req.body.privacyConsent === true;
   const customerId = getOptionalCustomerId(req);
   if (!privacyConsent) return res.status(400).json({ error: "Debes aceptar la politica de privacidad para enviar la oferta" });
-  if (!vehicleId || !buyerName || !Number.isFinite(amountUsd) || amountUsd <= 0) return res.status(400).json({ error: "Nombre, vehículo y monto válido son obligatorios" });
+  if (!vehicleId || !buyerName || buyerName.length > 120 || (!buyerEmail && !buyerPhone) || (buyerEmail && !isValidEmail(buyerEmail)) || buyerPhone?.length > 40 || !Number.isFinite(amountUsd) || amountUsd <= 0) return res.status(400).json({ error: "Nombre, un correo o teléfono válido, vehículo y monto son obligatorios" });
   try {
     const organization = await getOrganizationContext(req);
     const vehicle = await pool.query("SELECT id, status FROM vehicles WHERE id=$1 AND organization_id=$2 AND status IN ('published','reserved')", [vehicleId, organization.id]);
@@ -1860,7 +1943,7 @@ app.post("/api/offers", verifyPublicForm, publicRequestIdempotency, async (req, 
     const result = await pool.query(
       `INSERT INTO offers (organization_id, vehicle_id, buyer_name, buyer_email, buyer_phone, amount_usd, payment_method, message, privacy_consent, privacy_consent_at, privacy_policy_version, customer_id)
        VALUES ($1,$2,$3,$4,$5,$6,'cash',$7,$8,NOW(),$9,$10)
-       RETURNING id, status, created_at AS "createdAt"`,
+       RETURNING id, contact_id AS "contactId", status, created_at AS "createdAt"`,
       [organization.id, vehicleId, buyerName, buyerEmail, buyerPhone, amountUsd, message, privacyConsent, privacyPolicyVersion, customerId],
     );
     const lead = await createLead({ organizationId: organization.id, leadType: "offer", vehicleId, name: buyerName, email: buyerEmail, phone: buyerPhone, message, source: "vehicle-offer", privacyConsent });
@@ -1868,6 +1951,7 @@ app.post("/api/offers", verifyPublicForm, publicRequestIdempotency, async (req, 
     await notifyAdmins({ organizationId: organization.id, type: "offer", title: "Nueva oferta recibida", body: `${buyerName} envió una oferta para un vehículo.`, entityType: "offer", entityId: result.rows[0].id });
     await sendTransactionalEmail({
       to: buyerEmail,
+      organizationId: organization.id,
       subject: "Recibimos tu oferta",
       text: `Gracias, ${buyerName}. El dealer recibió tu oferta y se pondrá en contacto contigo.`,
       html: `<p>Gracias, <strong>${escapeHtml(buyerName)}</strong>.</p><p>El dealer recibió tu oferta y se pondrá en contacto contigo.</p>`,
@@ -1935,15 +2019,15 @@ app.post("/api/appointments", publicRateLimit({ windowMs: 10 * 60 * 1000, limit:
       const leadResult = await client.query(
         `INSERT INTO leads (organization_id, lead_type, vehicle_id, name, email, phone, message, source, privacy_consent, privacy_consent_at, privacy_policy_version, consent_source)
          VALUES ($1,'test_drive',$2,$3,$4,$5,$6,'appointment',$7,CASE WHEN $7 THEN NOW() ELSE NULL END,$8,'appointment')
-         RETURNING id, status, created_at AS "createdAt"`,
+         RETURNING id, contact_id AS "contactId", status, created_at AS "createdAt"`,
         [organization.id, vehicleId, name, email, phone, notes, privacyConsent, privacyPolicyVersion],
       );
       lead = leadResult.rows[0];
       const appointmentResult = await client.query(
-        `INSERT INTO test_drive_requests (organization_id, vehicle_id, lead_id, customer_name, customer_email, customer_phone, requested_date, requested_time, status, notes)
-         VALUES ($1,$2,$3,$4,$5,$6,$7::date,$8::time,'pending',$9)
-         RETURNING id, vehicle_id AS "vehicleId", requested_date AS "date", requested_time AS "time", status, created_at AS "createdAt"`,
-        [organization.id, vehicleId, lead.id, name, email, phone, date, time, notes],
+        `INSERT INTO test_drive_requests (organization_id, vehicle_id, lead_id, customer_name, customer_email, customer_phone, requested_date, requested_time, status, notes, contact_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7::date,$8::time,'pending',$9,$10::uuid)
+         RETURNING id, contact_id AS "contactId", vehicle_id AS "vehicleId", requested_date AS "date", requested_time AS "time", status, created_at AS "createdAt"`,
+        [organization.id, vehicleId, lead.id, name, email, phone, date, time, notes, lead.contactId || null],
       );
       appointment = appointmentResult.rows[0];
       await client.query("COMMIT");
@@ -1954,10 +2038,15 @@ app.post("/api/appointments", publicRateLimit({ windowMs: 10 * 60 * 1000, limit:
     await notifyAdmins({ organizationId: organization.id, title: "Nueva cita solicitada", body: `${name} solicitó una cita para ${date} a las ${time}.`, entityType: "appointment", entityId: appointment.id });
     await sendTransactionalEmail({
       to: email,
+      organizationId: organization.id,
       subject: "Recibimos tu solicitud de cita",
       text: `Hola ${name}. Recibimos tu solicitud para el ${date} a las ${time}. El dealer confirmará la disponibilidad.`,
       html: `<p>Hola <strong>${escapeHtml(name)}</strong>.</p><p>Recibimos tu solicitud para el <strong>${escapeHtml(date)}</strong> a las <strong>${escapeHtml(time)}</strong>.</p><p>El dealer confirmará la disponibilidad.</p>`,
     });
+    // Las citas del showroom público también deben llegar al calendario del
+    // dealer. El sincronizador es tolerante: si Google aún no está autorizado,
+    // la solicitud queda guardada en ZEVROA y el dealer puede verla/exportarla.
+    await syncAppointmentToGoogle(organization.id, appointment.id);
     res.status(201).json({ data: { ...appointment, leadId: lead.id } });
   } catch (error) {
     if (isOrganizationNotFound(error)) return sendOrganizationNotFound(res);
@@ -1974,7 +2063,7 @@ app.post("/api/leads", verifyPublicForm, publicRequestIdempotency, async (req, r
   const vehicleId = String(req.body.vehicleId || "").trim() || null;
   const privacyConsent = req.body.privacyConsent === true;
   if (!privacyConsent) return res.status(400).json({ error: "Debes aceptar la politica de privacidad para enviar el mensaje" });
-  if (!name || (!email && !phone)) return res.status(400).json({ error: "Nombre y correo o teléfono son obligatorios" });
+  if (!name || name.length > 120 || (!email && !phone) || (email && !isValidEmail(email)) || phone?.length > 40 || message?.length > 1200) return res.status(400).json({ error: "Nombre y un correo o teléfono válido son obligatorios" });
   try {
     const organization = await getOrganizationContext(req);
     if (vehicleId) {
@@ -1986,6 +2075,7 @@ app.post("/api/leads", verifyPublicForm, publicRequestIdempotency, async (req, r
     await notifyAdmins({ organizationId: organization.id, title: "Nuevo lead recibido", body: `${name} dejó sus datos desde el sitio web.`, entityType: "lead", entityId: lead.id });
     await sendTransactionalEmail({
       to: email,
+      organizationId: organization.id,
       subject: "Recibimos tu mensaje",
       text: `Hola ${name}. Recibimos tu mensaje y un asesor del dealer se pondrá en contacto contigo.`,
       html: `<p>Hola <strong>${escapeHtml(name)}</strong>.</p><p>Recibimos tu mensaje y un asesor del dealer se pondrá en contacto contigo.</p>`,
@@ -2026,6 +2116,7 @@ app.post("/api/public/demo-request", verifyPublicForm, publicRequestIdempotency,
     await notifyAdmins({ organizationId: platform.rows[0].id, title: "Solicitud de demo", body: `${name}${dealership ? ` (${dealership})` : ""} pidió una demo desde el sitio.`, entityType: "lead", entityId: lead.id });
     await sendTransactionalEmail({
       to: email,
+      organizationId: platform.rows[0].id,
       subject: "Recibimos tu solicitud de demo",
       text: `Hola ${name}. Recibimos tu solicitud y te escribimos en menos de un día laborable para agendar la demo.`,
       html: `<p>Hola <strong>${escapeHtml(name)}</strong>.</p><p>Recibimos tu solicitud y te escribimos en menos de un día laborable para agendar la demo.</p>`,
@@ -2409,7 +2500,7 @@ app.post("/api/admin/appointments", authenticate, requireRoles("admin", "editor"
     try {
       await client.query("BEGIN");
       const leadResult = await client.query(
-        `SELECT l.id, l.vehicle_id AS "vehicleId", l.name, l.email, l.phone, l.assigned_to AS "assignedTo"
+        `SELECT l.id, l.contact_id AS "contactId", l.vehicle_id AS "vehicleId", l.name, l.email, l.phone, l.assigned_to AS "assignedTo"
          FROM leads l WHERE l.id=$1 AND l.organization_id=$2 FOR UPDATE`,
         [leadId, adminOrganizationId(req)],
       );
@@ -2421,10 +2512,10 @@ app.post("/api/admin/appointments", authenticate, requireRoles("admin", "editor"
       const booked = await client.query("SELECT COUNT(*)::int AS count FROM test_drive_requests WHERE organization_id=$1 AND requested_date=$2::date AND requested_time=$3::time AND status IN ('pending','confirmed')", [adminOrganizationId(req), date, time]);
       if (Number(booked.rows[0].count) >= capacity) { await client.query("ROLLBACK"); return res.status(409).json({ error: "Ese horario acaba de completarse. Selecciona otro." }); }
       const result = await client.query(
-         `INSERT INTO test_drive_requests (organization_id, vehicle_id, lead_id, customer_name, customer_email, customer_phone, requested_date, requested_time, status, notes, assigned_to)
-          VALUES ($1,$2,$3,$4,$5,$6,$7::date,$8::time,'confirmed',$9,$10)
-          RETURNING id, vehicle_id AS "vehicleId", lead_id AS "leadId", requested_date AS "date", requested_time AS "time", status, notes, created_at AS "createdAt"`,
-         [adminOrganizationId(req), lead.vehicleId, lead.id, lead.name, lead.email, lead.phone, date, time, notes, lead.assignedTo || req.admin.id],
+         `INSERT INTO test_drive_requests (organization_id, vehicle_id, lead_id, customer_name, customer_email, customer_phone, requested_date, requested_time, status, notes, assigned_to, contact_id)
+          VALUES ($1,$2,$3,$4,$5,$6,$7::date,$8::time,'confirmed',$9,$10,$11::uuid)
+          RETURNING id, contact_id AS "contactId", vehicle_id AS "vehicleId", lead_id AS "leadId", requested_date AS "date", requested_time AS "time", status, notes, created_at AS "createdAt"`,
+         [adminOrganizationId(req), lead.vehicleId, lead.id, lead.name, lead.email, lead.phone, date, time, notes, lead.assignedTo || req.admin.id, lead.contactId || null],
       );
       appointment = result.rows[0];
       await client.query("INSERT INTO lead_events (lead_id, actor_id, event_type, note) VALUES ($1,$2,'appointment_created',$3)", [lead.id, req.admin.id, `Cita confirmada para ${date} a las ${time}`]);
@@ -2566,7 +2657,7 @@ app.post("/api/auth/change-password", authenticate, async (req, res) => {
     const admin = result.rows[0];
     const token = jwt.sign({ id: admin.id, email: admin.email, role: admin.role, name: admin.full_name, organizationId: admin.organizationId, sessionVersion: admin.sessionVersion, mustChangePassword: false }, jwtSecret, { expiresIn: "8h" });
     setSessionCookie(res, ADMIN_SESSION_COOKIE, token, 28800);
-    res.json({ token, user: { id: admin.id, name: admin.full_name, email: admin.email, role: admin.role, mustChangePassword: false } });
+    res.json(sessionResponse({ id: admin.id, name: admin.full_name, email: admin.email, role: admin.role, mustChangePassword: false }, token));
   } catch (error) { console.error("Password change failed", error); res.status(500).json({ error: "No se pudo cambiar la contraseña" }); }
 });
 
@@ -3387,7 +3478,7 @@ app.patch("/api/admin/offers/:id/status", authenticate, requireRoles("admin", "e
     if (current.rows[0].status !== status && status !== "pending" && result.rows[0].customerId) {
       const vehicle = await pool.query("SELECT b.name AS brand, v.model FROM vehicles v JOIN vehicle_brands b ON b.id=v.brand_id WHERE v.id=$1 AND v.organization_id=$2", [result.rows[0].vehicleId, adminOrganizationId(req)]);
       const vehicleName = vehicle.rows[0] ? `${vehicle.rows[0].brand} ${vehicle.rows[0].model}` : "tu vehículo";
-      await notifyCustomer({ customerId: result.rows[0].customerId, type: "offer_status", title: status === "accepted" ? "Oferta aceptada" : "Oferta revisada", body: status === "accepted" ? `Tu oferta para ${vehicleName} fue aceptada.` : `Tu oferta para ${vehicleName} fue rechazada.`, entityType: "offer", entityId: result.rows[0].id });
+      await notifyCustomer({ organizationId: adminOrganizationId(req), customerId: result.rows[0].customerId, type: "offer_status", title: status === "accepted" ? "Oferta aceptada" : "Oferta revisada", body: status === "accepted" ? `Tu oferta para ${vehicleName} fue aceptada.` : `Tu oferta para ${vehicleName} fue rechazada.`, entityType: "offer", entityId: result.rows[0].id });
     }
     res.json({ data: result.rows[0] });
   } catch (error) {
@@ -3506,19 +3597,21 @@ app.post("/api/admin/quotes", authenticate, requireRoles("admin", "editor", "sel
        const vehicle = await pool.query("SELECT id FROM vehicles WHERE id=$1 AND organization_id=$2", [quote.vehicleId, adminOrganizationId(req)]);
       if (!vehicle.rowCount) return res.status(404).json({ error: "Vehículo no encontrado" });
     }
+    let lead = null;
     if (quote.leadId) {
-       const lead = await pool.query("SELECT id FROM leads WHERE id=$1 AND organization_id=$2", [quote.leadId, adminOrganizationId(req)]);
-      if (!lead.rowCount) return res.status(404).json({ error: "Lead no encontrado" });
+       const leadResult = await pool.query("SELECT id, contact_id AS \"contactId\" FROM leads WHERE id=$1 AND organization_id=$2", [quote.leadId, adminOrganizationId(req)]);
+      if (!leadResult.rowCount) return res.status(404).json({ error: "Lead no encontrado" });
+      lead = leadResult.rows[0];
     }
     const customer = quote.customerEmail ? await pool.query("SELECT id FROM customer_accounts WHERE LOWER(email)=LOWER($1) AND is_active=TRUE", [quote.customerEmail]) : { rows: [] };
     const customerId = customer.rows[0]?.id || null;
     const result = await pool.query(`
-       INSERT INTO quotes (organization_id, quote_number, lead_id, vehicle_id, customer_name, customer_email, customer_phone, base_price_usd, discount_usd, total_usd, currency, valid_until, notes, customer_id, created_by)
-       VALUES ($1, $2, $3::uuid, $4::uuid, $5, $6, $7, $8::numeric, $9::numeric, $10::numeric, $11, $12::date, $13, $14::uuid, $15::uuid)
-      RETURNING id, quote_number AS "quoteNumber", status, total_usd AS "totalUsd", created_at AS "createdAt"
-    `, [adminOrganizationId(req), createQuoteNumber(), quote.leadId, quote.vehicleId, quote.customerName, quote.customerEmail, quote.customerPhone, quote.basePriceUsd, quote.discountUsd, quote.totalUsd, quote.currency || "USD", quote.validUntil, quote.notes, customerId, req.admin.id]);
+       INSERT INTO quotes (organization_id, quote_number, lead_id, vehicle_id, customer_name, customer_email, customer_phone, base_price_usd, discount_usd, total_usd, currency, valid_until, notes, contact_id, customer_id, created_by)
+       VALUES ($1, $2, $3::uuid, $4::uuid, $5, $6, $7, $8::numeric, $9::numeric, $10::numeric, $11, $12::date, $13, $14::uuid, $15::uuid, $16::uuid)
+       RETURNING id, contact_id AS "contactId", quote_number AS "quoteNumber", status, total_usd AS "totalUsd", created_at AS "createdAt"
+    `, [adminOrganizationId(req), createQuoteNumber(), quote.leadId, quote.vehicleId, quote.customerName, quote.customerEmail, quote.customerPhone, quote.basePriceUsd, quote.discountUsd, quote.totalUsd, quote.currency || "USD", quote.validUntil, quote.notes, lead?.contactId || null, customerId, req.admin.id]);
     await writeAudit(req, "quote.create", "quote", result.rows[0].id, { leadId: quote.leadId, vehicleId: quote.vehicleId, totalUsd: quote.totalUsd });
-    if (customerId) await notifyCustomer({ customerId, type: "quote_created", title: "Nueva cotización disponible", body: `ZEVROA preparó una cotización por $${Number(quote.totalUsd).toLocaleString("en-US")} USD.`, entityType: "quote", entityId: result.rows[0].id });
+    if (customerId) await notifyCustomer({ organizationId: adminOrganizationId(req), customerId, type: "quote_created", title: "Nueva cotización disponible", body: `ZEVROA preparó una cotización por $${Number(quote.totalUsd).toLocaleString("en-US")} USD.`, entityType: "quote", entityId: result.rows[0].id });
     res.status(201).json({ data: result.rows[0] });
   } catch (error) {
     console.error("Quote creation failed", error);
@@ -3537,7 +3630,7 @@ app.patch("/api/admin/quotes/:id/status", authenticate, requireRoles("admin", "e
     if (current.rows[0].status !== status && current.rows[0].customerId && status !== "draft") {
       const labels = { sent: ["Cotización enviada", `La cotización ${current.rows[0].quoteNumber} ya está disponible para revisión.`], accepted: ["Cotización aceptada", `La cotización ${current.rows[0].quoteNumber} fue aceptada.`], expired: ["Cotización vencida", `La cotización ${current.rows[0].quoteNumber} venció.`], cancelled: ["Cotización cancelada", `La cotización ${current.rows[0].quoteNumber} fue cancelada.`] };
       const [title, body] = labels[status];
-      await notifyCustomer({ customerId: current.rows[0].customerId, type: "quote_status", title, body, entityType: "quote", entityId: result.rows[0].id });
+      await notifyCustomer({ organizationId: adminOrganizationId(req), customerId: current.rows[0].customerId, type: "quote_status", title, body, entityType: "quote", entityId: result.rows[0].id });
     }
     res.json({ data: result.rows[0] });
   } catch (error) {
@@ -3656,6 +3749,10 @@ function metadataDescription(value, fallback) {
   return (normalized || fallback).slice(0, 180);
 }
 
+function replaceLegacyBrand(value, businessName) {
+  return String(value || "").replace(/AUTHENTIQ/gi, businessName).trim();
+}
+
 function publicNotFoundHtml({ businessName = "ZEVROA", origin = "", title = "Página no encontrada", message = "Revisa el enlace o vuelve al showroom para continuar." } = {}) {
   const home = origin ? `${origin}/` : "/";
   return `<!doctype html><html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>${escapeHtml(title)} · ${escapeHtml(businessName)}</title><meta name="robots" content="noindex, nofollow"><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#101212;color:#f2efe9;font-family:Arial,sans-serif}main{width:min(560px,calc(100% - 40px));padding:40px;border:1px solid #c8a24b;background:#171a1a}small{letter-spacing:.12em;color:#c8a24b}p{color:#b8bdb8;line-height:1.6}a{display:inline-block;margin-top:18px;padding:13px 18px;background:#c8a24b;color:#101212;text-decoration:none;font-weight:700}</style></head><body><main><small>${escapeHtml(businessName)} · SHOWROOM</small><h1>${escapeHtml(title)}</h1><p>${escapeHtml(message)}</p><a href="${escapeHtml(home)}">Volver al showroom</a></main></body></html>`;
@@ -3665,16 +3762,54 @@ function publicNotFoundHtml({ businessName = "ZEVROA", origin = "", title = "Pá
 // con "index, follow" y un título de catálogo: un 404 blando que permitía a Google
 // indexar URLs inventadas de cada concesionario. Debe coincidir con `knownPath`
 // en App.jsx.
+function publicPathForRequest(req) {
+  const queryPath = req.query?.path ? `/${String(req.query.path).replace(/^\/+/, "")}` : null;
+  const candidates = [req.query?.__route, queryPath, req.headers?.["x-forwarded-uri"], req.headers?.["x-original-url"], req.headers?.["x-matched-path"], req.originalUrl, req.url, req.path];
+  for (const raw of candidates) {
+    if (!raw) continue;
+    try {
+      const pathname = new URL(String(raw), "http://zevroa.local").pathname;
+      if (pathname && pathname !== "/api" && !pathname.startsWith("/api/")) return pathname;
+    } catch { /* Ignore malformed proxy metadata and try the next candidate. */ }
+  }
+  return "/";
+}
+
 function isKnownPublicRoute(pathname) {
-  if (pathname === "/" || pathname === "/index.html" || pathname === "/presentacion" || pathname === "/preview") return true;
+  if (pathname === "/" || pathname === "/index.html" || pathname === "/presentacion" || pathname === "/preview" || pathname === "/contacto" || pathname === "/ubicacion" || pathname === "/privacidad" || pathname === "/terminos" || pathname === "/backoffice" || pathname === "/backoffice/restablecer-contrasena" || pathname === "/cuenta/restablecer-contrasena") return true;
   return /^\/(vehiculos|blog|cotizaciones)\/[^/]+\/?$/i.test(pathname);
 }
 
-async function publicRouteMetadata(req, organization, { businessName, origin, defaultImage }) {
-  const match = req.path.match(/^\/(vehiculos|blog)\/([^/]+)\/?$/i);
+async function publicRouteMetadata(req, organization, { businessName, origin, defaultImage, pathname = publicPathForRequest(req) }) {
+  const match = pathname.match(/^\/(vehiculos|blog)\/([^/]+)\/?$/i);
   const base = { title: `${businessName} · Vehículos seleccionados`, description: `Inventario de vehículos, atención comercial y citas de ${businessName}.`, image: defaultImage, ogType: "website", robots: "index, follow" };
+  if (pathname === "/backoffice" || pathname.endsWith("/restablecer-contrasena")) {
+    return { ...base, title: `${businessName} · Panel de control`, description: "Acceso seguro al panel de control.", robots: "noindex, nofollow" };
+  }
+  const institutionalMetadata = {
+    "/contacto": { title: `${businessName} · Contacto`, description: `Contacta con ${businessName} para conocer disponibilidad, citas y próximos pasos.` },
+    "/ubicacion": { title: `${businessName} · Ubicación`, description: `Encuentra la ubicación, horarios y canales de atención de ${businessName}.` },
+    "/privacidad": { title: `${businessName} · Privacidad`, description: `Consulta la política de privacidad de ${businessName}.`, robots: "noindex, nofollow" },
+    "/terminos": { title: `${businessName} · Términos`, description: `Consulta los términos de uso de ${businessName}.`, robots: "noindex, nofollow" },
+  };
+  if (institutionalMetadata[pathname]) return { ...base, ...institutionalMetadata[pathname] };
+  if (pathname === "/preview" || pathname === "/presentacion") return { ...base, title: `${businessName} · ZEVROA`, robots: "noindex, nofollow" };
+  if (pathname.startsWith("/cotizaciones/")) {
+    let quoteToken = "";
+    try { quoteToken = decodeURIComponent(pathname.slice("/cotizaciones/".length).replace(/\/+$/, "")); } catch { /* se trata como token inválido */ }
+    try {
+      const payload = jwt.verify(quoteToken, jwtSecret);
+      if (payload.kind !== "public_quote" || !payload.quoteId || payload.organizationId !== organization.id) throw new Error("Invalid quote token");
+      const result = await pool.query('SELECT valid_until AS "validUntil" FROM quotes WHERE id=$1 AND organization_id=$2 AND status IN (\'sent\',\'accepted\')', [payload.quoteId, organization.id]);
+      if (!result.rowCount) return { ...base, notFound: true, notFoundTitle: "Cotización no disponible", notFoundMessage: "Esta cotización ya no está disponible o el enlace está incompleto." };
+      if (result.rows[0].validUntil && new Date(result.rows[0].validUntil) < new Date(new Date().toISOString().slice(0, 10))) return { ...base, notFound: true, notFoundTitle: "Cotización vencida", notFoundMessage: "La vigencia de esta cotización terminó. Solicita al concesionario un nuevo enlace." };
+      return { ...base, title: `${businessName} · ZEVROA`, robots: "noindex, nofollow" };
+    } catch {
+      return { ...base, notFound: true, notFoundTitle: "Cotización no disponible", notFoundMessage: "Esta cotización ya no está disponible o el enlace está incompleto." };
+    }
+  }
   if (!match) {
-    if (!isKnownPublicRoute(req.path)) return { ...base, notFound: true, notFoundTitle: "Página no encontrada", notFoundMessage: "Esta dirección no existe en el showroom. Vuelve al catálogo para ver los vehículos disponibles." };
+    if (!isKnownPublicRoute(pathname)) return { ...base, notFound: true, notFoundTitle: "Página no encontrada", notFoundMessage: "Esta dirección no existe en el showroom. Vuelve al catálogo para ver los vehículos disponibles." };
     return base;
   }
   let slug;
@@ -3689,7 +3824,7 @@ async function publicRouteMetadata(req, organization, { businessName, origin, de
     const firstImage = vehicle.images?.find((image) => image?.url)?.url || vehicle.media?.find((media) => media?.posterUrl)?.posterUrl || defaultImage;
     return {
       title: `${vehicleName}${vehicle.year ? ` ${vehicle.year}` : ""} · ${businessName}`,
-      description: metadataDescription(vehicle.seoDescription || vehicle.description, `${vehicleName} disponible en ${businessName}. Consulta precio, especificaciones y agenda una visita.`),
+      description: metadataDescription(replaceLegacyBrand(vehicle.seoDescription || vehicle.description, businessName), `${vehicleName} disponible en ${businessName}. Consulta precio, especificaciones y agenda una visita.`),
       image: absolutePublicAsset(origin, firstImage),
       ogType: "product",
       robots: "index, follow",
@@ -3701,8 +3836,8 @@ async function publicRouteMetadata(req, organization, { businessName, origin, de
   if (!result.rowCount) return { ...base, notFound: true, notFoundTitle: "Artículo no encontrado", notFoundMessage: "Este artículo ya no está publicado o el enlace está incompleto." };
   const post = result.rows[0];
   return {
-    title: metadataDescription(post.seoTitle || post.title, `${businessName} · Noticias`),
-    description: metadataDescription(post.seoDescription || post.summary, `Noticias y novedades de ${businessName}.`),
+    title: metadataDescription(replaceLegacyBrand(post.seoTitle || post.title, businessName), `${businessName} · Noticias`),
+    description: metadataDescription(replaceLegacyBrand(post.seoDescription || post.summary, businessName), `Noticias y novedades de ${businessName}.`),
     image: absolutePublicAsset(origin, post.coverImageUrl || defaultImage),
     ogType: "article",
     robots: "index, follow",
@@ -3721,7 +3856,7 @@ const prerenderCatalogQuery = `
   ORDER BY v.created_at DESC
   LIMIT 60`;
 
-async function buildPrerender({ req, organization, businessName, origin, canonical, settings, metadata }) {
+async function buildPrerender({ req, organization, businessName, origin, canonical, settings, metadata, pathname = publicPathForRequest(req) }) {
   const empty = { prerender: "", jsonLd: "" };
   try {
     const logoUrl = absolutePublicAsset(origin, settings.logoUrl || organization.logoUrl);
@@ -3733,7 +3868,7 @@ async function buildPrerender({ req, organization, businessName, origin, canonic
     }
     // Solo la portada: las rutas internas (blog, cuenta, preview) no ganan nada
     // con un catalogo incrustado y anadirian una consulta por visita.
-    if (req.path !== "/" && req.path !== "/index.html") return empty;
+    if (pathname !== "/" && pathname !== "/index.html") return empty;
     const result = await pool.query(prerenderCatalogQuery, [organization.id]);
     const vehicles = result.rows.map((vehicle) => ({ ...vehicle, slug: vehicleSlug(vehicle) }));
     return {
@@ -3749,6 +3884,7 @@ async function buildPrerender({ req, organization, businessName, origin, canonic
 
 async function sendTenantIndex(req, res, next) {
   try {
+    const pathname = publicPathForRequest(req);
     const organization = await getOrganizationContext(req);
     const settings = await pool.query(
       'SELECT business_name AS "businessName", logo_url AS "logoUrl", phone, email, address, hours, currency, instagram_url AS "instagramUrl", facebook_url AS "facebookUrl" FROM organization_settings WHERE organization_id=$1',
@@ -3756,19 +3892,22 @@ async function sendTenantIndex(req, res, next) {
     );
     const businessName = String(settings.rows[0]?.businessName || organization.name || "ZEVROA").trim().slice(0, 120) || "ZEVROA";
     const origin = publicOriginForOrganization(req, organization).replace(/\/$/, "");
-    const canonicalPath = req.path === "/index.html" ? "/" : req.path;
+    const canonicalPath = pathname === "/index.html" ? "/" : pathname;
     const canonical = `${origin}${canonicalPath}`;
     const defaultImage = absolutePublicAsset(origin, settings.rows[0]?.logoUrl || organization.logoUrl);
-    const metadata = await publicRouteMetadata(req, organization, { businessName, origin, defaultImage });
+    const metadata = await publicRouteMetadata(req, organization, { businessName, origin, defaultImage, pathname });
     if (metadata.notFound) {
       res.status(404).type("html").send(publicNotFoundHtml({ businessName, origin, title: metadata.notFoundTitle || "Página no encontrada", message: metadata.notFoundMessage }));
       return;
     }
     const publicSettings = settings.rows[0] || {};
-    const { prerender, jsonLd } = await buildPrerender({ req, organization, businessName, origin, canonical, settings: publicSettings, metadata });
+    const { prerender, jsonLd } = await buildPrerender({ req, organization, businessName, origin, canonical, settings: publicSettings, metadata, pathname });
     const html = await fs.readFile(frontendIndex, "utf8");
     res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-    res.type("html").send(html
+    const fallbackDescription = "Software para concesionarios con showroom, inventario, clientes, citas y cotizaciones.";
+    const fallbackTitle = "ZEVROA · Vehículos seleccionados";
+    const fallbackImage = "https://zevroa.com/assets/zevroa-hero-v1.webp";
+    const renderedHtml = html
       .replaceAll("<!--__ZEVROA_PRERENDER__-->", prerender)
       .replaceAll("<!--__ZEVROA_JSONLD__-->", jsonLd)
       .replaceAll("__ZEVROA_TITLE__", escapeHtml(metadata.title))
@@ -3777,7 +3916,20 @@ async function sendTenantIndex(req, res, next) {
       .replaceAll("__ZEVROA_CANONICAL__", escapeHtml(canonical))
       .replaceAll("__ZEVROA_ROBOTS__", escapeHtml(metadata.robots))
       .replaceAll("__ZEVROA_OG_TYPE__", escapeHtml(metadata.ogType))
-      .replaceAll("__ZEVROA_SITE_NAME__", escapeHtml(businessName)));
+      .replaceAll("__ZEVROA_SITE_NAME__", escapeHtml(businessName))
+      // Vercel may serve the built index statically for `/`; keep its fallback
+      // metadata valid while replacing the same values for server-rendered routes.
+      .replaceAll(`content="${fallbackDescription}"`, `content="${escapeHtml(metadata.description)}"`)
+      .replaceAll(`content="${fallbackTitle}"`, `content="${escapeHtml(metadata.title)}"`)
+      .replaceAll(`<title>${fallbackTitle}</title>`, `<title>${escapeHtml(metadata.title)}</title>`)
+      .replaceAll(`content="${fallbackImage}"`, `content="${escapeHtml(metadata.image)}"`)
+      .replaceAll('content="index, follow"', `content="${escapeHtml(metadata.robots)}"`)
+      .replaceAll('content="website"', `content="${escapeHtml(metadata.ogType)}"`)
+      .replaceAll('content="ZEVROA"', `content="${escapeHtml(businessName)}"`)
+      .replaceAll('content="https://zevroa.com/"', `content="${escapeHtml(canonical)}"`)
+      .replaceAll('href="https://zevroa.com/"', `href="${escapeHtml(canonical)}"`)
+      .replaceAll(fallbackTitle, escapeHtml(metadata.title));
+    res.type("html").send(renderedHtml);
   } catch (error) {
     if (isOrganizationNotFound(error)) {
       res.status(404).type("html").send(publicNotFoundHtml({ title: "Showroom no encontrado", message: "Revisa el enlace o vuelve al espacio principal para explorar los dealers disponibles." }));
@@ -3786,7 +3938,11 @@ async function sendTenantIndex(req, res, next) {
     next(error);
   }
 }
-app.get(["/", "/index.html"], sendTenantIndex);
+// Estas rutas deben resolverse en el servidor incluso cuando el enlace llega
+// directamente desde Gmail, WhatsApp o un navegador móvil sin estado previo.
+// Si dependen solo del fallback posterior al static handler, un release viejo
+// puede responder 404 antes de que React pueda leer el token.
+app.get(["/", "/index.html", "/presentacion", "/preview", "/contacto", "/ubicacion", "/privacidad", "/terminos", "/backoffice", "/backoffice/restablecer-contrasena", "/cuenta/restablecer-contrasena"], sendTenantIndex);
 app.use(express.static(frontendDist, {
   maxAge: "1h",
   setHeaders: (response, filePath) => {

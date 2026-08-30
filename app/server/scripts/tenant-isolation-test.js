@@ -1,7 +1,12 @@
 import "dotenv/config";
 import assert from "node:assert/strict";
+import pg from "pg";
+import { assertSafeQaTarget, isLocalUrl, qaDatabaseUrl } from "./qa-safety.mjs";
 
-const baseUrl = process.env.LOCAL_TEST_URL || "http://localhost:3001";
+const baseUrl = process.env.QA_TEST_URL || process.env.LOCAL_TEST_URL || "http://localhost:3001";
+const remoteQa = !isLocalUrl(baseUrl);
+if (remoteQa) assertSafeQaTarget({ target: baseUrl, operation: "La prueba de aislamiento", databaseUrl: qaDatabaseUrl() });
+const databaseUrl = remoteQa ? qaDatabaseUrl() : process.env.DATABASE_URL;
 const demoPassword = process.env.LOCAL_DEMO_ADMIN_PASSWORD || "12345678";
 const tenants = [
   { host: "zevroa.localhost", businessName: "ZEVROA" },
@@ -10,9 +15,10 @@ const tenants = [
 ];
 
 async function request(host, path, options = {}) {
+  const localTenant = host.endsWith(".localhost") ? host.slice(0, -".localhost".length) : "";
   const response = await fetch(`${baseUrl}${path}`, {
     ...options,
-    headers: { "X-Forwarded-Host": host, ...(options.headers || {}) },
+    headers: { "X-Forwarded-Host": host, ...(localTenant ? { "X-Authentiq-Tenant": localTenant } : {}), ...(options.headers || {}) },
   });
   const text = await response.text();
   const data = text ? JSON.parse(text) : null;
@@ -21,9 +27,10 @@ async function request(host, path, options = {}) {
 }
 
 async function assertLoginRejected(host, email) {
+  const localTenant = host.endsWith(".localhost") ? host.slice(0, -".localhost".length) : "";
   const response = await fetch(`${baseUrl}/api/auth/login`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "X-Forwarded-Host": host },
+    headers: { "Content-Type": "application/json", "X-Forwarded-Host": host, ...(localTenant ? { "X-Authentiq-Tenant": localTenant } : {}) },
     body: JSON.stringify({ email, password: demoPassword }),
   });
   assert.equal(response.status, 401, `${email} no debe poder iniciar sesión bajo ${host}`);
@@ -58,7 +65,8 @@ for (const tenant of publicData.filter((item) => item.email)) {
     request(tenant.host, "/api/admin/quotes", { headers: { Authorization: `Bearer ${login.token}` } }),
   ]);
   assert.equal(adminSettings.data.businessName, tenant.businessName);
-  assert.equal(adminVehicles.data.length, tenant.vehicles.length);
+  const adminVehicleIds = new Set(adminVehicles.data.map((vehicle) => vehicle.id));
+  assert.equal(tenant.vehicles.every((vehicle) => adminVehicleIds.has(vehicle.id)), true, `${tenant.host} publicó un vehículo que no existe en su inventario administrativo`);
   tenant.adminQuotes = adminQuotes.data;
 }
 
@@ -79,22 +87,32 @@ async function assertCustomerScoping() {
   const password = "Iso-Authentiq-2026!";
   const [a, b] = publicData;
   if (!a || !b) return;
+  try {
+    const signup = await request(a.host, "/api/customer/auth/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fullName: "Comprador Aislamiento", email, password }) });
+    const token = signup.token;
+    assert.ok(token, "no se pudo crear la cuenta de comprador para la prueba");
+    const auth = { Authorization: `Bearer ${token}` };
 
-  const signup = await request(a.host, "/api/customer/auth/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fullName: "Comprador Aislamiento", email, password }) });
-  const token = signup.token;
-  assert.ok(token, "no se pudo crear la cuenta de comprador para la prueba");
-  const auth = { Authorization: `Bearer ${token}` };
+    const vehicleA = a.vehicles[0];
+    const vehicleB = b.vehicles[0];
+    assert.ok(vehicleA && vehicleB, "hacen falta vehículos publicados en ambos concesionarios");
 
-  const vehicleA = a.vehicles[0];
-  const vehicleB = b.vehicles[0];
-  assert.ok(vehicleA && vehicleB, "hacen falta vehículos publicados en ambos concesionarios");
+    await request(a.host, `/api/customer/favorites/${vehicleA.id}`, { method: "PUT", headers: auth });
+    const cruzado = await fetch(`${baseUrl}/api/customer/favorites/${vehicleB.id}`, { method: "PUT", headers: { "X-Forwarded-Host": a.host, ...auth } });
+    assert.equal(cruzado.status, 404, `se pudo guardar como favorito un vehículo de ${b.host} desde ${a.host} (respondió ${cruzado.status})`);
 
-  await request(a.host, `/api/customer/favorites/${vehicleA.id}`, { method: "PUT", headers: auth });
-  const cruzado = await fetch(`${baseUrl}/api/customer/favorites/${vehicleB.id}`, { method: "PUT", headers: { "X-Forwarded-Host": a.host, ...auth } });
-  assert.equal(cruzado.status, 404, `se pudo guardar como favorito un vehículo de ${b.host} desde ${a.host} (respondió ${cruzado.status})`);
-
-  const favoritos = await request(a.host, "/api/customer/favorites", { headers: auth });
-  assert.equal((favoritos.data || []).includes(vehicleB.id), false, `los favoritos de ${a.host} incluyen un vehículo de ${b.host}`);
+    const favoritos = await request(a.host, "/api/customer/favorites", { headers: auth });
+    assert.equal((favoritos.data || []).includes(vehicleB.id), false, `los favoritos de ${a.host} incluyen un vehículo de ${b.host}`);
+  } finally {
+    if (!databaseUrl) throw new Error("DATABASE_URL es obligatorio para limpiar los datos de prueba locales.");
+    const pool = new pg.Pool({ connectionString: databaseUrl });
+    try {
+      await pool.query("DELETE FROM vehicle_favorites WHERE customer_id IN (SELECT id FROM customer_accounts WHERE email = $1)", [email]);
+      await pool.query("DELETE FROM customer_accounts WHERE email = $1", [email]);
+    } finally {
+      await pool.end();
+    }
+  }
 }
 
 await assertCustomerScoping();

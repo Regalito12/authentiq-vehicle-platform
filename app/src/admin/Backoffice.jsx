@@ -1,18 +1,34 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, lazy, Suspense, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import imageCompression from "browser-image-compression";
 import { Command } from "cmdk";
+import { getCoreRowModel, getSortedRowModel, useReactTable } from "@tanstack/react-table";
+import { queryClient } from "./queryClient.js";
 import { DndContext, KeyboardSensor, PointerSensor, useDraggable, useDroppable, useSensor, useSensors } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
-import { Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import PlatformCenter from "./PlatformCenter.jsx";
 import { apiFetch as fetch, apiUrl } from "./apiClient.js";
 import DealerRegistrationWizard from "./DealerRegistrationWizard.jsx";
+import WorkCenter from "./WorkCenter.jsx";
+import ContactsModule from "./ContactsModule.jsx";
+import PhoneField from "./PhoneField.jsx";
 import { formatDate, formatDateTime, formatLeadSource, formatPlatform, formatPrice, formatPriority, formatRole, formatStatus, publicVehiclePath } from "./format.js";
-import { SocialFlyerStudio, WindowStickerModal } from "./GraphicsStudio.jsx";
 import { contrastSafeShade, contrastSafeTint, lighten, readableInkOn } from "../utils/color.js";
+import { normalizePhone } from "../utils/phone.js";
 import { SlidingNumber } from "../components/animate-ui/primitives/texts/sliding-number.jsx";
 import { AnimatedList } from "../ui/MotionPrimitives.jsx";
+import VirtualizedList from "../ui/VirtualizedList.jsx";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../components/ui/alert-dialog.jsx";
+import "../components/ui/alert-dialog.css";
+import { mensajeDeError } from "../utils/errors.js";
 import {
   ArticleIcon,
   ArrowUpRightIcon,
@@ -38,6 +54,13 @@ import {
   UsersIcon,
   UsersThreeIcon,
 } from "@phosphor-icons/react";
+
+// Estas piezas arrastran dependencias grandes o solo se usan en módulos
+// secundarios. Mantenerlas lazy evita pagar su coste al abrir Inicio.
+const PlatformCenter = lazy(() => import("./PlatformCenter.jsx"));
+const SocialFlyerStudio = lazy(() => import("./GraphicsStudio.jsx").then((module) => ({ default: module.SocialFlyerStudio })));
+const WindowStickerModal = lazy(() => import("./GraphicsStudio.jsx").then((module) => ({ default: module.WindowStickerModal })));
+const ReportsCharts = lazy(() => import("./ReportsCharts.jsx"));
 
 // `activo` permite usarlo en diálogos que viven montados y solo se muestran al
 // abrirse. Sin él, el foco quedaría atrapado en un diálogo invisible.
@@ -66,9 +89,9 @@ function useAdminDialog(onClose, activo = true) {
   }, [activo]);
 }
 
-const chartColors = ["#c8a24b", "#5f6f6b", "#2f3b39", "#a33b2b", "#8d7a55"];
 const Vehicle3dActionsContext = createContext({});
 function localIsoDate(value = new Date()) { const date = new Date(value); return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 10); }
+
 
 async function inspect3dFile(file) {
   if (!file) return null;
@@ -98,6 +121,70 @@ async function inspect3dFile(file) {
   }
 }
 
+const AdminDialogsContext = createContext(null);
+
+function AdminActionDialog({ request, onResolve }) {
+  const [value, setValue] = useState(request.defaultValue || "");
+  const [busy, setBusy] = useState(false);
+  const dialogRef = useAdminDialog(() => onResolve(null));
+  const isPrompt = request.kind === "prompt";
+  const submit = async (event) => {
+    event?.preventDefault?.();
+    if (isPrompt && request.required && !value.trim()) return;
+    setBusy(true);
+    await Promise.resolve(onResolve(isPrompt ? value : true));
+  };
+  if (!isPrompt) return <AlertDialog open onOpenChange={(open) => { if (!open && !busy) onResolve(null); }}>
+    <AlertDialogContent>
+      <AlertDialogHeader>
+        <span className="eyebrow">ZEVROA · CONFIRMACIÓN</span>
+        <AlertDialogTitle>{request.title}</AlertDialogTitle>
+        {request.message && <AlertDialogDescription>{request.message}</AlertDialogDescription>}
+      </AlertDialogHeader>
+      <AlertDialogFooter>
+        <AlertDialogCancel disabled={busy}>{request.cancelLabel || "Cancelar"}</AlertDialogCancel>
+        <AlertDialogAction
+          data-danger={request.danger ? "true" : undefined}
+          disabled={busy}
+          onClick={(event) => { event.preventDefault(); submit(event); }}
+        >{busy ? "Guardando…" : (request.confirmLabel || "Confirmar")}</AlertDialogAction>
+      </AlertDialogFooter>
+    </AlertDialogContent>
+  </AlertDialog>;
+  return <div className="admin-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onResolve(null); }}>
+    <form className="admin-action-dialog" role="dialog" aria-modal="true" aria-labelledby="admin-action-dialog-title" ref={dialogRef} onSubmit={submit}>
+      <span className="eyebrow">ZEVROA · CONFIRMACIÓN</span>
+      <h2 id="admin-action-dialog-title">{request.title}</h2>
+      {request.message && <p>{request.message}</p>}
+      {isPrompt && <label>{request.label || "Valor"}<input autoFocus value={value} onChange={(event) => setValue(event.target.value)} placeholder={request.placeholder || ""} required={request.required} /></label>}
+      <div className="admin-action-dialog-actions">
+        <button className="secondary-action" type="button" onClick={() => onResolve(null)} disabled={busy}>{request.cancelLabel || "Cancelar"}</button>
+        <button className={`primary-action${request.danger ? " danger-action" : ""}`} type="submit" disabled={busy || (isPrompt && request.required && !value.trim())}>{busy ? "Guardando…" : (request.confirmLabel || "Confirmar")}</button>
+      </div>
+    </form>
+  </div>;
+}
+
+export function AdminDialogsProvider({ children }) {
+  const [request, setRequest] = useState(null);
+  const resolve = useCallback((result) => {
+    setRequest((current) => {
+      current?.resolve?.(result);
+      return null;
+    });
+  }, []);
+  const ask = useCallback((options = {}) => new Promise((promiseResolve) => setRequest({ kind: "confirm", ...options, resolve: promiseResolve })), []);
+  const askPrompt = useCallback((options = {}) => new Promise((promiseResolve) => setRequest({ kind: "prompt", ...options, resolve: promiseResolve })), []);
+  const value = useMemo(() => ({ confirm: ask, prompt: askPrompt }), [ask, askPrompt]);
+  return <AdminDialogsContext.Provider value={value}>{children}<AnimatePresence>{request && <AdminActionDialog key="admin-action-dialog" request={request} onResolve={resolve} />}</AnimatePresence></AdminDialogsContext.Provider>;
+}
+
+function useAdminConfirm() {
+  const value = useContext(AdminDialogsContext);
+  if (!value) throw new Error("useAdminConfirm debe usarse dentro de AdminDialogsProvider");
+  return value;
+}
+
 function format3dReport(report) {
   if (!report) return null;
   if (report.animationCount === null) return `Archivo ${report.sizeLabel} · análisis visual pendiente`;
@@ -106,10 +193,10 @@ function format3dReport(report) {
 
 function navItemsForRole(role) {
   const salesItem = ["quotes", "Cotizaciones"];
-  if (role === "admin") return [["dashboard", "Resumen"], ["inventory", "Inventario"], ["taxonomy", "Marcas y categorías"], ["leads", "Clientes"], salesItem, ["blog", "Contenido"], ["offers", "Ofertas"], ["reports", "Reportes"], ["audit", "Actividad"], ["users", "Usuarios"], ["subscription", "Plan y facturación"], ["integrations", "Conexiones"], ["settings", "Personalizar showroom"]];
-  if (role === "editor") return [["dashboard", "Resumen"], ["inventory", "Inventario"], ["taxonomy", "Marcas y categorías"], ["leads", "Clientes"], salesItem, ["blog", "Contenido"], ["offers", "Ofertas"], ["reports", "Reportes"], ["settings", "Personalizar showroom"]];
-  if (role === "content_editor") return [["dashboard", "Resumen"], ["blog", "Contenido"]];
-  return [["dashboard", "Resumen"], ["leads", "Clientes"], salesItem, ["offers", "Ofertas"], ["reports", "Reportes"]];
+  if (role === "admin") return [["dashboard", "Inicio"], ["inventory", "Mi inventario"], ["taxonomy", "Marcas y categorías"], ["leads", "Clientes"], salesItem, ["blog", "Contenido"], ["offers", "Ofertas"], ["reports", "Estadísticas"], ["audit", "Actividad"], ["users", "Usuarios"], ["subscription", "Plan y facturación"], ["integrations", "Conexiones"], ["settings", "Perfil y ajustes"]];
+  if (role === "editor") return [["dashboard", "Inicio"], ["inventory", "Mi inventario"], ["taxonomy", "Marcas y categorías"], ["leads", "Clientes"], salesItem, ["blog", "Contenido"], ["offers", "Ofertas"], ["reports", "Estadísticas"], ["settings", "Perfil y ajustes"]];
+  if (role === "content_editor") return [["dashboard", "Inicio"], ["blog", "Contenido"]];
+  return [["dashboard", "Inicio"], ["leads", "Clientes"], salesItem, ["offers", "Ofertas"], ["reports", "Estadísticas"]];
 }
 
 function navItemsWithAppointments(role) {
@@ -182,6 +269,7 @@ function InventoryImportModal({ open, onClose, vehicles = [] }) {
 }
 
 function TaxonomyModule({ taxonomy: externalTaxonomy, loading: externalLoading = false, onRefresh: externalRefresh, onCreate: externalCreate, onUpdate: externalUpdate }) {
+  const { confirm, prompt } = useAdminConfirm();
   const [localTaxonomy, setLocalTaxonomy] = useState(externalTaxonomy || { brands: [], categories: [] });
   const [localLoading, setLocalLoading] = useState(false);
   const requestTaxonomy = async (path, options = {}) => { const response = await fetch(`${apiUrl}${path}`, { ...options, credentials: "include", headers: { "Content-Type": "application/json", ...(options.headers || {}) } }); const payload = response.status === 204 ? null : await response.json(); if (!response.ok) throw new Error(payload?.error || "No se pudo actualizar el catálogo"); return payload; };
@@ -190,7 +278,7 @@ function TaxonomyModule({ taxonomy: externalTaxonomy, loading: externalLoading =
   const loading = externalLoading || localLoading;
   const onRefresh = externalRefresh || refreshTaxonomy;
   const onCreate = externalCreate || (async (kind, values) => { await requestTaxonomy(`/api/admin/taxonomy/${kind}`, { method: "POST", body: JSON.stringify(values) }); await refreshTaxonomy(); });
-  const onUpdate = externalUpdate || (async (kind, record) => { const name = window.prompt(`Nombre de ${kind === "brands" ? "la marca" : "la categoría"}:`, record.name); if (name === null) return; const isActive = record.isActive ? window.confirm("¿Quieres mantener este registro activo? Pulsa Cancelar para desactivarlo.") : true; const logoUrl = kind === "brands" ? window.prompt("Logo URL (opcional):", record.logoUrl || "") : ""; await requestTaxonomy(`/api/admin/taxonomy/${kind}/${record.id}`, { method: "PATCH", body: JSON.stringify({ name, logoUrl, isActive }) }); await refreshTaxonomy(); });
+  const onUpdate = externalUpdate || (async (kind, record) => { const name = await prompt({ title: `Editar ${kind === "brands" ? "marca" : "categoría"}`, message: "Actualiza el nombre que verá el equipo al crear vehículos.", label: "Nombre", defaultValue: record.name, required: true, confirmLabel: "Continuar" }); if (name === null) return; const isActive = record.isActive ? await confirm({ title: "Mantener registro activo", message: "Si lo mantienes activo, seguirá apareciendo en el asistente de inventario.", confirmLabel: "Mantener activa" }) : true; if (isActive === null) return; const logoUrl = kind === "brands" ? await prompt({ title: "Logo de la marca", message: "Puedes dejarlo vacío si no quieres cambiarlo.", label: "Logo URL", defaultValue: record.logoUrl || "", placeholder: "https://.../logo.svg", confirmLabel: "Guardar marca" }) : ""; if (logoUrl === null) return; await requestTaxonomy(`/api/admin/taxonomy/${kind}/${record.id}`, { method: "PATCH", body: JSON.stringify({ name, logoUrl, isActive }) }); await refreshTaxonomy(); });
   useEffect(() => { if (!externalTaxonomy) refreshTaxonomy().catch(() => {}); }, []);
   const [kind, setKind] = useState("brands");
   const [form, setForm] = useState({ name: "", logoUrl: "" });
@@ -207,10 +295,18 @@ function AdminNav({ activeModule, onChange, onBack, onLogout, role, unreadNotifi
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
   const visibleItems = navItemsWithAppointments(role);
-  const primaryKeys = ["dashboard", "inventory", "leads", "appointments", "quotes"];
-  const primaryItems = visibleItems.filter(([key]) => primaryKeys.includes(key));
+  // Cuatro accesos bastan para el trabajo diario. El resto sigue disponible
+  // en Administración y mediante Ctrl/Cmd + K, sin desaparecer ni duplicarse.
+  const primaryKeysByRole = {
+    admin: ["dashboard", "inventory", "leads", "appointments", "quotes"],
+    editor: ["dashboard", "inventory", "leads", "appointments", "quotes"],
+    seller: ["dashboard", "leads", "quotes", "reports"],
+    content_editor: ["dashboard", "blog"],
+  };
+  const primaryKeys = primaryKeysByRole[role] || primaryKeysByRole.seller;
+  const primaryItems = primaryKeys.flatMap((key) => visibleItems.filter(([itemKey]) => itemKey === key));
   const advancedItems = visibleItems.filter(([key]) => !primaryKeys.includes(key));
-  const moduleContext = { dashboard: ["Resumen", "Mira lo importante y decide la siguiente acción."], inventory: ["Inventario", "Mantén cada ficha lista para vender."], taxonomy: ["Marcas y categorías", "Controla el catálogo que usa tu equipo."], leads: ["Clientes", "Prioriza conversaciones y próximos pasos."], quotes: ["Cotizaciones", "Convierte una propuesta en una decisión."], blog: ["Contenido", "Cuenta mejor la historia de cada vehículo."], offers: ["Ofertas", "Responde rápido a las oportunidades."], reports: ["Reportes", "Lee el negocio antes de moverlo."], audit: ["Actividad", "Revisa lo que está pasando en el sistema."], users: ["Usuarios", "Administra acceso y responsabilidades."], subscription: ["Plan y facturación", "Entiende lo que incluye tu cuenta y decide cuándo crecer."], integrations: ["Conexiones", "Calendario, redes y cobros en un solo lugar."], settings: ["Personalización", "Ajusta la identidad y operación del showroom."] }[activeModule] || ["Panel de control", `Operación ${businessName}`];
+  const moduleContext = { dashboard: ["Inicio", "Mira lo importante y decide la siguiente acción."], inventory: ["Mi inventario", "Mantén cada ficha lista para vender."], taxonomy: ["Marcas y categorías", "Controla el catálogo que usa tu equipo."], leads: ["Clientes", "Prioriza conversaciones y próximos pasos."], quotes: ["Cotizaciones", "Convierte una propuesta en una decisión."], blog: ["Contenido", "Cuenta mejor la historia de cada vehículo."], offers: ["Ofertas", "Responde rápido a las oportunidades."], reports: ["Estadísticas", "Lee el negocio antes de moverlo."], audit: ["Actividad", "Revisa lo que está pasando en el sistema."], users: ["Usuarios", "Administra acceso y responsabilidades."], subscription: ["Plan y facturación", "Entiende lo que incluye tu cuenta y decide cuándo crecer."], integrations: ["Conexiones", "Calendario, redes y cobros en un solo lugar."], settings: ["Perfil y ajustes", "Ajusta la identidad y operación del showroom."] }[activeModule] || ["Panel de control", `Operación ${businessName}`];
   useEffect(() => {
     if (advancedItems.some(([key]) => key === activeModule)) setAdvancedOpen(true);
   }, [activeModule, advancedItems.length]);
@@ -228,14 +324,14 @@ function AdminNav({ activeModule, onChange, onBack, onLogout, role, unreadNotifi
         {/* El nombre del módulo lo titula cada módulo con su propio contexto:
             repetirlo aquí duplicaba el encabezado y comía media pantalla en móvil. */}
         <div className="admin-title-row"><h1 className="admin-app-title">{businessName} <span>Panel de control</span></h1><span className="role-chip">{role === "admin" ? "DUEÑO" : role === "content_editor" ? "CONTENIDO" : role === "editor" ? "OPERACIÓN" : "VENTAS"}</span></div>
-        <div className="admin-header-actions"><button className="secondary-action command-launch" type="button" onClick={() => setCommandOpen(true)}><MagnifyingGlassIcon size={16} aria-hidden="true" />Acciones <kbd>Ctrl K</kbd></button><div className="notification-wrap"><button className="notification-button" type="button" onClick={() => setShowNotifications((current) => !current)} aria-expanded={showNotifications} aria-label="Abrir notificaciones"><BellIcon size={16} weight="regular" aria-hidden="true" />Notificaciones {unreadNotifications > 0 && <span>{unreadNotifications}</span>}</button>{showNotifications && <div className="notification-popover"><div className="notification-popover-head"><strong>Actividad reciente</strong>{unreadNotifications > 0 && <button className="text-button" type="button" onClick={onReadNotifications}>Marcar leídas</button>}</div>{notifications?.length ? notifications.slice(0, 8).map((notification) => <article className={notification.readAt ? "notification-item" : "notification-item unread"} key={notification.id}><strong>{notification.title}</strong><span>{notification.body}</span><small>{formatDate(notification.createdAt)}</small></article>) : <p className="empty-state">No hay notificaciones nuevas.</p>}</div>}</div>{["admin", "editor"].includes(role) && <button className="secondary-action onboarding-launch-button" type="button" onClick={role === "editor" ? () => onChange("settings") : onOpenOnboarding}><PaintBrushIcon size={16} weight="regular" aria-hidden="true" />Personalizar showroom</button>}<button className="secondary-action theme-toggle" type="button" onClick={onToggleTheme} aria-label="Cambiar tema">{theme === "dark" ? <SunIcon size={16} weight="regular" aria-hidden="true" /> : <MoonIcon size={16} weight="regular" aria-hidden="true" />}{theme === "dark" ? "Modo claro" : "Modo oscuro"}</button><button className="secondary-action" type="button" onClick={onPreview}><EyeIcon size={16} weight="regular" aria-hidden="true" />Vista previa</button><button className="secondary-action" onClick={onBack}><HouseIcon size={16} weight="regular" aria-hidden="true" />Ver catálogo</button><button className="secondary-action" onClick={onLogout}>Cerrar sesión</button></div>
+         <div className="admin-header-actions"><button className="secondary-action command-launch" type="button" onClick={() => setCommandOpen(true)}><MagnifyingGlassIcon size={16} aria-hidden="true" />Acciones <kbd>Ctrl K</kbd></button><div className="notification-wrap"><button className="notification-button" type="button" onClick={() => setShowNotifications((current) => !current)} aria-expanded={showNotifications} aria-label="Abrir notificaciones"><BellIcon size={16} weight="regular" aria-hidden="true" />Notificaciones {unreadNotifications > 0 && <span>{unreadNotifications}</span>}</button>{showNotifications && <div className="notification-popover"><div className="notification-popover-head"><strong>Actividad reciente</strong>{unreadNotifications > 0 && <button className="text-button" type="button" onClick={onReadNotifications}>Marcar leídas</button>}</div>{notifications?.length ? notifications.slice(0, 8).map((notification) => <article className={notification.readAt ? "notification-item" : "notification-item unread"} key={notification.id}><strong>{notification.title}</strong><span>{notification.body}</span><small>{formatDate(notification.createdAt)}</small></article>) : <p className="empty-state">No hay notificaciones nuevas.</p>}</div>}</div>{["admin", "editor"].includes(role) && <button className="secondary-action onboarding-launch-button" type="button" onClick={role === "editor" ? () => onChange("settings") : onOpenOnboarding}><PaintBrushIcon size={16} weight="regular" aria-hidden="true" />Personalizar showroom</button>}<button className="secondary-action theme-toggle" type="button" onClick={onToggleTheme} aria-label="Cambiar tema">{theme === "dark" ? <SunIcon size={16} weight="regular" aria-hidden="true" /> : <MoonIcon size={16} weight="regular" aria-hidden="true" />}{theme === "dark" ? "Modo claro" : "Modo oscuro"}</button><button className="secondary-action" type="button" onClick={onPreview}><EyeIcon size={16} weight="regular" aria-hidden="true" />Vista previa</button><button className="secondary-action" type="button" onClick={onBack}><HouseIcon size={16} weight="regular" aria-hidden="true" />Ver catálogo</button><button className="secondary-action" type="button" onClick={onLogout}>Cerrar sesión</button></div>
       </header>
       <div className="admin-presentation-launch"><span>¿Quieres enseñar el showroom sin herramientas de administración?</span><button className="secondary-action" type="button" onClick={() => window.open("/presentacion", "_blank", "noopener,noreferrer")}>Abrir vista de presentación →</button></div>
       <aside className="admin-navigation-shell">
         <div className="admin-navigation-brand"><span className="admin-navigation-kicker">Tu operación</span><strong>{businessName}</strong><small>{role === "admin" ? "Control total del showroom" : "Espacio de trabajo"}</small></div>
         <nav className="admin-nav" aria-label="Módulos administrativos">
-          <div className="admin-nav-core"><span className="admin-nav-label">Trabajo diario</span>{primaryItems.map(([key, label]) => <button key={key} className={activeModule === key ? "admin-nav-item active" : "admin-nav-item"} aria-current={activeModule === key ? "page" : undefined} onClick={() => onChange(key)}><AdminModuleIcon name={key} />{label}</button>)}</div>
-          {advancedItems.length > 0 && <div className="admin-nav-advanced"><button className="admin-nav-more-toggle" type="button" aria-expanded={advancedOpen} onClick={() => setAdvancedOpen((current) => !current)}><span>Administración</span>{advancedOpen ? <CaretUpIcon size={15} aria-hidden="true" /> : <CaretDownIcon size={15} aria-hidden="true" />}</button>{advancedOpen && <div className="admin-nav-more-panel">{advancedItems.map(([key, label]) => <button key={key} className={activeModule === key ? "admin-nav-item active" : "admin-nav-item"} aria-current={activeModule === key ? "page" : undefined} onClick={() => { setAdvancedOpen(true); onChange(key); }}><AdminModuleIcon name={key} />{label}</button>)}</div>}</div>}
+          <div className="admin-nav-core"><span className="admin-nav-label">Trabajo diario</span>{primaryItems.map(([key, label]) => <button type="button" key={key} className={activeModule === key ? "admin-nav-item active" : "admin-nav-item"} aria-current={activeModule === key ? "page" : undefined} onClick={() => onChange(key)}><AdminModuleIcon name={key} />{label}</button>)}</div>
+          {advancedItems.length > 0 && <div className="admin-nav-advanced"><button className="admin-nav-more-toggle" type="button" aria-expanded={advancedOpen} onClick={() => setAdvancedOpen((current) => !current)}><span>Más herramientas</span>{advancedOpen ? <CaretUpIcon size={15} aria-hidden="true" /> : <CaretDownIcon size={15} aria-hidden="true" />}</button>{advancedOpen && <div className="admin-nav-more-panel">{advancedItems.map(([key, label]) => <button type="button" key={key} className={activeModule === key ? "admin-nav-item active" : "admin-nav-item"} aria-current={activeModule === key ? "page" : undefined} onClick={() => { setAdvancedOpen(true); onChange(key); }}><AdminModuleIcon name={key} />{label}</button>)}</div>}</div>}
         </nav>
         {role === "content_editor" && <div className="admin-role-hint" role="note"><span className="admin-navigation-kicker">Acceso actual</span><strong>Cuenta de contenido</strong><p>Solo puedes editar Contenido. Para trabajar con inventario, clientes, citas, cotizaciones, usuarios y facturación, entra con una cuenta Dueño u Operación.</p><button className="text-button" type="button" onClick={onLogout}>Cambiar de cuenta →</button></div>}
         <div className="admin-context-bar" aria-live="polite"><span><b>{moduleContext[0]}</b><small>{moduleContext[1]}</small></span></div>
@@ -257,10 +353,22 @@ function AdminEmptyState({ eyebrow = "SIN ACTIVIDAD", title, text, actionLabel, 
   return <div className="admin-empty-state"><span className="admin-empty-mark" aria-hidden="true">◌</span><div><span className="eyebrow">{eyebrow}</span><strong>{title}</strong><p>{text}</p></div>{actionLabel && onAction && <button className="secondary-action" type="button" onClick={onAction}>{actionLabel} →</button>}</div>;
 }
 
-function AdminToast({ message }) {
+function AdminToast({ message, action }) {
   if (!message) return null;
   // La salida es más rápida que la entrada (~75%): confirma sin demorar al usuario.
-  return <motion.div className="admin-toast" role="status" initial={{ opacity: 0, y: 12, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1, transition: { duration: .22, ease: [0.22, 1, 0.36, 1] } }} exit={{ opacity: 0, y: 8, transition: { duration: .15 } }}><span className="admin-toast-mark">✓</span><span>{message}</span></motion.div>;
+  return <motion.div className="admin-toast" role="status" aria-live="polite" initial={{ opacity: 0, y: 12, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1, transition: { duration: .22, ease: [0.22, 1, 0.36, 1] } }} exit={{ opacity: 0, y: 8, transition: { duration: .15 } }}><span className="admin-toast-mark" aria-hidden="true">✓</span><span>{message}</span>{action && <button type="button" className="admin-toast-action" onClick={action.onClick}>{action.label}</button>}</motion.div>;
+}
+
+function AdminSavedStatus({ savedAt }) {
+  const [, refresh] = useState(0);
+  useEffect(() => {
+    if (!savedAt) return undefined;
+    const timer = window.setInterval(() => refresh((value) => value + 1), 60000);
+    return () => window.clearInterval(timer);
+  }, [savedAt]);
+  if (!savedAt) return <small className="admin-save-status">Listo para trabajar</small>;
+  const elapsed = Math.max(0, Math.floor((Date.now() - savedAt.getTime()) / 60000));
+  return <small className="admin-save-status" role="status" aria-live="polite">✓ Guardado {elapsed === 0 ? "ahora" : `hace ${elapsed} min`}</small>;
 }
 
 function DashboardSkeleton() {
@@ -299,6 +407,23 @@ function DashboardPulse({ data, leads, offers, appointments, onNavigate, onOpenL
       {priorityLeads.length ? <div className="priority-list">{priorityLeads.map((lead, index) => <button className={`priority-item${isOverdue(lead) ? " is-overdue" : ""}`} type="button" key={lead.id} onClick={() => onOpenLead ? onOpenLead(lead) : onNavigate("leads")}><span className="priority-index">{String(index + 1).padStart(2, "0")}</span><span className="priority-copy"><strong>{lead.name}</strong><small>{lead.brand ? `${lead.brand} ${lead.model}` : "Contacto general"} · {isOverdue(lead) ? "Seguimiento vencido" : hasNoNextAction(lead) ? "Sin próxima acción" : formatDateTime(lead.nextActionAt)}</small></span><span className={`status-pill ${lead.status}`}>{formatStatus(lead.status)}</span><span className="priority-arrow">→</span></button>)}</div> : <p className="empty-state">No hay clientes pendientes de seguimiento.</p>}
     </article>
     <div className="quick-action-grid">{actions.map(([key, label, count, hint], index) => <button className="quick-action" type="button" key={key} onClick={() => onNavigate(key)}><span className="quick-action-top"><span className="eyebrow">{String(index + 1).padStart(2, "0")}</span><strong><SlidingNumber number={count} thousandSeparator="," /></strong></span><span className="quick-action-label">{label}</span><small>{hint} <span>→</span></small></button>)}</div>
+  </section>;
+}
+
+function DashboardWorkflowRail({ vehicles = [], leads = [], appointments = [], offers = [], onNavigate }) {
+  const published = vehicles.filter((vehicle) => ["published", "reserved"].includes(vehicle.status)).length;
+  const activeLeads = leads.filter((lead) => ["new", "contacted", "qualified"].includes(lead.status)).length;
+  const activeAppointments = appointments.filter((item) => ["pending", "confirmed"].includes(item.status)).length;
+  const pendingOffers = offers.filter((item) => item.status === "pending").length;
+  const stages = [
+    ["inventory", "Inventario", published, published ? "Vitrina activa" : "Añade un vehículo"],
+    ["leads", "Clientes", activeLeads, activeLeads ? "Conversaciones abiertas" : "Sin leads pendientes"],
+    ["appointments", "Citas", activeAppointments, activeAppointments ? "Visitas por preparar" : "Agenda despejada"],
+    ["offers", "Propuestas", pendingOffers, pendingOffers ? "Propuestas por responder" : "Sin propuestas pendientes"],
+  ];
+  return <section className="dashboard-workflow" aria-label="Recorrido comercial del showroom">
+    <div className="dashboard-workflow-heading"><div><span className="eyebrow">EL RECORRIDO DEL SHOWROOM</span><h3>De la vitrina a la venta.</h3></div><p>Una lectura rápida de dónde está tu operación y qué merece atención.</p></div>
+    <div className="dashboard-workflow-rail">{stages.map(([key, label, count, note], index) => <button className={`dashboard-workflow-step${count ? " has-activity" : ""}`} type="button" key={key} onClick={() => onNavigate(key)}><span className="dashboard-workflow-number">{String(index + 1).padStart(2, "0")}</span><span className="dashboard-workflow-icon"><AdminModuleIcon name={key} /></span><strong>{label}</strong><b>{count}</b><small>{note}</small>{index < stages.length - 1 && <i aria-hidden="true">→</i>}</button>)}</div>
   </section>;
 }
 
@@ -406,7 +531,7 @@ function DealerShareCard({ organization, settings, onNavigate }) {
         <div className="dealer-preview-mini">
           <div className="dealer-preview-logo">
             {organization?.logoUrl ? (
-              <img src={organization.logoUrl} alt="" />
+              <img src={organization.logoUrl} alt={`Logo de ${organization.name || "tu concesionario"}`} />
             ) : (
               <span>{(organization?.name || "D").slice(0, 2).toUpperCase()}</span>
             )}
@@ -419,7 +544,15 @@ function DealerShareCard({ organization, settings, onNavigate }) {
   );
 }
 
-function DashboardView({ data, vehicles = [], leads, offers, appointments, loading, error = "", onRetry, onNavigate, onOpenLead, onboarding, onOpenOnboarding, onOpenPublic, organization, settings, currentUser }) {
+function DealerFirstRunCard({ onNavigate }) {
+  return <section className="dealer-first-run" aria-label="Primeros pasos del showroom">
+    <div className="dealer-first-run-mark" aria-hidden="true"><CarSimpleIcon size={28} weight="duotone" /></div>
+    <div className="dealer-first-run-copy"><span className="eyebrow">PRIMER PASO</span><h3>Publica tu primer vehículo.</h3><p>Tu showroom ya tiene una base. Añade una ficha con fotos, precio y los datos esenciales para empezar a vender.</p></div>
+    <button className="primary-action" type="button" onClick={() => onNavigate("inventory")}>Publicar mi primer vehículo →</button>
+  </section>;
+}
+
+function DashboardView({ data, vehicles = [], leads, offers, appointments, loading, error = "", onRetry, onNavigate, onOpenLead, onOpenContact, onboarding, onOpenOnboarding, onOpenPublic, organization, settings, currentUser, workQueue = [], workQueueLoading = false, workQueueError = "", onRefreshWorkQueue }) {
   if (loading) return <DashboardSkeleton />;
   if (error) return <section className="dashboard-content"><AdminEmptyState eyebrow="RESUMEN NO DISPONIBLE" title="No pudimos cargar tu resumen." text={error || "El servidor no respondió a tiempo. Tus inventarios y solicitudes siguen guardados."} actionLabel="Reintentar" onAction={onRetry} /></section>;
   if (!data) return <DashboardSkeleton />;
@@ -440,6 +573,14 @@ function DashboardView({ data, vehicles = [], leads, offers, appointments, loadi
     pendingOffers: Math.max(Number(summary.pendingOffers) || 0, safeOffers.filter((offer) => offer.status === "pending").length),
   };
   const statusData = (data.byStatus || []).map((item) => ({ ...item, label: item.status === "published" ? "Publicados" : item.status === "pending_review" ? "En revisión" : item.status === "draft" ? "Borradores" : item.status === "sold" ? "Vendidos" : "Inactivos" }));
+  // Un showroom sin vehículos todavía no necesita compartir enlaces, gráficos
+  // ni métricas vacías. Su siguiente decisión debe ser única y evidente.
+  if (snapshot.totalVehicles === 0) return <section className="dashboard-content dashboard-first-run">
+    <div className="dashboard-intro"><div><span className="eyebrow">ZEVROA · PRIMEROS PASOS</span><h2>Vamos a poner tu showroom en marcha.</h2></div><p>Completa una ficha y luego iremos sumando el resto de la operación.</p></div>
+    {organization?.approvalStatus === "pending" && <div className="dashboard-approval-banner"><strong>Tu showroom está en revisión.</strong><p>Puedes configurarlo en privado mientras preparas tu primer vehículo.</p></div>}
+    {organization?.approvalStatus === "rejected" && <div className="dashboard-approval-banner is-rejected"><strong>Tu showroom necesita una revisión.</strong><p>Prepara el inventario y contacta al equipo de ZEVROA cuando esté listo.</p></div>}
+    <DealerFirstRunCard onNavigate={onNavigate} />
+  </section>;
   return (
     <section className="dashboard-content">
       <div className="dashboard-intro"><div><span className="eyebrow">OPERACIÓN · EN TIEMPO REAL</span><h2>Una vista clara del negocio.</h2></div><p>Todo lo que tu equipo necesita para responder, publicar y vender.</p></div>
@@ -453,11 +594,10 @@ function DashboardView({ data, vehicles = [], leads, offers, appointments, loadi
         <StatCard label="Valor inventario" numericValue={snapshot.inventoryValue} prefix="$" suffix=" USD" note="Valor publicado por modelo" />
         <StatCard label="Clientes activos" numericValue={snapshot.pendingLeads} note={`${snapshot.pendingOffers} ofertas pendientes`} />
       </div>
+      <DashboardWorkflowRail vehicles={vehicles} leads={safeLeads} appointments={appointments} offers={safeOffers} onNavigate={onNavigate} />
+      <WorkCenter items={workQueue} loading={workQueueLoading} error={workQueueError} currentUser={currentUser} onRefresh={onRefreshWorkQueue} onNavigate={onNavigate} onOpenContact={onOpenContact} />
       <DashboardPulse data={data} leads={leads} offers={offers} appointments={appointments} onNavigate={onNavigate} onOpenLead={onOpenLead} currentUser={currentUser} />
-      <div className="charts-grid">
-        <article className="chart-panel"><div className="panel-heading"><div><span className="eyebrow">INVENTARIO</span><h3>Stock por marca</h3></div></div><div className="chart-box"><ResponsiveContainer width="100%" height="100%"><BarChart data={data.byBrand || []} margin={{ top: 8, right: 8, left: -22, bottom: 0 }}><XAxis dataKey="name" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} /><YAxis allowDecimals={false} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} /><Tooltip formatter={(value) => [`${value} unidades`, "Stock"]} /><Bar dataKey="stock" fill="#c8a24b" radius={[3, 3, 0, 0]} /></BarChart></ResponsiveContainer></div></article>
-        <article className="chart-panel"><div className="panel-heading"><div><span className="eyebrow">ESTADO</span><h3>Distribución del inventario</h3></div></div><div className="chart-box status-chart"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={statusData} dataKey="count" nameKey="label" innerRadius={52} outerRadius={78} paddingAngle={3}>{statusData.map((item, index) => <Cell key={item.status} fill={chartColors[index % chartColors.length]} />)}</Pie><Tooltip formatter={(value, _name, item) => [`${value} vehículos`, item.payload.label]} /></PieChart></ResponsiveContainer><div className="chart-legend">{statusData.map((item, index) => <span key={item.status}><i style={{ background: chartColors[index % chartColors.length] }} />{item.label} · {item.count}</span>)}</div></div></article>
-      </div>
+      <Suspense fallback={<div className="charts-grid"><div className="chart-panel chart-loading-state" role="status">Preparando gráficos…</div></div>}><ReportsCharts byBrand={data.byBrand || []} statusData={statusData} /></Suspense>
       <div className="dashboard-lower"><article className="activity-panel"><div className="panel-heading"><div><span className="eyebrow">OFERTAS</span><h3>Actividad reciente</h3></div><button className="text-button" type="button" onClick={() => onNavigate("offers")}>Ver todas →</button></div>{data.recentOffers?.length ? <AnimatedList items={data.recentOffers} className="activity-list-motion" itemClassName="activity-row" renderItem={(offer) => <><div><strong>{offer.buyerName}</strong><span>{offer.brand} {offer.model} · {formatPrice(offer.amountUsd)}</span></div><span className={`status-pill ${offer.status}`}>{formatStatus(offer.status)}</span></>} /> : <AdminEmptyState eyebrow="OFERTAS" title="Todavía no hay ofertas." text="Cuando llegue la primera, aparecerá aquí para que puedas responderla." actionLabel="Ver clientes" onAction={() => onNavigate("leads")} />}</article><article className="activity-panel"><div className="panel-heading"><div><span className="eyebrow">AGENDA</span><h3>Próximas citas</h3></div><button className="text-button" type="button" onClick={() => onNavigate("appointments")}>Abrir agenda →</button></div>{data.upcomingAppointments?.length ? <AnimatedList items={data.upcomingAppointments} className="activity-list-motion" itemClassName="activity-row" renderItem={(appointment) => <><div><strong>{appointment.customerName}</strong><span>{formatDate(appointment.date)} · {String(appointment.time || "").slice(0, 5)} · {appointment.brand} {appointment.model}</span></div><span className={`status-pill ${appointment.status}`}>{formatStatus(appointment.status)}</span></>} /> : <AdminEmptyState eyebrow="AGENDA" title="No hay citas próximas." text="Cuando un comprador solicite una visita, aparecerá aquí para preparar la atención." actionLabel="Configurar agenda" onAction={() => onNavigate("appointments")} />}</article></div>
     </section>
   );
@@ -514,7 +654,7 @@ function PhotoEditor({ value, altValue, onChange, onAltChange, onUpload }) {
       const urls = (await Promise.all(prepared.map((file) => onUpload(file)))).filter(Boolean);
       update([...images, ...urls], [...alignedAlts, ...urls.map(() => "")]);
       if (optimizedBytes < originalBytes) setUploadStatus(`Optimizamos las fotos antes de subirlas: ${Math.max(1, Math.round((1 - optimizedBytes / originalBytes) * 100))}% menos peso.`);
-    } catch (error) { setUploadError(error.message || "No pudimos subir esas imágenes. Inténtalo otra vez."); }
+    } catch (error) { setUploadError(mensajeDeError(error, "No pudimos subir esas imágenes. Inténtalo otra vez.")); }
     finally { setUploading(false); event.target.value = ""; }
   };
 
@@ -574,7 +714,7 @@ function MediaOps({ form, vehicleId = form?.id, onChange, onUpload, onPackageUpl
     try {
       if (field === "media3dUrl") setModelReport(await inspect3dFile(file));
       onChange(field, await onUpload(file));
-    } catch (error) { setUploadError(error.message || "No se pudo cargar el archivo"); } finally { setUploadingField(""); }
+    } catch (error) { setUploadError(mensajeDeError(error, "No se pudo cargar el archivo")); } finally { setUploadingField(""); }
   };
   const uploadPackage = async (event) => {
     const files = [...(event.target.files || [])];
@@ -586,7 +726,7 @@ function MediaOps({ form, vehicleId = form?.id, onChange, onUpload, onPackageUpl
       const entry = files.find((file) => /\.gltf$/i.test(file.name));
       if (entry) setModelReport(await inspect3dFile(entry));
       onChange("media3dUrl", await onPackageUpload(files));
-    } catch (error) { setUploadError(error.message || "No se pudo cargar la carpeta 3D"); } finally { setUploadingField(""); }
+    } catch (error) { setUploadError(mensajeDeError(error, "No se pudo cargar la carpeta 3D")); } finally { setUploadingField(""); }
   };
   const modelReportText = format3dReport(modelReport);
   const modelHeavy = Number(modelReport?.sizeBytes || 0) > 30 * 1024 * 1024;
@@ -595,7 +735,7 @@ function MediaOps({ form, vehicleId = form?.id, onChange, onUpload, onPackageUpl
     if (!sourceFiles.length) { setUploadError("Selecciona entre 1 y 5 fotos del vehículo."); return; }
     setGenerationLoading(true); setUploadError("");
     try { setGenerationJob(await (onGenerate3d || generate3dFallback)(vehicleId, sourceFiles)); }
-    catch (error) { setUploadError(error.message || "No se pudo iniciar la generación 3D"); }
+    catch (error) { setUploadError(mensajeDeError(error, "No se pudo iniciar la generación 3D")); }
     finally { setGenerationLoading(false); }
   };
   useEffect(() => {
@@ -605,7 +745,7 @@ function MediaOps({ form, vehicleId = form?.id, onChange, onUpload, onPackageUpl
         const next = await (onRefresh3d || refresh3dFallback)(vehicleId, generationJob.id);
         setGenerationJob(next);
         if (next.modelUrl) { onChange("media3dUrl", next.modelUrl); setModelReport(null); }
-      } catch (error) { setUploadError(error.message || "No se pudo consultar el trabajo 3D"); }
+      } catch (error) { setUploadError(mensajeDeError(error, "No se pudo consultar el trabajo 3D")); }
     }, 6000);
     return () => window.clearInterval(timer);
   }, [generationJob?.id, generationJob?.status, vehicleId]);
@@ -698,6 +838,20 @@ function publishBlockers(vehicle) {
   return blockers;
 }
 
+function InventoryVirtualRow({ vehicle, selected, onToggle, onEdit, onDuplicate, onDeactivate, onStatusChange, onOpenSticker, onOpenSocial }) {
+  const model3d = model3dState(vehicle.media?.find((item) => item.type === "model_3d")?.url);
+  const hasVideo = vehicle.media?.some((item) => item.type === "video");
+  const seoReady = Boolean(String(vehicle.seoTitle || "").trim() && String(vehicle.seoDescription || "").trim());
+  const isPublic = ["published", "reserved"].includes(vehicle.status);
+  const blockers = publishBlockers(vehicle);
+  return <article className="inventory-virtual-row">
+    <div className="inventory-virtual-main"><label className="inventory-virtual-select"><input type="checkbox" checked={selected} onChange={onToggle} aria-label={`Seleccionar ${vehicle.brand} ${vehicle.model}`} /><span /></label><div className="inventory-cell-main"><strong>{vehicle.brand} {vehicle.model}</strong><small>{vehicle.stockNumber ? `#${vehicle.stockNumber}` : "Sin número de inventario"}{vehicle.variant ? ` · ${vehicle.variant}` : ""}</small></div></div>
+    <div className="inventory-virtual-meta"><span>{vehicle.year}</span><span className={`status-pill ${vehicle.status}`}>{vehicleStatusLabels[vehicle.status] || vehicle.status}</span><span className="inventory-badges"><span className={vehicle.images?.length ? "media-badge is-ready" : "media-badge is-missing"}>{vehicle.images?.length || 0} ◫</span><span className={`media-badge is-${model3d.code}`}>{model3d.label}</span><span className={hasVideo ? "media-badge is-ready" : "media-badge"}>▶</span><span className={seoReady ? "media-badge is-ready" : "media-badge is-warn"}>{seoReady ? "SEO ✓" : "SEO !"}</span></span><strong>{formatPrice(vehicle.priceUsd)}</strong></div>
+    {blockers.length > 0 && <small className="inventory-warning">{isPublic ? `Publicado sin ${blockers.join(" y ")}` : `Falta: ${blockers.join(", ")}`}</small>}
+    <div className="inventory-virtual-actions">{isPublic && <PublicVehicleActions vehicle={vehicle} />}<button className="text-button" type="button" onClick={() => onEdit(vehicle)}>Editar</button><button className="text-button" type="button" onClick={() => onDuplicate(vehicle.id)}>Duplicar</button><button className={vehicle.status === "inactive" ? "text-button" : "text-button danger-text"} type="button" onClick={() => vehicle.status === "inactive" ? onStatusChange(vehicle.id, "draft") : onDeactivate(vehicle.id)}>{vehicle.status === "inactive" ? "Restaurar" : "Archivar"}</button><button className="text-button" type="button" onClick={() => onOpenSticker?.(vehicle)}>Cartel / QR</button><button className="text-button" type="button" onClick={() => onOpenSocial?.(vehicle)}>Flyer social</button><select className="status-quick-action" value="" onChange={(event) => { if (event.target.value) onStatusChange(vehicle.id, event.target.value); event.target.value = ""; }} aria-label={`Cambiar estado de ${vehicle.brand} ${vehicle.model}`}><option value="">Más estados…</option>{["draft", "published", "reserved", "sold", "inactive"].filter((option) => option !== vehicle.status).map((option) => <option key={option} value={option}>{vehicleStatusLabels[option]}</option>)}</select></div>
+  </article>;
+}
+
 function wizardStepState(form, index) {
   const images = String(form.images || "").split(",").map((item) => item.trim()).filter(Boolean);
   const states = [
@@ -724,6 +878,7 @@ function WizardReview({ form, editingId }) {
 }
 
 function VehicleWizard({ vehicles, taxonomy, form, editingId, message, onChange, onSave, onCancel, onUpload, onPackageUpload, onGenerate3d, onRefresh3d, onPreview }) {
+  const { confirm } = useAdminConfirm();
   const [step, setStep] = useState(0);
   const initialSnapshot = useRef(JSON.stringify(form));
   const steps = ["Identidad", "Disponibilidad", "Ficha técnica", "Presentación", "Visibilidad", "Imágenes", "3D y medios", "Revisión final"];
@@ -732,7 +887,7 @@ function VehicleWizard({ vehicles, taxonomy, form, editingId, message, onChange,
   const fieldLabels = { brand: "Marca", brandLogoUrl: "Logo real de la marca (URL SVG)", category: "Categoría", model: "Modelo", variant: "Versión / variante", year: "Año", priceUsd: "Precio USD", stockNumber: "Número de inventario", engine: "Motor", power: "Potencia", transmission: "Transmisión", drive: "Tracción", fuelType: "Combustible", exteriorColor: "Color exterior", interiorColor: "Color interior", doors: "Puertas", seats: "Asientos", mileageKm: "Kilometraje (km)", location: "Ubicación", warranty: "Garantía", features: "Equipamiento (separado por comas)", description: "Descripción comercial", seoTitle: "Título SEO", seoDescription: "Descripción SEO", stock: "Unidades", maxDiscountPercent: "Descuento máximo %" };
   const goTo = (next) => setStep(Math.max(0, Math.min(steps.length - 1, next)));
   const isDirty = JSON.stringify(form) !== initialSnapshot.current;
-  const requestClose = () => { if (isDirty && !window.confirm("Tienes cambios sin guardar. ¿Quieres descartarlos?")) return; onCancel?.(); };
+  const requestClose = async () => { if (isDirty && !(await confirm({ title: "Descartar cambios", message: "Tienes cambios sin guardar en esta ficha. Si sales ahora, se perderán.", confirmLabel: "Descartar cambios", danger: true }))) return; onCancel?.(); };
   useEffect(() => {
     if (!isDirty) return undefined;
     const warnBeforeUnload = (event) => { event.preventDefault(); event.returnValue = ""; };
@@ -742,28 +897,45 @@ function VehicleWizard({ vehicles, taxonomy, form, editingId, message, onChange,
   return <div className="wizard-backdrop"><form className="admin-form inventory-wizard" onSubmit={onSave}><div className="wizard-header"><div><span className="eyebrow">FICHA {editingId ? "· EDICIÓN" : "· NUEVA"}</span><h2>{editingId ? "Editar vehículo" : "Nuevo vehículo"}</h2><p>{isDirty ? "Tienes cambios sin guardar. Puedes avanzar por las etapas sin perderlos." : "Completa cada etapa. Puedes volver a cualquiera sin perder los datos."}</p></div><button type="button" className="wizard-close" onClick={requestClose} aria-label="Cerrar ventana">×</button></div><nav className="wizard-steps" aria-label="Etapas de la ficha">{steps.map((label, index) => { const complete = wizardStepState(form, index); return <button type="button" key={label} className={index === step ? "active" : index < step ? "is-done" : ""} onClick={() => goTo(index)} aria-current={index === step ? "step" : undefined}><span>{complete ? "✓" : String(index + 1).padStart(2, "0")}</span>{label}</button>; })}</nav><div className="wizard-stage"><VehicleReadiness form={form} />{step === 0 && <BrandPicker vehicles={vehicles} form={form} onChange={onChange} taxonomy={taxonomy} />}{step > 0 && step < 5 && <InventoryFieldSections fields={fields} fieldLabels={fieldLabels} numericFields={numericFields} form={form} onChange={onChange} activeStep={step} />}{step === 5 && <PhotoEditor value={form.images} altValue={form.imageAltTexts} onChange={(value) => onChange("images", value)} onAltChange={(value) => onChange("imageAltTexts", value)} onUpload={onUpload} />}{step === 6 && <MediaOps form={form} onChange={onChange} onUpload={onUpload} onPackageUpload={onPackageUpload} />}{step === 7 && <WizardReview form={form} editingId={editingId} />}</div>{message && <p className="form-message" role="status">{message}</p>}<div className="wizard-footer"><button className="secondary-action" type="button" onClick={() => goTo(step - 1)} disabled={step === 0}>← Atrás</button><div className="wizard-footer-actions">{onPreview && <button className="secondary-action wizard-preview-action" type="button" onClick={onPreview}>Vista previa ↗</button>}{step < steps.length - 1 ? <button className="primary-action" type="button" onClick={() => goTo(step + 1)}>Siguiente →</button> : <button className="primary-action" type="submit">{editingId ? "Guardar cambios" : "Crear vehículo"}</button>}</div></div></form></div>;
 }
 
-function InventoryTableModule({ vehicles, taxonomy, form, editingId, loading, message, onChange, onSave, onEdit, onCancel, onDeactivate, onDuplicate, onRefresh, onUpload, onPackageUpload, onReview, onStatusChange, onPreview, onOpenSticker, onOpenSocial }) {
+function InventoryTableModule({ vehicles, taxonomy, form, editingId, loading, message, onChange, onSave, onEdit, onCancel, onDeactivate, onDuplicate, onRefresh, onUpload, onPackageUpload, onReview, onStatusChange, onPreview, onOpenSticker, onOpenSocial, onBulk, onExport }) {
+  const { confirm } = useAdminConfirm();
   const fields = ["brand", "category", "model", "variant", "year", "priceUsd", "stockNumber", "engine", "power", "transmission", "drive", "fuelType", "exteriorColor", "interiorColor", "doors", "seats", "mileageKm", "location", "warranty", "features", "description", "seoTitle", "seoDescription", "stock", "maxDiscountPercent"];
   const fieldLabels = { brand: "Marca", brandLogoUrl: "Logo real de la marca (URL SVG)", category: "Categoría", model: "Modelo", variant: "Versión / variante", year: "Año", priceUsd: "Precio USD", stockNumber: "Número de inventario", engine: "Motor", power: "Potencia", transmission: "Transmisión", drive: "Tracción", fuelType: "Combustible", exteriorColor: "Color exterior", interiorColor: "Color interior", doors: "Puertas", seats: "Asientos", mileageKm: "Kilometraje (km)", location: "Ubicación", warranty: "Garantía", features: "Equipamiento (separado por comas)", description: "Descripción comercial", seoTitle: "Título SEO", seoDescription: "Descripción SEO", stock: "Unidades", maxDiscountPercent: "Descuento máximo %" };
   const [globalFilter, setGlobalFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [inventorySort, setInventorySort] = useState("updatedAt");
+  const [selectedIds, setSelectedIds] = useState([]);
   useEffect(() => { const refresh = () => onRefresh?.(); window.addEventListener("authentiq:inventory-refresh", refresh); return () => window.removeEventListener("authentiq:inventory-refresh", refresh); }, [onRefresh]);
   const filteredVehicles = vehicles.filter((vehicle) => (statusFilter === "all" || vehicle.status === statusFilter)
     && `${vehicle.brand} ${vehicle.model} ${vehicle.year} ${vehicleStatusLabels[vehicle.status] || vehicle.status} ${vehicle.stockNumber || ""}`.toLowerCase().includes(globalFilter.toLowerCase()));
+  const inventoryTable = useReactTable({
+    data: filteredVehicles,
+    columns: [{ accessorKey: inventorySort }],
+    state: { sorting: [{ id: inventorySort, desc: inventorySort !== "brand" && inventorySort !== "model" }] },
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+  });
+  const sortedVehicles = inventoryTable.getRowModel().rows.map((row) => row.original);
+  const visibleIds = sortedVehicles.map((vehicle) => vehicle.id);
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id));
+  const toggleSelected = (id) => setSelectedIds((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
+  const toggleAllVisible = () => setSelectedIds((current) => allVisibleSelected ? current.filter((id) => !visibleIds.includes(id)) : [...new Set([...current, ...visibleIds])]);
+  const runBulk = async (operation) => { if (!selectedIds.length || !onBulk) return; const label = { publish: "publicar", archive: "archivar", sold: "marcar como vendidos", draft: "volver a borrador" }[operation]; if (!(await confirm({ title: `${label[0].toUpperCase()}${label.slice(1)} ${selectedIds.length} vehículos`, message: "La acción se aplicará únicamente a la selección de este concesionario. Archivar es reversible.", confirmLabel: "Continuar", danger: operation === "archive" }))) return; await onBulk(selectedIds, operation); setSelectedIds([]); };
   const numericFields = ["year", "priceUsd", "doors", "seats", "mileageKm", "stock", "maxDiscountPercent"];
   const wizardSteps = ["Identidad", "Disponibilidad", "Ficha técnica", "Presentación", "Visibilidad", "Imágenes", "3D y medios"];
   const [wizardOpen, setWizardOpen] = useState(false);
   useEffect(() => { if (editingId) setWizardOpen(true); }, [editingId]);
   const closeWizard = () => { setWizardOpen(false); onCancel?.(); };
-  const saveWizard = async (event) => { if (form.status === "published" && !window.confirm("¿Publicar este vehículo ahora? Quedará visible en el catálogo y podrá compartirse públicamente.")) return; await onSave(event); setWizardOpen(false); };
+  const saveWizard = async (event) => { if (form.status === "published" && !(await confirm({ title: "Publicar vehículo", message: "Quedará visible en el catálogo y podrá compartirse públicamente.", confirmLabel: "Publicar vehículo" }))) return; await onSave(event); setWizardOpen(false); };
   if (wizardOpen) return <VehicleWizard vehicles={vehicles} taxonomy={taxonomy} form={form} editingId={editingId} message={message} onChange={onChange} onSave={saveWizard} onCancel={closeWizard} onUpload={onUpload} onPackageUpload={onPackageUpload} onPreview={onPreview} />;
-  return <div className="inventory-content"><div className="admin-layout"><form className="admin-form" onSubmit={onSave}><div className="admin-form-head"><h2>{editingId ? "Editar vehículo" : "Nuevo vehículo"}</h2>{editingId && <button type="button" className="text-button" onClick={onCancel}>Cancelar</button>}</div><VehicleReadiness form={form} /><InventoryFieldSections fields={fields} fieldLabels={fieldLabels} numericFields={numericFields} form={form} onChange={onChange} /><MediaOps form={form} onChange={onChange} onUpload={onUpload} onPackageUpload={onPackageUpload} /><PhotoEditor value={form.images} altValue={form.imageAltTexts} onChange={(value) => onChange("images", value)} onAltChange={(value) => onChange("imageAltTexts", value)} onUpload={onUpload} />{message && <p className="form-message">{message}</p>}<button className="primary-action" type="submit">{editingId ? "Guardar cambios" : "Crear vehículo"}</button></form><section className="table-panel"><div className="panel-heading"><div><span className="eyebrow">INVENTARIO · {vehicles.length.toString().padStart(2, "0")}</span><h3>Vehículos registrados</h3></div><button className="text-button" type="button" onClick={onRefresh}>Actualizar</button></div>{vehicles.length > 0 && <div className="inventory-table-filters"><input className="table-search" placeholder="Buscar por marca, modelo o número de inventario…" value={globalFilter} onChange={(event) => setGlobalFilter(event.target.value)} /><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Filtrar inventario por estado"><option value="all">Todos los estados</option>{Object.entries(vehicleStatusLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select><span>{filteredVehicles.length} de {vehicles.length}</span></div>}{loading ? <p className="empty-state">Cargando inventario…</p> : <div className="table-scroll">{vehicles.length > 0 && <table className="inventory-table"><thead><tr><th>Vehículo</th><th>Año</th><th>Estado</th><th>Medios</th><th>SEO</th><th>Precio</th><th /></tr></thead><tbody>{filteredVehicles.map((vehicle) => {
+  const renderVirtualVehicle = (vehicle) => <InventoryVirtualRow vehicle={vehicle} selected={selectedIds.includes(vehicle.id)} onToggle={() => toggleSelected(vehicle.id)} onEdit={onEdit} onDuplicate={onDuplicate} onDeactivate={onDeactivate} onStatusChange={onStatusChange} onOpenSticker={onOpenSticker} onOpenSocial={onOpenSocial} />;
+  return <div className="inventory-content"><div className="admin-layout"><form className="admin-form" onSubmit={onSave}><div className="admin-form-head"><h2>{editingId ? "Editar vehículo" : "Nuevo vehículo"}</h2>{editingId && <button type="button" className="text-button" onClick={onCancel}>Cancelar</button>}</div><VehicleReadiness form={form} /><InventoryFieldSections fields={fields} fieldLabels={fieldLabels} numericFields={numericFields} form={form} onChange={onChange} /><MediaOps form={form} onChange={onChange} onUpload={onUpload} onPackageUpload={onPackageUpload} /><PhotoEditor value={form.images} altValue={form.imageAltTexts} onChange={(value) => onChange("images", value)} onAltChange={(value) => onChange("imageAltTexts", value)} onUpload={onUpload} />{message && <p className="form-message">{message}</p>}<button className="primary-action" type="submit">{editingId ? "Guardar cambios" : "Crear vehículo"}</button></form><section className="table-panel"><div className="panel-heading"><div><span className="eyebrow">INVENTARIO · {vehicles.length.toString().padStart(2, "0")}</span><h3>Vehículos registrados</h3></div><button className="text-button" type="button" onClick={onRefresh}>Actualizar</button></div>{vehicles.length > 0 && <div className="inventory-table-filters"><input className="table-search" placeholder="Buscar por marca, modelo o número de inventario…" value={globalFilter} onChange={(event) => setGlobalFilter(event.target.value)} /><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Filtrar inventario por estado"><option value="all">Todos los estados</option>{Object.entries(vehicleStatusLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select><select value={inventorySort} onChange={(event) => setInventorySort(event.target.value)} aria-label="Ordenar inventario"><option value="updatedAt">Más recientes</option><option value="brand">Marca</option><option value="model">Modelo</option><option value="year">Año</option><option value="priceUsd">Precio</option></select><span>{filteredVehicles.length} de {vehicles.length}</span></div>}{vehicles.length > 0 && <div className="inventory-bulk-bar"><strong>{selectedIds.length ? `${selectedIds.length} seleccionados` : "Edición masiva"}</strong><button type="button" className="text-button" onClick={toggleAllVisible}>{allVisibleSelected ? "Quitar selección" : "Seleccionar visibles"}</button>{onExport && <button type="button" className="text-button" onClick={onExport}>Exportar CSV</button>}{selectedIds.length > 0 && <><button type="button" className="text-button" onClick={() => runBulk("publish")}>Publicar</button><button type="button" className="text-button" onClick={() => runBulk("draft")}>Borrador</button><button type="button" className="text-button" onClick={() => runBulk("sold")}>Vendidos</button><button type="button" className="text-button danger-text" onClick={() => runBulk("archive")}>Archivar</button></>}</div>}{loading ? <p className="empty-state">Cargando inventario…</p> : <div className="table-scroll">{sortedVehicles.length > 100 ? <VirtualizedList items={sortedVehicles} renderItem={renderVirtualVehicle} className="inventory-virtual-list" estimateSize={176} /> : vehicles.length > 0 && <table className="inventory-table"><thead><tr><th className="selection-head"><input type="checkbox" checked={allVisibleSelected} onChange={toggleAllVisible} aria-label="Seleccionar vehículos visibles" /></th><th>Vehículo</th><th>Año</th><th>Estado</th><th>Medios</th><th>SEO</th><th>Precio</th><th /></tr></thead><tbody>{sortedVehicles.map((vehicle) => {
       const model3d = model3dState(vehicle.media?.find((item) => item.type === "model_3d")?.url);
       const hasVideo = vehicle.media?.some((item) => item.type === "video");
       const seoReady = Boolean(String(vehicle.seoTitle || "").trim() && String(vehicle.seoDescription || "").trim());
       const blockers = publishBlockers(vehicle);
       const isPublic = ["published", "reserved"].includes(vehicle.status);
-      return <tr key={vehicle.id}>
+       return <tr key={vehicle.id}><td className="selection-cell"><input type="checkbox" checked={selectedIds.includes(vehicle.id)} onChange={() => toggleSelected(vehicle.id)} aria-label={`Seleccionar ${vehicle.brand} ${vehicle.model}`} /></td>
         <td><div className="inventory-cell-main"><strong>{vehicle.brand} {vehicle.model}</strong><small>{vehicle.stockNumber ? `#${vehicle.stockNumber}` : "Sin número de inventario"}{vehicle.variant ? ` · ${vehicle.variant}` : ""}</small></div></td>
         <td>{vehicle.year}</td>
         <td><div className="inventory-cell-main"><span className={`status-pill ${vehicle.status}`}>{vehicleStatusLabels[vehicle.status] || vehicle.status}</span>{!isPublic && <small>No visible en el catálogo</small>}{isPublic && !!blockers.length && <small className="inventory-warning">Publicado sin {blockers.join(" y ")}</small>}{!isPublic && !!blockers.length && <small className="inventory-warning">Falta: {blockers.join(", ")}</small>}</div></td>
@@ -794,7 +966,8 @@ function InventoryModule(props) {
 }
 
 function RecordsModule({ kind, records, loading, onRefresh, onStatusChange }) {
-  return <section className="records-content"><div className="panel-heading"><div><span className="eyebrow">SEGUIMIENTO COMERCIAL</span><h2>Ofertas recibidas.</h2></div><button className="secondary-action" type="button" onClick={onRefresh}>Actualizar</button></div>{loading ? <div className="admin-loading-state"><span className="loading-orbit" aria-hidden="true" /><span>Consultando oportunidades…</span></div> : records.length ? <div className="records-list">{records.map((record) => <article className="record-row" key={record.id}><div><strong>{record.buyerName}</strong><span>{record.brand} {record.model} · {formatPrice(record.amountUsd)}</span>{record.message && <p>{record.message}</p>}</div><div className="record-actions"><span className={`status-pill ${record.status}`}>{formatStatus(record.status)}</span><select value={record.status} onChange={(event) => onStatusChange(record.id, event.target.value)} aria-label={`Cambiar estado de la oferta de ${record.buyerName}`}><option value="pending">Pendiente</option><option value="accepted">Aceptada</option><option value="rejected">Rechazada</option></select></div></article>)}</div> : <AdminEmptyState eyebrow="OFERTAS" title="Todavía no hay ofertas." text="Las ofertas enviadas desde las fichas aparecerán aquí para darles seguimiento." actionLabel="Actualizar" onAction={onRefresh} />}</section>;
+  const renderRecord = (record) => <article className="record-row" key={record.id}><div><strong>{record.buyerName}</strong><span>{record.brand} {record.model} · {formatPrice(record.amountUsd)}</span>{record.message && <p>{record.message}</p>}</div><div className="record-actions"><span className={`status-pill ${record.status}`}>{formatStatus(record.status)}</span><select value={record.status} onChange={(event) => onStatusChange(record.id, event.target.value)} aria-label={`Cambiar estado de la oferta de ${record.buyerName}`}><option value="pending">Pendiente</option><option value="accepted">Aceptada</option><option value="rejected">Rechazada</option></select></div></article>;
+  return <section className="records-content"><div className="panel-heading"><div><span className="eyebrow">SEGUIMIENTO COMERCIAL</span><h2>Ofertas recibidas.</h2></div><button className="secondary-action" type="button" onClick={onRefresh}>Actualizar</button></div>{loading ? <div className="admin-loading-state"><span className="loading-orbit" aria-hidden="true" /><span>Consultando oportunidades…</span></div> : records.length ? <VirtualizedList items={records} renderItem={renderRecord} className="records-list" estimateSize={100} /> : <AdminEmptyState eyebrow="OFERTAS" title="Todavía no hay ofertas." text="Las ofertas enviadas desde las fichas aparecerán aquí para darles seguimiento." actionLabel="Actualizar" onAction={onRefresh} />}</section>;
 }
 
 
@@ -812,8 +985,8 @@ function ReportsModule({ dashboard, vehicles, leads, offers, loading, analytics,
   const funnel = [{ name: "Clientes", value: periodLeads.length, fill: "#c8a24b" }, { name: "Ofertas", value: periodOffers.length, fill: "#5f6f6b" }, { name: "Cerrados", value: periodLeads.filter((lead) => lead.status === "closed").length, fill: "#2f3b39" }];
   const acceptedOffers = periodOffers.filter((offer) => offer.status === "accepted");
   const conversion = periodLeads.length ? Math.round((periodLeads.filter((lead) => ["qualified", "closed"].includes(lead.status)).length / periodLeads.length) * 100) : 0;
-  const exportReport = () => { const rows = [["Métrica", "Valor"], ["Periodo", period === "all" ? "Histórico" : `Últimos ${period} días`], ["Vehículos publicados", reportPublishedCount], ["Stock disponible", reportStock], ["Leads", periodLeads.length], ["Ofertas", periodOffers.length], ["Ofertas aceptadas", acceptedOffers.length], ["Conversión calificados/cerrados", `${conversion}%`]]; const csv = rows.map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(",")).join("\n"); const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob(["\\ufeff", csv], { type: "text/csv;charset=utf-8" })); link.download = `authentiq-reporte-${new Date().toISOString().slice(0, 10)}.csv`; link.click(); URL.revokeObjectURL(link.href); };
-  return <section className="reports-content"><div className="panel-heading"><div><span className="eyebrow">CÓMO VA EL NEGOCIO</span><h2>Reportes.</h2></div><div className="panel-actions"><select className="report-period" value={period} onChange={(event) => setPeriod(event.target.value)} aria-label="Periodo del reporte"><option value="all">Todo el histórico</option><option value="30">Últimos 30 días</option><option value="90">Últimos 90 días</option></select><button className="secondary-action" onClick={exportReport}>Exportar CSV</button></div></div>{loading ? <p className="empty-state">Preparando reporte…</p> : <><div className="report-kpis"><AnalyticsEventsPanel analytics={analytics} /><AnalyticsFunnelPanel data={funnelData} /><StatCard label="Conversión comercial" value={`${conversion}%`} note="Leads calificados o cerrados" /><StatCard label="Ofertas aceptadas" value={acceptedOffers.length} note={`${periodOffers.length} ofertas en el periodo`} /><StatCard label="Inventario publicado" value={reportPublishedCount} note={`${publishedVehicles.length} registros cargados`} /></div><div className="report-grid"><article className="chart-panel report-chart"><div className="panel-heading"><div><span className="eyebrow">EMBUDO</span><h3>Interés que se convierte en acción</h3></div></div><div className="chart-box"><ResponsiveContainer width="100%" height="100%"><BarChart data={funnel} layout="vertical" margin={{ top: 8, right: 20, left: 18, bottom: 0 }}><XAxis type="number" allowDecimals={false} axisLine={false} tickLine={false} /><YAxis type="category" dataKey="name" width={70} axisLine={false} tickLine={false} /><Tooltip formatter={(value) => [`${value}`, "Registros"]} /><Bar dataKey="value" radius={[0, 3, 3, 0]}>{funnel.map((item) => <Cell key={item.name} fill={item.fill} />)}</Bar></BarChart></ResponsiveContainer></div></article><article className="report-insight"><span className="eyebrow">LECTURA RÁPIDA</span><h3>{conversion >= 30 ? "El interés está avanzando." : "Hay oportunidad en el seguimiento."}</h3><p>{conversion >= 30 ? "La operación está convirtiendo una parte saludable de sus leads en conversaciones calificadas." : "Prioriza los leads nuevos y contactados para aumentar el paso hacia ofertas."}</p><div className="insight-line"><span>Valor de inventario</span><strong>{formatPrice(reportInventoryValue)}</strong></div><div className="insight-line"><span>Stock disponible</span><strong>{reportStock} unidades</strong></div></article></div></>}</section>;
+  const exportReport = () => { const rows = [["Métrica", "Valor"], ["Periodo", period === "all" ? "Histórico" : `Últimos ${period} días`], ["Vehículos publicados", reportPublishedCount], ["Stock disponible", reportStock], ["Leads", periodLeads.length], ["Ofertas", periodOffers.length], ["Ofertas aceptadas", acceptedOffers.length], ["Conversión calificados/cerrados", `${conversion}%`]]; const csv = rows.map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(",")).join("\n"); const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob(["\\ufeff", csv], { type: "text/csv;charset=utf-8" })); link.download = `zevroa-reporte-${new Date().toISOString().slice(0, 10)}.csv`; link.click(); URL.revokeObjectURL(link.href); };
+  return <section className="reports-content"><div className="panel-heading"><div><span className="eyebrow">CÓMO VA EL NEGOCIO</span><h2>Reportes.</h2></div><div className="panel-actions"><select className="report-period" value={period} onChange={(event) => setPeriod(event.target.value)} aria-label="Periodo del reporte"><option value="all">Todo el histórico</option><option value="30">Últimos 30 días</option><option value="90">Últimos 90 días</option></select><button type="button" className="secondary-action" onClick={exportReport}>Exportar CSV</button></div></div>{loading ? <p className="empty-state">Preparando reporte…</p> : <><div className="report-kpis"><AnalyticsEventsPanel analytics={analytics} /><AnalyticsFunnelPanel data={funnelData} /><StatCard label="Conversión comercial" value={`${conversion}%`} note="Leads calificados o cerrados" /><StatCard label="Ofertas aceptadas" value={acceptedOffers.length} note={`${periodOffers.length} ofertas en el periodo`} /><StatCard label="Inventario publicado" value={reportPublishedCount} note={`${publishedVehicles.length} registros cargados`} /></div><div className="report-grid"><article className="chart-panel report-chart"><div className="panel-heading"><div><span className="eyebrow">EMBUDO</span><h3>Interés que se convierte en acción</h3></div></div><Suspense fallback={<div className="chart-box chart-loading-state" role="status">Preparando gráfico…</div>}><ReportsCharts variant="funnel" funnel={funnel} /></Suspense></article><article className="report-insight"><span className="eyebrow">LECTURA RÁPIDA</span><h3>{conversion >= 30 ? "El interés está avanzando." : "Hay oportunidad en el seguimiento."}</h3><p>{conversion >= 30 ? "La operación está convirtiendo una parte saludable de sus leads en conversaciones calificadas." : "Prioriza los leads nuevos y contactados para aumentar el paso hacia ofertas."}</p><div className="insight-line"><span>Valor de inventario</span><strong>{formatPrice(reportInventoryValue)}</strong></div><div className="insight-line"><span>Stock disponible</span><strong>{reportStock} unidades</strong></div></article></div></>}</section>;
 }
 
 
@@ -925,7 +1098,7 @@ function QuoteShareAction({ quote, onShare }) {
   const [status, setStatus] = useState("");
   const share = async () => {
     setStatus("Generando…");
-    try { const nextUrl = await onShare(quote.id); setUrl(nextUrl); await navigator.clipboard?.writeText(nextUrl); setStatus("Enlace copiado"); } catch (error) { setStatus(error.message || "No se pudo compartir"); }
+    try { const nextUrl = await onShare(quote.id); setUrl(nextUrl); await navigator.clipboard?.writeText(nextUrl); setStatus("Enlace copiado"); } catch (error) { setStatus(mensajeDeError(error, "No se pudo compartir")); }
   };
   return <div className="quote-share-action"><button className="text-button" type="button" onClick={share}>{status === "Generando…" ? status : "Compartir URL"}</button>{url && <><CopyAction value={url} label="URL pública" /><small>{status}</small></>}</div>;
 }
@@ -985,17 +1158,28 @@ function LeadsModule({ records, users, loading, onRefresh, onUpdate, onLoadHisto
       return changed ? next : current;
     });
   }, [records]);
-  const visibleRecords = records.filter((lead) => { const haystack = `${lead.name} ${lead.email || ""} ${lead.phone || ""} ${lead.brand || ""} ${lead.model || ""}`.toLowerCase(); return (statusFilter === "all" || lead.status === statusFilter) && haystack.includes(query.toLowerCase()); });
-  const exportLeads = () => { const csv = ["Nombre,Correo,Telefono,Estado,Origen,Vehiculo,Recibido", ...visibleRecords.map((lead) => [lead.name, lead.email, lead.phone, lead.status, lead.source, `${lead.brand || ""} ${lead.model || ""}`, formatDate(lead.createdAt)].map((value) => `"${String(value || "").replaceAll('"', '""')}"`).join(","))].join("\n"); const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8" })); link.download = `authentiq-leads-${new Date().toISOString().slice(0, 10)}.csv`; link.click(); URL.revokeObjectURL(link.href); };
-  return <section className="records-content"><div className="panel-heading"><div><span className="eyebrow">SEGUIMIENTO COMERCIAL</span><h2>Clientes.</h2></div><div className="panel-actions"><button className="secondary-action" onClick={exportLeads}>Exportar CSV</button><button className="secondary-action" onClick={onRefresh}>Actualizar</button></div></div><div className="lead-filters"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar nombre, correo o vehículo…" aria-label="Buscar clientes" /><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Filtrar clientes por estado"><option value="all">Todos los estados</option><option value="new">Nuevos</option><option value="contacted">Contactados</option><option value="qualified">Calificados</option><option value="closed">Cerrados</option><option value="lost">Perdidos</option></select><span>{visibleRecords.length} de {records.length} clientes</span></div>{loading ? <p className="empty-state">Cargando clientes…</p> : visibleRecords.length ? <div className="leads-list">{visibleRecords.map((lead) => { const draft = draftFor(lead); return <article className={`lead-row${lead.id === initialLeadId ? " is-focused" : ""}`} ref={lead.id === initialLeadId ? focusedLeadRef : undefined} key={lead.id}><div className="lead-main"><div className="lead-heading"><strong>{lead.name}</strong><span className={`status-pill ${draft.status}`}>{formatStatus(draft.status)}</span><span className={`priority-mark p${draft.priority}`} title={`Prioridad ${formatPriority(draft.priority)}`}>{formatPriority(draft.priority)}</span></div><span>{lead.email || "Sin correo"} · {lead.phone || "Sin teléfono"}</span><span>{lead.brand ? `${lead.brand} ${lead.model}` : "Contacto general"} · {formatLeadSource(lead.source)}</span><LeadContactActions lead={lead} onLoadHistory={onLoadHistory} onAddAppointment={onAddAppointment} onCreateQuote={onCreateQuote} />{lead.nextAction && <p className="lead-next-action">Próxima acción: {lead.nextAction}{lead.nextActionAt ? ` · ${formatDateTime(lead.nextActionAt)}` : ""}</p>}{lead.message && <p>{lead.message}</p>}</div><div className="lead-management"><label>Estado<select value={draft.status} onChange={(event) => setDraft(lead, "status", event.target.value)}><option value="new">Nuevo</option><option value="contacted">Contactado</option><option value="qualified">Calificado</option><option value="closed">Cerrado</option><option value="lost">Perdido</option></select></label><label>Prioridad<select value={draft.priority} onChange={(event) => setDraft(lead, "priority", Number(event.target.value))}><option value="1">Alta</option><option value="2">Media</option><option value="3">Baja</option></select></label><label>Asignar a<select value={draft.assignedTo} onChange={(event) => setDraft(lead, "assignedTo", event.target.value)}><option value="">Sin asignar</option>{users.map((user) => <option key={user.id} value={user.id}>{user.name} · {formatRole(user.role)}</option>)}</select></label><label>Próxima acción<input value={draft.nextAction} onChange={(event) => setDraft(lead, "nextAction", event.target.value)} placeholder="Llamar y confirmar presupuesto" /></label><label>Vencimiento<input type="datetime-local" value={draft.nextActionAt} onChange={(event) => setDraft(lead, "nextActionAt", event.target.value)} /></label>{draft.status === "lost" && <label>Motivo de pérdida<input value={draft.lostReason} onChange={(event) => setDraft(lead, "lostReason", event.target.value)} placeholder="Precio, sin respuesta, otro vehículo…" required /></label>}<label>Notas internas<textarea value={draft.notes} onChange={(event) => setDraft(lead, "notes", event.target.value)} placeholder="Seguimiento…" /></label><button className="primary-action" onClick={() => onUpdate(lead.id, draft)}>Guardar seguimiento</button><small>Recibido {formatDate(lead.createdAt)}</small></div></article>; })}</div> : <p className="empty-state">No hay clientes que coincidan.</p>}</section>;
+  const visibleRecords = records.filter((lead) => { const haystack = `${lead.name} ${lead.email || ""} ${lead.phone || ""} ${lead.brand || ""} ${lead.model || ""}`.toLowerCase(); const overdue = lead.nextActionAt && new Date(lead.nextActionAt).getTime() < Date.now(); const noAction = !lead.nextActionAt; const attentionMatches = attentionFilter === "all" || (attentionFilter === "overdue" && overdue) || (attentionFilter === "no_action" && noAction) || (attentionFilter === "planned" && !noAction && !overdue); return (statusFilter === "all" || lead.status === statusFilter) && attentionMatches && haystack.includes(query.toLowerCase()); });
+  const exportLeads = () => { const csv = ["Nombre,Correo,Telefono,Estado,Origen,Vehiculo,Recibido", ...visibleRecords.map((lead) => [lead.name, lead.email, lead.phone, lead.status, lead.source, `${lead.brand || ""} ${lead.model || ""}`, formatDate(lead.createdAt)].map((value) => `"${String(value || "").replaceAll('"', '""')}"`).join(","))].join("\n"); const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8" })); link.download = `zevroa-leads-${new Date().toISOString().slice(0, 10)}.csv`; link.click(); URL.revokeObjectURL(link.href); };
+  return <section className="records-content"><div className="panel-heading"><div><span className="eyebrow">SEGUIMIENTO COMERCIAL</span><h2>Clientes.</h2></div><div className="panel-actions"><button type="button" className="secondary-action" onClick={exportLeads}>Exportar CSV</button><button type="button" className="secondary-action" onClick={onRefresh}>Actualizar</button></div></div><div className="lead-filters"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar nombre, correo o vehículo…" aria-label="Buscar clientes" /><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Filtrar clientes por estado"><option value="all">Todos los estados</option><option value="new">Nuevos</option><option value="contacted">Contactados</option><option value="qualified">Calificados</option><option value="closed">Cerrados</option><option value="lost">Perdidos</option></select><span>{visibleRecords.length} de {records.length} clientes</span></div>{loading ? <p className="empty-state">Cargando clientes…</p> : visibleRecords.length ? <div className="leads-list">{visibleRecords.map((lead) => { const draft = draftFor(lead); return <article className={`lead-row${lead.id === initialLeadId ? " is-focused" : ""}`} ref={lead.id === initialLeadId ? focusedLeadRef : undefined} key={lead.id}><div className="lead-main"><div className="lead-heading"><strong>{lead.name}</strong><span className={`status-pill ${draft.status}`}>{formatStatus(draft.status)}</span><span className={`priority-mark p${draft.priority}`} title={`Prioridad ${formatPriority(draft.priority)}`}>{formatPriority(draft.priority)}</span></div><span>{lead.email || "Sin correo"} · {lead.phone || "Sin teléfono"}</span><span>{lead.brand ? `${lead.brand} ${lead.model}` : "Contacto general"} · {formatLeadSource(lead.source)}</span><LeadContactActions lead={lead} onLoadHistory={onLoadHistory} onAddAppointment={onAddAppointment} onCreateQuote={onCreateQuote} />{lead.nextAction && <p className="lead-next-action">Próxima acción: {lead.nextAction}{lead.nextActionAt ? ` · ${formatDateTime(lead.nextActionAt)}` : ""}</p>}{lead.message && <p>{lead.message}</p>}</div><div className="lead-management"><label>Estado<select value={draft.status} onChange={(event) => setDraft(lead, "status", event.target.value)}><option value="new">Nuevo</option><option value="contacted">Contactado</option><option value="qualified">Calificado</option><option value="closed">Cerrado</option><option value="lost">Perdido</option></select></label><label>Prioridad<select value={draft.priority} onChange={(event) => setDraft(lead, "priority", Number(event.target.value))}><option value="1">Alta</option><option value="2">Media</option><option value="3">Baja</option></select></label><label>Asignar a<select value={draft.assignedTo} onChange={(event) => setDraft(lead, "assignedTo", event.target.value)}><option value="">Sin asignar</option>{users.map((user) => <option key={user.id} value={user.id}>{user.name} · {formatRole(user.role)}</option>)}</select></label><label>Próxima acción<input value={draft.nextAction} onChange={(event) => setDraft(lead, "nextAction", event.target.value)} placeholder="Llamar y confirmar presupuesto" /></label><label>Vencimiento<input type="datetime-local" value={draft.nextActionAt} onChange={(event) => setDraft(lead, "nextActionAt", event.target.value)} /></label>{draft.status === "lost" && <label>Motivo de pérdida<input value={draft.lostReason} onChange={(event) => setDraft(lead, "lostReason", event.target.value)} placeholder="Precio, sin respuesta, otro vehículo…" required /></label>}<label>Notas internas<textarea value={draft.notes} onChange={(event) => setDraft(lead, "notes", event.target.value)} placeholder="Seguimiento…" /></label><button type="button" className="primary-action" onClick={() => onUpdate(lead.id, draft)}>Guardar seguimiento</button><small>Recibido {formatDate(lead.createdAt)}</small></div></article>; })}</div> : <p className="empty-state">No hay clientes que coincidan.</p>}</section>;
+}
+
+function VirtualizedClientRow({ lead, onLoadHistory, onAddAppointment, onCreateQuote }) {
+  return <article className={`lead-row lead-virtual-row${lead.status === "new" ? " is-new" : ""}`}>
+    <div className="lead-main"><div className="lead-heading"><strong>{lead.name}</strong><span className={`status-pill ${lead.status}`}>{formatStatus(lead.status)}</span><span className={`priority-mark p${lead.priority || 2}`}>{formatPriority(lead.priority || 2)}</span></div><span>{lead.email || "Sin correo"} · {lead.phone || "Sin teléfono"}</span><span>{lead.brand ? `${lead.brand} ${lead.model}` : "Contacto general"} · {formatLeadSource(lead.source)}</span><LeadContactActions lead={lead} onLoadHistory={onLoadHistory} onAddAppointment={onAddAppointment} onCreateQuote={onCreateQuote} /></div>
+    <div className="lead-virtual-summary"><span>{lead.nextAction ? `Próxima acción: ${lead.nextAction}` : "Sin próxima acción"}</span><small>{lead.nextActionAt ? formatDateTime(lead.nextActionAt) : `Recibido ${formatDate(lead.createdAt)}`}</small></div>
+  </article>;
+}
+
+function VirtualizedLeadsModule({ records, loading, onRefresh, onLoadHistory, onAddAppointment, onCreateQuote }) {
+  return <section className="records-content"><div className="panel-heading"><div><span className="eyebrow">SEGUIMIENTO COMERCIAL</span><h2>Clientes.</h2><p className="module-note">Lista optimizada para grandes volúmenes. Abre un cliente para editar su seguimiento.</p></div><button type="button" className="secondary-action" onClick={onRefresh}>Actualizar</button></div>{loading ? <p className="empty-state">Cargando clientes…</p> : records.length ? <VirtualizedList items={records} renderItem={(lead) => <VirtualizedClientRow lead={lead} onLoadHistory={onLoadHistory} onAddAppointment={onAddAppointment} onCreateQuote={onCreateQuote} />} className="leads-list" estimateSize={150} /> : <p className="empty-state">No hay clientes.</p>}</section>;
 }
 
 function BlogModule({ posts, form, editingId, loading, message, onChange, onSave, onEdit, onCancel, onArchive, onRefresh }) {
-  return <div className="blog-content"><div className="blog-layout"><form className="admin-form" onSubmit={onSave}><div className="admin-form-head"><h2>{editingId ? "Editar artículo" : "Nuevo artículo"}</h2>{editingId && <button type="button" className="text-button" onClick={onCancel}>Cancelar</button>}</div><label>Título<input value={form.title} onChange={(event) => onChange("title", event.target.value)} required /></label><label>Enlace del artículo<input value={form.slug} onChange={(event) => onChange("slug", event.target.value)} placeholder="se-genera-del-titulo" /></label><div className="form-grid"><label>Categoría<input value={form.category || ""} onChange={(event) => onChange("category", event.target.value)} placeholder="Guías, cultura, compra" /></label><label>Etiquetas<input value={Array.isArray(form.tags) ? form.tags.join(", ") : (form.tags || "")} onChange={(event) => onChange("tags", event.target.value)} placeholder="Porsche, eléctrico, consejos" /></label></div><label>Resumen<textarea value={form.summary} onChange={(event) => onChange("summary", event.target.value)} /></label><label>Contenido<textarea className="blog-content-input" value={form.content} onChange={(event) => onChange("content", event.target.value)} required /></label><label>Imagen de portada<input value={form.coverImageUrl} onChange={(event) => onChange("coverImageUrl", event.target.value)} placeholder="/assets/editorial.jpg" /></label><div className="form-grid"><label>Título para Google<input value={form.seoTitle} onChange={(event) => onChange("seoTitle", event.target.value)} /></label><label>Estado<select value={form.status} onChange={(event) => onChange("status", event.target.value)}><option value="draft">Borrador</option><option value="published">Publicado</option><option value="archived">Archivado</option></select></label></div><label>Descripción para Google<textarea value={form.seoDescription} onChange={(event) => onChange("seoDescription", event.target.value)} /></label>{message && <p className="form-message">{message}</p>}<button className="primary-action" type="submit">{editingId ? "Guardar artículo" : "Crear artículo"}</button></form><section className="table-panel"><div className="panel-heading"><div><span className="eyebrow">CONTENIDO EDITORIAL</span><h3>Artículos ({posts.length})</h3></div><button className="text-button" onClick={onRefresh}>Actualizar</button></div>{loading ? <p className="empty-state">Cargando artículos…</p> : posts.length ? <div className="blog-list">{posts.map((post) => <article className="blog-admin-row" key={post.id}>{post.coverImageUrl && <img src={post.coverImageUrl} alt="" />}{!post.coverImageUrl && <div className="blog-admin-placeholder" />}<div><strong>{post.title}</strong><span>{formatStatus(post.status)} · Enlace: {post.slug}</span><div><button className="text-button" onClick={() => onEdit(post)}>Editar</button><button className="text-button danger-text" onClick={() => onArchive(post.id)}>Archivar</button></div></div></article>)}</div> : <p className="empty-state">Aún no hay artículos.</p>}</section></div></div>;
+  return <div className="blog-content"><div className="blog-layout"><form className="admin-form" onSubmit={onSave}><div className="admin-form-head"><h2>{editingId ? "Editar artículo" : "Nuevo artículo"}</h2>{editingId && <button type="button" className="text-button" onClick={onCancel}>Cancelar</button>}</div><label>Título<input value={form.title} onChange={(event) => onChange("title", event.target.value)} required /></label><label>Enlace del artículo<input value={form.slug} onChange={(event) => onChange("slug", event.target.value)} placeholder="se-genera-del-titulo" /></label><div className="form-grid"><label>Categoría<input value={form.category || ""} onChange={(event) => onChange("category", event.target.value)} placeholder="Guías, cultura, compra" /></label><label>Etiquetas<input value={Array.isArray(form.tags) ? form.tags.join(", ") : (form.tags || "")} onChange={(event) => onChange("tags", event.target.value)} placeholder="Porsche, eléctrico, consejos" /></label></div><label>Resumen<textarea value={form.summary} onChange={(event) => onChange("summary", event.target.value)} /></label><label>Contenido<textarea className="blog-content-input" value={form.content} onChange={(event) => onChange("content", event.target.value)} required /></label><label>Imagen de portada<input value={form.coverImageUrl} onChange={(event) => onChange("coverImageUrl", event.target.value)} placeholder="/assets/editorial.jpg" /></label><div className="form-grid"><label>Título para Google<input value={form.seoTitle} onChange={(event) => onChange("seoTitle", event.target.value)} /></label><label>Estado<select value={form.status} onChange={(event) => onChange("status", event.target.value)}><option value="draft">Borrador</option><option value="published">Publicado</option><option value="archived">Archivado</option></select></label></div><label>Descripción para Google<textarea value={form.seoDescription} onChange={(event) => onChange("seoDescription", event.target.value)} /></label>{message && <p className="form-message">{message}</p>}<button className="primary-action" type="submit">{editingId ? "Guardar artículo" : "Crear artículo"}</button></form><section className="table-panel"><div className="panel-heading"><div><span className="eyebrow">CONTENIDO EDITORIAL</span><h3>Artículos ({posts.length})</h3></div><button type="button" className="text-button" onClick={onRefresh}>Actualizar</button></div>{loading ? <p className="empty-state">Cargando artículos…</p> : posts.length ? <div className="blog-list">{posts.map((post) => <article className="blog-admin-row" key={post.id}>{post.coverImageUrl && <img src={post.coverImageUrl} alt={`Portada de ${post.title}`} />}{!post.coverImageUrl && <div className="blog-admin-placeholder" />}<div><strong>{post.title}</strong><span>{formatStatus(post.status)} · Enlace: {post.slug}</span><div><button type="button" className="text-button" onClick={() => onEdit(post)}>Editar</button><button type="button" className="text-button danger-text" onClick={() => onArchive(post.id)}>Archivar</button></div></div></article>)}</div> : <p className="empty-state">Aún no hay artículos.</p>}</section></div></div>;
 }
 
 function AuditModule({ logs, loading, onRefresh }) {
-  return <section className="records-content"><div className="panel-heading"><div><span className="eyebrow">SEGURIDAD · ADMINISTRACIÓN</span><h2>Actividad.</h2></div><button className="secondary-action" onClick={onRefresh}>Actualizar</button></div>{loading ? <p className="empty-state">Cargando auditoría…</p> : logs.length ? <div className="audit-list">{logs.map((log) => <article className="audit-row" key={log.id}><span className="audit-time">{formatDate(log.createdAt)}</span><div><strong>{log.action}</strong><span>{log.entityType} · {log.actorName || log.actorEmail || "Sistema"}</span></div><code>{JSON.stringify(log.metadata || {})}</code></article>)}</div> : <p className="empty-state">Aún no hay acciones registradas.</p>}</section>;
+  return <section className="records-content"><div className="panel-heading"><div><span className="eyebrow">SEGURIDAD · ADMINISTRACIÓN</span><h2>Actividad.</h2></div><button type="button" className="secondary-action" onClick={onRefresh}>Actualizar</button></div>{loading ? <p className="empty-state">Cargando auditoría…</p> : logs.length ? <div className="audit-list">{logs.map((log) => <article className="audit-row" key={log.id}><span className="audit-time">{formatDate(log.createdAt)}</span><div><strong>{log.action}</strong><span>{log.entityType} · {log.actorName || log.actorEmail || "Sistema"}</span></div><code>{JSON.stringify(log.metadata || {})}</code></article>)}</div> : <p className="empty-state">Aún no hay acciones registradas.</p>}</section>;
 }
 
 function PasswordResetResult({ result, onDismiss }) {
@@ -1004,19 +1188,55 @@ function PasswordResetResult({ result, onDismiss }) {
   return <div className="password-reset-result"><span className="eyebrow">CONTRASEÑA TEMPORAL · {result.name}</span><code>{result.temporaryPassword}</code><p>Entrégala en persona o por un canal seguro. No se guarda ni se muestra de nuevo: {result.email} deberá cambiarla en su próximo ingreso.</p><div><button className="secondary-action" type="button" onClick={copy}>{copied ? "Copiada ✓" : "Copiar"}</button><button className="text-button" type="button" onClick={onDismiss}>Cerrar</button></div></div>;
 }
 
-function UsersModule({ users, form, onChange, onSave, onUpdate, onResetPassword, onDelete, loading, message }) {
+function UsersModule({ users, form, onChange, onSave, onUpdate, onResetPassword, onDelete, onInvite, onMfaSetup, loading, message }) {
+  const { confirm } = useAdminConfirm();
   const [resetResult, setResetResult] = useState(null);
   const [resettingId, setResettingId] = useState("");
+  const [invite, setInvite] = useState({ fullName: "", email: "", role: "seller" });
+  const [inviteState, setInviteState] = useState("");
+  const [inviteLoading, setInviteLoading] = useState(false);
+  const [mfaState, setMfaState] = useState(null);
   const requestReset = async (user) => {
-    if (!window.confirm(`¿Generar una contraseña temporal para ${user.name}? Su contraseña actual dejará de funcionar.`)) return;
+    if (!(await confirm({ title: "Restablecer contraseña", message: `Se generará una contraseña temporal para ${user.name}. Su contraseña actual dejará de funcionar.`, confirmLabel: "Generar contraseña" }))) return;
     setResettingId(user.id);
     try { setResetResult(await onResetPassword(user.id)); } finally { setResettingId(""); }
   };
-  const requestDelete = (user) => {
-    if (!window.confirm(`¿Eliminar definitivamente a ${user.name}? Esta acción no se puede deshacer.`)) return;
+  const requestDelete = async (user) => {
+    if (!(await confirm({ title: "Eliminar usuario", message: `Eliminarás definitivamente a ${user.name}. Esta acción no se puede deshacer.`, confirmLabel: "Eliminar usuario", danger: true }))) return;
     onDelete?.(user);
   };
-  return <section className="records-content"><div className="panel-heading"><div><span className="eyebrow">ACCESOS · EQUIPO</span><h2>Usuarios.</h2></div></div>{resetResult && <PasswordResetResult result={resetResult} onDismiss={() => setResetResult(null)} />}<div className="admin-layout users-layout"><form className="admin-form" onSubmit={onSave}><div className="admin-form-head"><h2>Nuevo usuario</h2></div><label>Nombre<input value={form.name} onChange={(event) => onChange("name", event.target.value)} required /></label><label>Correo<input type="email" value={form.email} onChange={(event) => onChange("email", event.target.value)} required /></label><label>Contraseña inicial<input type="password" minLength="8" value={form.password} onChange={(event) => onChange("password", event.target.value)} required /></label><label>Rol<select value={form.role} onChange={(event) => onChange("role", event.target.value)}><option value="seller">Ventas</option><option value="editor">Editor</option><option value="content_editor">Contenido</option><option value="admin">Administrador</option></select></label>{message && <p className="form-message">{message}</p>}<button className="primary-action" type="submit">Crear usuario</button></form><section className="table-panel"><div className="panel-heading"><div><span className="eyebrow">USUARIOS REGISTRADOS</span><h3>{users.length} cuentas</h3></div></div>{loading ? <p className="empty-state">Cargando usuarios…</p> : <div className="user-list">{users.map((user) => <article className={`user-row ${user.isActive ? "" : "is-inactive"}`} key={user.id}><div><strong>{user.name}</strong><span>{user.email} · {formatRole(user.role)}</span></div><div><select value={user.role} onChange={(event) => onUpdate(user, { role: event.target.value, isActive: user.isActive })}><option value="seller">Ventas</option><option value="editor">Editor</option><option value="content_editor">Contenido</option><option value="admin">Administrador</option></select><button className="text-button" type="button" onClick={() => requestReset(user)} disabled={resettingId === user.id}>{resettingId === user.id ? "Generando…" : "Restablecer contraseña"}</button><button className="text-button" onClick={() => onUpdate(user, { role: user.role, isActive: !user.isActive })}>{user.isActive ? "Desactivar" : "Activar"}</button>{!user.isActive && <button className="text-button" type="button" onClick={() => requestDelete(user)}>Eliminar</button>}</div></article>)}</div>}</section></div></section>;
+  const submitInvite = async (event) => { event.preventDefault(); setInviteLoading(true); setInviteState(""); try { await onInvite?.(invite); setInvite({ fullName: "", email: "", role: "seller" }); setInviteState("Invitación enviada. El enlace vence en 72 horas."); } catch (error) { setInviteState(mensajeDeError(error)); } finally { setInviteLoading(false); } };
+  const startMfa = async () => { setInviteState(""); try { setMfaState(await onMfaSetup?.()); } catch (error) { setInviteState(mensajeDeError(error)); } };
+  const verifyMfa = async (event) => { event.preventDefault(); try { const formData = new FormData(event.target); const result = await onMfaSetup?.({ setupToken: mfaState.setupToken, code: formData.get("code") }); setMfaState({ recoveryCodes: result?.recoveryCodes || [] }); } catch (error) { setInviteState(mensajeDeError(error)); } };
+  return (
+    <section className="records-content">
+      <div className="panel-heading"><div><span className="eyebrow">ACCESOS · EQUIPO</span><h2>Usuarios.</h2></div></div>
+      {resetResult && <PasswordResetResult result={resetResult} onDismiss={() => setResetResult(null)} />}
+       <div className="security-setup-panel"><div><span className="eyebrow">SEGURIDAD DEL EQUIPO</span><h3>Invita sin compartir contraseñas.</h3><p>El miembro crea su propia clave desde un enlace de un solo uso. Activa MFA para proteger esta cuenta.</p></div><button className="secondary-action" type="button" onClick={startMfa}>Activar MFA</button>{mfaState?.setupToken && <form className="security-mfa-form" onSubmit={verifyMfa}><label>Código de tu autenticador<input name="code" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength="6" required placeholder="000000" /></label><button className="primary-action" type="submit">Confirmar MFA</button><p>Clave manual: <code>{mfaState.secret}</code></p></form>}{mfaState?.recoveryCodes?.length > 0 && <div className="recovery-codes" role="status"><strong>Guarda estos códigos de recuperación.</strong><span>{mfaState.recoveryCodes.join(" · ")}</span></div>}</div><form className="admin-form invite-form" onSubmit={submitInvite}><div className="admin-form-head"><h2>Invitar al equipo</h2></div><label>Nombre<input value={invite.fullName} onChange={(event) => setInvite((current) => ({ ...current, fullName: event.target.value }))} required /></label><label>Correo<input type="email" value={invite.email} onChange={(event) => setInvite((current) => ({ ...current, email: event.target.value }))} required /></label><label>Rol<select value={invite.role} onChange={(event) => setInvite((current) => ({ ...current, role: event.target.value }))}><option value="seller">Ventas</option><option value="editor">Editor</option><option value="content_editor">Contenido</option><option value="admin">Administrador</option></select></label>{inviteState && <p className="form-message" role="status">{inviteState}</p>}<button className="primary-action" type="submit" disabled={inviteLoading}>{inviteLoading ? "Enviando…" : "Enviar invitación"}</button></form><div className="admin-layout users-layout">
+        <form className="admin-form" onSubmit={onSave}>
+          <div className="admin-form-head"><h2>Nuevo usuario</h2></div>
+          <label>Nombre<input value={form.name} onChange={(event) => onChange("name", event.target.value)} required /></label>
+          <label>Correo<input type="email" value={form.email} onChange={(event) => onChange("email", event.target.value)} required /></label>
+          <label>Contraseña inicial<input type="password" minLength="8" value={form.password} onChange={(event) => onChange("password", event.target.value)} required /></label>
+          <label>Rol<select value={form.role} onChange={(event) => onChange("role", event.target.value)}><option value="seller">Ventas</option><option value="editor">Editor</option><option value="content_editor">Contenido</option><option value="admin">Administrador</option></select></label>
+          {message && <p className="form-message" role="status">{message}</p>}
+          <button className="primary-action" type="submit">Crear usuario</button>
+        </form>
+        <section className="table-panel">
+          <div className="panel-heading"><div><span className="eyebrow">USUARIOS REGISTRADOS</span><h3>{users.length} cuentas</h3></div></div>
+          {loading ? <p className="empty-state">Cargando usuarios…</p> : <div className="user-list">{users.map((user) => <article className={`user-row ${user.isActive ? "" : "is-inactive"}`} key={user.id}>
+            <div><strong>{user.name}</strong><span>{user.email} · {formatRole(user.role)}</span></div>
+            <div>
+              <select value={user.role} onChange={(event) => onUpdate(user, { role: event.target.value, isActive: user.isActive })} aria-label={`Rol de ${user.name}`}><option value="seller">Ventas</option><option value="editor">Editor</option><option value="content_editor">Contenido</option><option value="admin">Administrador</option></select>
+              <button className="text-button" type="button" onClick={() => requestReset(user)} disabled={resettingId === user.id}>{resettingId === user.id ? "Generando…" : "Restablecer contraseña"}</button>
+              <button className="text-button" type="button" onClick={() => onUpdate(user, { role: user.role, isActive: !user.isActive })}>{user.isActive ? "Desactivar" : "Activar"}</button>
+              {!user.isActive && <button className="text-button" type="button" onClick={() => requestDelete(user)}>Eliminar</button>}
+            </div>
+          </article>)}</div>}
+        </section>
+      </div>
+    </section>
+  );
 }
 
 function AppointmentSettingsFields({ form, onChange }) {
@@ -1289,6 +1509,7 @@ function TrustContentFields({ form, onChange }) {
 
 function SettingsModule({ form, organization, onboarding, onChange, onOrganizationChange, onSave, onOrganizationSave, onUpload, onNavigate, onOpenPublic, loading, message, organizationMessage }) {
   const [activeSection, setActiveSection] = useState("brand");
+  const [profileLinkCopied, setProfileLinkCopied] = useState(false);
   const savedSnapshot = useRef(JSON.stringify({ form, organization }));
   const justSaved = message === "Configuración guardada correctamente" || organizationMessage === "Perfil guardado correctamente";
   const settingsDirty = !justSaved && JSON.stringify({ form, organization }) !== savedSnapshot.current;
@@ -1313,26 +1534,120 @@ function SettingsModule({ form, organization, onboarding, onChange, onOrganizati
   const sections = [["brand", "Marca"], ["showroom", "Portada"], ["contact", "Contacto"], ["appointments", "Agenda"], ["legal", "Legal"]];
   const pendingSections = sections.filter(([id]) => !sectionReady[id]);
   const isOwner = Boolean(organization?.id);
-  return <section className="records-content"><div className="panel-heading"><div><span className="eyebrow">PERSONALIZACIÓN</span><h2>Tu showroom, a tu manera.</h2><p>Actualiza solo lo que necesitas. Los cambios se guardan por concesionario.</p></div></div><OnboardingPanel onboarding={onboarding} onNavigate={onNavigate} onOpenPublic={onOpenPublic} /><div className="settings-form admin-form"><nav className="settings-tabs" aria-label="Secciones de personalización">{sections.map(([id, label]) => <button key={id} type="button" className={`${activeSection === id ? "is-active" : ""}${sectionReady[id] ? " is-ready" : " is-pending"}`} aria-current={activeSection === id ? "page" : undefined} onClick={() => setActiveSection(id)}>{label}<span className="settings-tab-mark" aria-hidden="true">{sectionReady[id] ? "✓" : "•"}</span><span className="visually-hidden">{sectionReady[id] ? " (completa)" : " (falta información)"}</span></button>)}</nav>{pendingSections.length > 0 && <p className="settings-pending-hint">Falta información en: {pendingSections.map(([, label]) => label).join(", ")}.</p>}{activeSection === "brand" && isOwner && <form onSubmit={onOrganizationSave} className="settings-section organization-profile"><span className="eyebrow">PERFIL DEL CONCESIONARIO</span><p className="settings-section-note">Nombre, dirección del showroom y dominio. Solo el dueño puede cambiar estos datos de cuenta.</p><div className="form-grid"><label>Nombre del concesionario<input value={organization.name || ""} onChange={(event) => onOrganizationChange("name", event.target.value)} required /></label><label>Nombre del enlace público<input value={organization.slug || ""} onChange={(event) => onOrganizationChange("slug", event.target.value)} pattern="[a-z0-9]+(?:-[a-z0-9]+)*" required /><small>Ejemplo: concesionario-jordi. Se usará en tu dirección pública.</small></label><BrandAssetField label="Logo del concesionario" value={organization.logoUrl} onChange={(value) => onOrganizationChange("logoUrl", value)} onUpload={onUpload} placeholder="/uploads/logo.webp" /><label>Dominio personalizado <span>Opcional</span><input value={organization.customDomain || ""} onChange={(event) => onOrganizationChange("customDomain", event.target.value)} placeholder="www.concesionario.com" inputMode="url" /><small>{organization.subdomain ? <>Tu showroom ya está disponible en <strong>{organization.subdomain}</strong>. Usa un dominio propio solo si ya lo tienes.</> : "Después de guardarlo, apunta este dominio al hosting."}</small></label></div>{organizationMessage && <p className="form-message">{organizationMessage}</p>}<button className="secondary-action" type="submit">Guardar datos de cuenta</button></form>}<form onSubmit={onSave}>{loading ? <p className="empty-state">Cargando configuración…</p> : <>{activeSection === "brand" && <div className="settings-section branding-settings"><span className="eyebrow">IDENTIDAD VISUAL</span><p className="settings-section-note">Elige los colores y el icono que verán los compradores. Puedes comprobarlos antes de publicar.</p><div className="branding-layout"><div className="branding-controls"><div className="form-grid"><label>Color principal<div className="color-input-row"><input type="color" value={form.primaryColor || "#c8a24b"} onChange={(event) => onChange("primaryColor", event.target.value)} /><input value={form.primaryColor || "#c8a24b"} onChange={(event) => onChange("primaryColor", event.target.value)} pattern="#[0-9a-fA-F]{6}" /></div></label><label>Color de acento<div className="color-input-row"><input type="color" value={form.accentColor || "#b28b37"} onChange={(event) => onChange("accentColor", event.target.value)} /><input value={form.accentColor || "#b28b37"} onChange={(event) => onChange("accentColor", event.target.value)} pattern="#[0-9a-fA-F]{6}" /></div></label></div><BrandAssetField label="Icono del navegador" value={form.faviconUrl} onChange={(value) => onChange("faviconUrl", value)} onUpload={onUpload} placeholder="/uploads/favicon.png" /></div><BrandingPreview form={form} organization={organization} onOpenPublic={onOpenPublic} /></div></div>}{activeSection === "showroom" && <div className="settings-section"><span className="eyebrow">PORTADA Y SECCIONES</span><p className="settings-section-note">Define la primera impresión y qué información verá un comprador.</p><div className="form-grid"><label>Titular principal<input value={form.heroHeadline || ""} onChange={(event) => onChange("heroHeadline", event.target.value)} placeholder="Elige lo que te mueve." maxLength="160" /><small>Si lo dejas vacío se utilizará el titular principal del sistema.</small></label><label>Subtítulo<input value={form.heroSubheadline || ""} onChange={(event) => onChange("heroSubheadline", event.target.value)} placeholder="Vehículos con carácter, información clara..." maxLength="280" /></label></div><BrandAssetField label="Imagen de portada" value={form.heroImageUrl} onChange={(value) => onChange("heroImageUrl", value)} onUpload={onUpload} placeholder="/uploads/portada.webp" /><div className="settings-toggle-grid"><label><input type="checkbox" checked={form.showFinancing !== false} onChange={(event) => onChange("showFinancing", event.target.checked)} /> Mostrar opciones de financiamiento</label><label><input type="checkbox" checked={form.showBrandRail !== false} onChange={(event) => onChange("showBrandRail", event.target.checked)} /> Mostrar marcas disponibles</label><label><input type="checkbox" checked={form.showModelLineRail !== false} onChange={(event) => onChange("showModelLineRail", event.target.checked)} /> Mostrar tipos de vehículos</label><label><input type="checkbox" checked={form.showBlog !== false} onChange={(event) => onChange("showBlog", event.target.checked)} /> Mostrar artículos y novedades</label></div></div>}{activeSection === "contact" && <div className="settings-section"><span className="eyebrow">CONTACTO Y REDES</span><p className="settings-section-note">Deja una forma clara de contactarte desde cada vehículo.</p><div className="form-grid"><label>Teléfono<input value={form.phone || ""} onChange={(event) => onChange("phone", event.target.value)} /></label><label>WhatsApp<input value={form.whatsapp || ""} onChange={(event) => onChange("whatsapp", event.target.value)} /></label><label>Correo<input type="email" value={form.email || ""} onChange={(event) => onChange("email", event.target.value)} /></label><label>Moneda<input value={form.currency || "USD"} onChange={(event) => onChange("currency", event.target.value)} maxLength="8" /></label><label>Instagram<input value={form.instagramUrl || ""} onChange={(event) => onChange("instagramUrl", event.target.value)} /></label><label>Facebook<input value={form.facebookUrl || ""} onChange={(event) => onChange("facebookUrl", event.target.value)} /></label></div><label>Dirección<input value={form.address || ""} onChange={(event) => onChange("address", event.target.value)} /></label><label>Horario visible<input value={form.hours || ""} onChange={(event) => onChange("hours", event.target.value)} placeholder="Lun–Sáb · 9:00–18:00" /></label></div>}{activeSection === "appointments" && <AppointmentSettingsFields form={form} onChange={onChange} />}{activeSection === "legal" && <LegalSettingsFields form={form} onChange={onChange} />}{message && <p className="form-message">{message}</p>}<div className="settings-save-bar"><span>Revisa el resultado antes de compartir el enlace.</span><div><button className="secondary-action" type="button" onClick={onOpenPublic}>Vista previa</button><button className="primary-action" type="submit">Guardar cambios</button></div></div></>}</form></div></section>;
+  const profileLink = organization?.subdomain ? `https://${organization.subdomain}` : `${window.location.origin}/?dealer=${organization?.slug || "zevroa"}`;
+  const copyProfileLink = async () => {
+    try { await navigator.clipboard.writeText(profileLink); } catch { /* El botón sigue dando feedback aunque el navegador bloquee el portapapeles. */ }
+    setProfileLinkCopied(true);
+    window.setTimeout(() => setProfileLinkCopied(false), 2200);
+  };
+  return <section className="records-content"><div className="panel-heading"><div><span className="eyebrow">PERFIL Y AJUSTES</span><h2>Tu showroom, a tu manera.</h2><p>Empieza por el nombre y el enlace público. Lo demás son mejoras que puedes activar cuando las necesites.</p></div></div><OnboardingPanel onboarding={onboarding} onNavigate={onNavigate} onOpenPublic={onOpenPublic} /><div className="settings-form admin-form"><nav className="settings-tabs" aria-label="Secciones de personalización">{sections.map(([id, label]) => <button key={id} type="button" className={`${activeSection === id ? "is-active" : ""}${sectionReady[id] ? " is-ready" : " is-pending"}`} aria-current={activeSection === id ? "page" : undefined} onClick={() => setActiveSection(id)}>{label}<span className="settings-tab-mark" aria-hidden="true">{sectionReady[id] ? "✓" : "•"}</span><span className="visually-hidden">{sectionReady[id] ? " (completa)" : " (falta información)"}</span></button>)}</nav>{pendingSections.length > 0 && <p className="settings-pending-hint">Falta información en: {pendingSections.map(([, label]) => label).join(", ")}.</p>}{activeSection === "brand" && isOwner && <form onSubmit={onOrganizationSave} className="settings-section organization-profile"><span className="eyebrow">PERFIL DEL CONCESIONARIO</span><p className="settings-section-note">Nombre, logo, enlace público y dominio opcional. Aquí no se gestionan formularios de contacto.</p><div className="form-grid"><label>Nombre del concesionario<input value={organization.name || ""} onChange={(event) => onOrganizationChange("name", event.target.value)} required /></label><label>Nombre del enlace público<input value={organization.slug || ""} onChange={(event) => onOrganizationChange("slug", event.target.value)} pattern="[a-z0-9]+(?:-[a-z0-9]+)*" required /><small>Ejemplo: concesionario-jordi. Se usará en tu dirección pública.</small></label><BrandAssetField label="Logo del concesionario" value={organization.logoUrl} onChange={(value) => onOrganizationChange("logoUrl", value)} onUpload={onUpload} placeholder="/uploads/logo.webp" /><label>Dominio personalizado <span>Opcional</span><input value={organization.customDomain || ""} onChange={(event) => onOrganizationChange("customDomain", event.target.value)} placeholder="www.concesionario.com" inputMode="url" /><small>{organization.subdomain ? <>Tu showroom ya está disponible en <strong>{organization.subdomain}</strong>. Usa un dominio propio solo si ya lo tienes.</> : "Después de guardarlo, apunta este dominio al hosting."}</small></label></div><div className="settings-public-link"><div><span className="eyebrow">ENLACE PÚBLICO</span><strong>{profileLink}</strong><small>Este es el enlace que puedes compartir con tus clientes.</small></div><div><button className="secondary-action" type="button" onClick={copyProfileLink}>{profileLinkCopied ? "✓ Copiado" : "Copiar enlace"}</button><button className="text-button" type="button" onClick={onOpenPublic}>Abrir showroom ↗</button></div></div>{organizationMessage && <p className="form-message">{organizationMessage}</p>}<button className="secondary-action" type="submit">Guardar perfil</button></form>}<form onSubmit={onSave}>{loading ? <p className="empty-state">Cargando configuración…</p> : <>{activeSection === "brand" && <div className="settings-section branding-settings"><span className="eyebrow">IDENTIDAD VISUAL</span><p className="settings-section-note">Elige los colores y el icono que verán los compradores. Puedes comprobarlos antes de publicar.</p><div className="branding-layout"><div className="branding-controls"><div className="form-grid"><label>Color principal<div className="color-input-row"><input type="color" value={form.primaryColor || "#c8a24b"} onChange={(event) => onChange("primaryColor", event.target.value)} /><input value={form.primaryColor || "#c8a24b"} onChange={(event) => onChange("primaryColor", event.target.value)} pattern="#[0-9a-fA-F]{6}" /></div></label><label>Color de acento<div className="color-input-row"><input type="color" value={form.accentColor || "#b28b37"} onChange={(event) => onChange("accentColor", event.target.value)} /><input value={form.accentColor || "#b28b37"} onChange={(event) => onChange("accentColor", event.target.value)} pattern="#[0-9a-fA-F]{6}" /></div></label></div><BrandAssetField label="Icono del navegador" value={form.faviconUrl} onChange={(value) => onChange("faviconUrl", value)} onUpload={onUpload} placeholder="/uploads/favicon.png" /></div><BrandingPreview form={form} organization={organization} onOpenPublic={onOpenPublic} /></div></div>}{activeSection === "showroom" && <div className="settings-section"><span className="eyebrow">PORTADA Y SECCIONES</span><p className="settings-section-note">Define la primera impresión y qué información verá un comprador.</p><div className="form-grid"><label>Titular principal<input value={form.heroHeadline || ""} onChange={(event) => onChange("heroHeadline", event.target.value)} placeholder="Elige lo que te mueve." maxLength="160" /><small>Si lo dejas vacío se utilizará el titular principal del sistema.</small></label><label>Subtítulo<input value={form.heroSubheadline || ""} onChange={(event) => onChange("heroSubheadline", event.target.value)} placeholder="Vehículos con carácter, información clara..." maxLength="280" /></label></div><BrandAssetField label="Imagen de portada" value={form.heroImageUrl} onChange={(value) => onChange("heroImageUrl", value)} onUpload={onUpload} placeholder="/uploads/portada.webp" /><div className="settings-toggle-grid"><label><input type="checkbox" checked={form.showFinancing !== false} onChange={(event) => onChange("showFinancing", event.target.checked)} /> Mostrar opciones de financiamiento</label><label><input type="checkbox" checked={form.showBrandRail !== false} onChange={(event) => onChange("showBrandRail", event.target.checked)} /> Mostrar marcas disponibles</label><label><input type="checkbox" checked={form.showModelLineRail !== false} onChange={(event) => onChange("showModelLineRail", event.target.checked)} /> Mostrar tipos de vehículos</label><label><input type="checkbox" checked={form.showBlog !== false} onChange={(event) => onChange("showBlog", event.target.checked)} /> Mostrar artículos y novedades</label></div></div>}{activeSection === "contact" && <div className="settings-section"><span className="eyebrow">CONTACTO Y REDES</span><p className="settings-section-note">Deja una forma clara de contactarte desde cada vehículo.</p><div className="form-grid"><PhoneField label="Teléfono comercial" value={form.phone || ""} onChange={(value) => onChange("phone", value)} hint="Lo usarás como teléfono de contacto del showroom." /><PhoneField label="WhatsApp comercial" value={form.whatsapp || ""} onChange={(value) => onChange("whatsapp", value)} hint="Este número abrirá el chat de WhatsApp para tus compradores." /><label>Correo<input type="email" value={form.email || ""} onChange={(event) => onChange("email", event.target.value)} autoComplete="email" /></label><label>Moneda<input value={form.currency || "USD"} onChange={(event) => onChange("currency", event.target.value)} maxLength="8" /></label><label>Instagram<input value={form.instagramUrl || ""} onChange={(event) => onChange("instagramUrl", event.target.value)} inputMode="url" /></label><label>Facebook<input value={form.facebookUrl || ""} onChange={(event) => onChange("facebookUrl", event.target.value)} inputMode="url" /></label></div><label>Dirección<input value={form.address || ""} onChange={(event) => onChange("address", event.target.value)} autoComplete="street-address" /></label><label>Horario visible<input value={form.hours || ""} onChange={(event) => onChange("hours", event.target.value)} placeholder="Lun–Sáb · 9:00–18:00" /></label><p className="settings-field-note">El WhatsApp se mostrará en los botones públicos del showroom y en las fichas de vehículos.</p></div>}{activeSection === "appointments" && <AppointmentSettingsFields form={form} onChange={onChange} />}{activeSection === "legal" && <LegalSettingsFields form={form} onChange={onChange} />}{message && <p className="form-message">{message}</p>}<div className="settings-save-bar"><span>Revisa el resultado antes de compartir el enlace.</span><div><button className="secondary-action" type="button" onClick={onOpenPublic}>Vista previa</button><button className="primary-action" type="submit">Guardar cambios</button></div></div></>}</form></div></section>;
 }
 
 const leadStages = [
   ["new", "Nuevos", "Primer contacto"],
-  ["contacted", "Contactados", "Conversacion abierta"],
+  ["contacted", "Contactados", "Conversación abierta"],
   ["qualified", "Calificados", "Listos para avanzar"],
-  ["closed", "Cerrados", "Operacion ganada"],
-  ["lost", "Perdidos", "Revisar despues"],
+  ["closed", "Cerrados", "Operación ganada"],
+  ["lost", "Perdidos", "Revisar después"],
 ];
 
 function LeadPipelineCard({ lead, onUpdate, onOpenList, onCreateQuote }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: `lead:${lead.id}`, data: { status: lead.status } });
   const style = transform ? { transform: CSS.Translate.toString(transform) } : undefined;
-  return <article ref={setNodeRef} style={style} className={`lead-pipeline-card${isDragging ? " is-dragging" : ""}`}><div className="pipeline-card-top"><strong>{lead.name}</strong><button className="pipeline-drag-handle" type="button" {...listeners} {...attributes} aria-label={`Arrastrar a ${lead.name}`} title="Arrastra para mover de etapa">⠿</button><span>{formatDate(lead.createdAt)}</span></div><small>{lead.brand ? `${lead.brand} ${lead.model}` : "Contacto general"}</small><div className="pipeline-card-meta"><span className={`priority-mark p${lead.priority || 2}`} title={`Prioridad ${formatPriority(lead.priority)}`}>{formatPriority(lead.priority)}</span><span>{lead.assignedTo || "Sin asignar"}</span></div>{lead.nextAction && <p className="pipeline-next-action">{lead.nextAction}{lead.nextActionAt ? ` · ${formatDateTime(lead.nextActionAt)}` : ""}</p>}<span className="pipeline-source">{formatLeadSource(lead.source)}</span><select aria-label={`Mover a etapa ${lead.name}`} value={lead.status} onChange={(event) => onUpdate(lead.id, { status: event.target.value })}><option value="new">Nuevo</option><option value="contacted">Contactado</option><option value="qualified">Calificado</option><option value="closed">Cerrado</option><option value="lost">Perdido</option></select>{lead.vehicleId && <button type="button" className="pipeline-manage-button quote-inline-action" onClick={() => onCreateQuote?.(lead)}>Crear cotización →</button>}{onOpenList && <button type="button" className="pipeline-manage-button" onClick={onOpenList}>Abrir ficha del cliente →</button>}</article>;
+  
+  const phoneDigits = useMemo(() => String(lead.phone || "").replace(/\D/g, ""), [lead.phone]);
+  const waText = useMemo(() => {
+    const car = lead.brand ? `${lead.brand} ${lead.model || ""}` : "tu vehículo de interés";
+    return encodeURIComponent(`Hola ${lead.name || ""}, te escribo del concesionario sobre tu consulta por ${car}. ¿Cómo te podemos ayudar?`);
+  }, [lead]);
+
+  const sla = useMemo(() => {
+    if (lead.status !== "new") return null;
+    const elapsedMinutes = Math.floor((Date.now() - new Date(lead.createdAt).getTime()) / 60000);
+    if (elapsedMinutes < 30) {
+      return { label: `⚡ Nuevo · ${elapsedMinutes}m`, className: "sla-fresh", title: "Lead recibido hace menos de 30 minutos. Contacta de inmediato." };
+    }
+    return { label: `⚠️ SLA +${elapsedMinutes}m`, className: "sla-delayed", title: "Atención prioritaria requerida. Más de 30m sin contactar." };
+  }, [lead.status, lead.createdAt]);
+
+  return (
+    <article ref={setNodeRef} style={style} className={`lead-pipeline-card${isDragging ? " is-dragging" : ""}`}>
+      <div className="pipeline-card-top">
+        <strong>{lead.name}</strong>
+        <button className="pipeline-drag-handle" type="button" {...listeners} {...attributes} aria-label={`Arrastrar a ${lead.name}`} title="Arrastra para mover de etapa">⠿</button>
+        <span>{formatDate(lead.createdAt)}</span>
+      </div>
+
+      {sla && (
+        <div className={`pipeline-sla-badge ${sla.className}`} title={sla.title}>
+          {sla.label}
+        </div>
+      )}
+
+      <small>{lead.brand ? `${lead.brand} ${lead.model}` : "Contacto general"}</small>
+      <div className="pipeline-card-meta">
+        <span className={`priority-mark p${lead.priority || 2}`} title={`Prioridad ${formatPriority(lead.priority)}`}>{formatPriority(lead.priority)}</span>
+        <span>{lead.assignedTo || "Sin asignar"}</span>
+      </div>
+      {lead.nextAction && <p className="pipeline-next-action">{lead.nextAction}{lead.nextActionAt ? ` · ${formatDateTime(lead.nextActionAt)}` : ""}</p>}
+      <span className="pipeline-source">{formatLeadSource(lead.source)}</span>
+
+      {phoneDigits ? (
+        <div className="pipeline-quick-contact">
+          <a
+            href={`https://wa.me/${phoneDigits}?text=${waText}`}
+            target="_blank"
+            rel="noreferrer"
+            className="pipeline-wa-btn"
+            title="Abrir chat en WhatsApp con mensaje personalizado"
+          >
+            💬 WhatsApp
+          </a>
+          <a
+            href={`tel:${phoneDigits}`}
+            className="pipeline-call-btn"
+            title="Llamar directamente"
+          >
+            📞 Llamar
+          </a>
+        </div>
+      ) : null}
+
+      <select aria-label={`Mover a etapa ${lead.name}`} value={lead.status} onChange={(event) => onUpdate(lead.id, { status: event.target.value })}>
+        <option value="new">Nuevo</option>
+        <option value="contacted">Contactado</option>
+        <option value="qualified">Calificado</option>
+        <option value="closed">Cerrado</option>
+        <option value="lost">Perdido</option>
+      </select>
+      {lead.vehicleId && <button type="button" className="pipeline-manage-button quote-inline-action" onClick={() => onCreateQuote?.(lead)}>Crear cotización →</button>}
+      {onOpenList && <button type="button" className="pipeline-manage-button" onClick={onOpenList}>Abrir ficha del cliente →</button>}
+    </article>
+  );
 }
 
 function LeadPipelineColumn({ stage, label, hint, records, onUpdate, onOpenList, onCreateQuote }) {
   const { isOver, setNodeRef } = useDroppable({ id: `stage:${stage}` });
-  return <section className={`lead-pipeline-column ${stage}${isOver ? " is-drop-target" : ""}`}><div className="lead-pipeline-heading"><div><span className="eyebrow">{label}</span><small>{hint}</small></div><strong>{String(records.length).padStart(2, "0")}</strong></div><div ref={setNodeRef} className="lead-pipeline-cards">{records.length ? records.map((lead) => <LeadPipelineCard lead={lead} key={lead.id} onUpdate={onUpdate} onCreateQuote={onCreateQuote} onOpenList={onOpenList} />) : <p className="pipeline-empty">Suelta un cliente aquí</p>}</div></section>;
+  return (
+    <section className={`lead-pipeline-column ${stage}${isOver ? " is-drop-target" : ""}`}>
+      <div className="lead-pipeline-heading">
+        <div>
+          <span className="eyebrow">{label}</span>
+          <small>{hint}</small>
+        </div>
+        <strong>{String(records.length).padStart(2, "0")}</strong>
+      </div>
+      <div ref={setNodeRef} className="lead-pipeline-cards">
+        {records.length ? (
+          records.map((lead) => (
+            <LeadPipelineCard lead={lead} key={lead.id} onUpdate={onUpdate} onCreateQuote={onCreateQuote} onOpenList={onOpenList} />
+          ))
+        ) : (
+          <p className="pipeline-empty">Suelta un cliente aquí</p>
+        )}
+      </div>
+    </section>
+  );
 }
 
 function LeadPipeline({ records, onUpdate, onOpenList, onCreateQuote }) {
@@ -1348,12 +1663,24 @@ function LeadPipeline({ records, onUpdate, onOpenList, onCreateQuote }) {
   return <DndContext sensors={sensors} onDragEnd={moveLead}><div className="lead-pipeline">{leadStages.map(([stage, label, hint]) => <LeadPipelineColumn stage={stage} label={label} hint={hint} records={records.filter((lead) => lead.status === stage)} key={stage} onUpdate={onUpdate} onCreateQuote={onCreateQuote} onOpenList={onOpenList} />)}</div></DndContext>;
 }
 
+function LeadAttentionSummary({ records, activeFilter, onSelect }) {
+  const openRecords = records.filter((lead) => !["closed", "lost"].includes(lead.status));
+  const now = Date.now();
+  const overdue = openRecords.filter((lead) => lead.nextActionAt && new Date(lead.nextActionAt).getTime() < now);
+  const noAction = openRecords.filter((lead) => !lead.nextActionAt);
+  const planned = openRecords.filter((lead) => lead.nextActionAt && new Date(lead.nextActionAt).getTime() >= now);
+  const items = [["all", "Cartera abierta", openRecords.length, "Todos los pendientes"], ["overdue", "Vencidos", overdue.length, "Atención inmediata"], ["no_action", "Sin próxima acción", noAction.length, "Asignar siguiente paso"], ["planned", "Con seguimiento", planned.length, "Ya tienen fecha"]];
+  return <div className="lead-attention-summary" role="group" aria-label="Resumen del seguimiento">{items.map(([key, label, count, hint]) => <button key={key} type="button" className={activeFilter === key ? "is-active" : ""} onClick={() => onSelect(key)}><span>{label}</span><strong>{count}</strong><small>{hint}</small></button>)}</div>;
+}
+
 function LeadsControlRoom({ records, users, loading, onRefresh, onUpdate, onLoadHistory, onAddAppointment, onCreateQuote, initialLeadId = "" }) {
+  const { confirm } = useAdminConfirm();
   const [viewMode, setViewMode] = useState("pipeline");
   const [listDirty, setListDirty] = useState(false);
   const [attentionFilter, setAttentionFilter] = useState("all");
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const selectAttention = (filter) => { setAttentionFilter(filter); setViewMode("list"); setQuery(""); setStatusFilter("all"); };
   const visibleRecords = records.filter((lead) => { const haystack = `${lead.name} ${lead.email || ""} ${lead.phone || ""} ${lead.brand || ""} ${lead.model || ""}`.toLowerCase(); const overdue = lead.nextActionAt && new Date(lead.nextActionAt).getTime() < Date.now(); const noAction = !lead.nextActionAt; const attentionMatches = attentionFilter === "all" || (attentionFilter === "overdue" && overdue) || (attentionFilter === "no_action" && noAction) || (attentionFilter === "planned" && !noAction && !overdue); return (statusFilter === "all" || lead.status === statusFilter) && attentionMatches && haystack.includes(query.toLowerCase()); });
   useEffect(() => {
     const syncDirty = (event) => setListDirty(Boolean(event.detail));
@@ -1363,28 +1690,11 @@ function LeadsControlRoom({ records, users, loading, onRefresh, onUpdate, onLoad
   useEffect(() => {
     if (initialLeadId) setViewMode("list");
   }, [initialLeadId]);
-  useEffect(() => {
-    const guard = (event) => {
-      if (!listDirty) return;
-      const button = event.target.closest?.(".lead-control-room button, .lead-control-room + .records-content button");
-      if (!button) return;
-      const label = button.textContent.trim();
-      const switching = button.closest(".lead-view-switcher");
-      const refreshing = label === "Actualizar";
-      if (!switching && !refreshing) return;
-      event.preventDefault();
-      event.stopPropagation();
-      if (!window.confirm("Tienes cambios de seguimiento sin guardar. ¿Quieres continuar y descartarlos?")) return;
-      setListDirty(false);
-      if (refreshing) onRefresh();
-      else setViewMode(label === "Lista detallada" ? "list" : "pipeline");
-    };
-    document.addEventListener("click", guard, true);
-    return () => document.removeEventListener("click", guard, true);
-  }, [listDirty, onRefresh]);
+  const changeLeadView = async (nextView) => { if (listDirty && !(await confirm({ title: "Descartar cambios de seguimiento", message: "Tienes cambios sin guardar en esta vista. Si continúas, se perderán.", confirmLabel: "Continuar", danger: true }))) return; setListDirty(false); setViewMode(nextView); };
+  const refreshLeadView = async () => { if (listDirty && !(await confirm({ title: "Actualizar seguimiento", message: "Tienes cambios sin guardar. Actualizar puede reemplazar lo que estás editando.", confirmLabel: "Actualizar", danger: true }))) return; setListDirty(false); onRefresh(); };
   return <>
-    <section className="records-content lead-control-room"><div className="panel-heading"><div><span className="eyebrow">SEGUIMIENTO COMERCIAL</span><h2>{viewMode === "pipeline" ? "Seguimiento." : "Clientes."}</h2></div><div className="lead-view-switcher"><button className={viewMode === "pipeline" ? "active" : ""} type="button" onClick={() => setViewMode("pipeline")}>Seguimiento</button><button className={viewMode === "list" ? "active" : ""} type="button" onClick={() => setViewMode("list")}>Lista detallada</button></div></div>{viewMode === "pipeline" && <><div className="lead-filters"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar nombre, correo o vehículo..." aria-label="Buscar clientes" /><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Filtrar clientes"><option value="all">Todas las etapas</option><option value="new">Nuevos</option><option value="contacted">Contactados</option><option value="qualified">Calificados</option><option value="closed">Cerrados</option><option value="lost">Perdidos</option></select><span>{visibleRecords.length} de {records.length} clientes</span></div>{loading ? <p className="empty-state">Cargando clientes...</p> : <LeadPipeline records={visibleRecords} onUpdate={onUpdate} onCreateQuote={onCreateQuote} onOpenList={() => setViewMode("list")} />}</>}</section>
-    {viewMode === "list" && <><div className="lead-attention-filter"><label>Prioridad de seguimiento<select value={attentionFilter} onChange={(event) => setAttentionFilter(event.target.value)} aria-label="Filtrar seguimiento"><option value="all">Todo el seguimiento</option><option value="overdue">Seguimientos vencidos</option><option value="no_action">Sin próxima acción</option><option value="planned">Con acción futura</option></select></label></div><LeadsModule records={records} users={users} loading={loading} onRefresh={onRefresh} onUpdate={onUpdate} onLoadHistory={onLoadHistory} onAddAppointment={onAddAppointment} onCreateQuote={onCreateQuote} initialLeadId={initialLeadId} attentionFilter={attentionFilter} /></>}
+    <section className="records-content lead-control-room"><div className="panel-heading"><div><span className="eyebrow">SEGUIMIENTO COMERCIAL</span><h2>{viewMode === "pipeline" ? "Seguimiento." : "Clientes."}</h2></div><div className="lead-view-switcher"><button className={viewMode === "pipeline" ? "active" : ""} type="button" onClick={() => changeLeadView("pipeline")}>Seguimiento</button><button className={viewMode === "list" ? "active" : ""} type="button" onClick={() => changeLeadView("list")}>Lista detallada</button></div></div><LeadAttentionSummary records={records} activeFilter={attentionFilter} onSelect={selectAttention} />{viewMode === "pipeline" && <><div className="lead-filters"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar nombre, correo o vehículo..." aria-label="Buscar clientes" /><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Filtrar clientes"><option value="all">Todas las etapas</option><option value="new">Nuevos</option><option value="contacted">Contactados</option><option value="qualified">Calificados</option><option value="closed">Cerrados</option><option value="lost">Perdidos</option></select><button className="text-button" type="button" onClick={refreshLeadView}>Actualizar</button><span>{visibleRecords.length} de {records.length} clientes</span></div>{loading ? <p className="empty-state">Cargando clientes...</p> : <LeadPipeline records={visibleRecords} onUpdate={onUpdate} onCreateQuote={onCreateQuote} onOpenList={() => changeLeadView("list")} />}</>}</section>
+    {viewMode === "list" && <><div className="lead-attention-filter"><label>Prioridad de seguimiento<select value={attentionFilter} onChange={(event) => setAttentionFilter(event.target.value)} aria-label="Filtrar seguimiento"><option value="all">Todo el seguimiento</option><option value="overdue">Seguimientos vencidos</option><option value="no_action">Sin próxima acción</option><option value="planned">Con acción futura</option></select></label></div>{records.length > 100 ? <VirtualizedLeadsModule records={records} loading={loading} onRefresh={onRefresh} onLoadHistory={onLoadHistory} onAddAppointment={onAddAppointment} onCreateQuote={onCreateQuote} /> : <LeadsModule records={records} users={users} loading={loading} onRefresh={onRefresh} onUpdate={onUpdate} onLoadHistory={onLoadHistory} onAddAppointment={onAddAppointment} onCreateQuote={onCreateQuote} initialLeadId={initialLeadId} attentionFilter={attentionFilter} />}</>}
   </>;
 }
 
@@ -1395,13 +1705,21 @@ function LeadAppointmentBadge({ lead }) {
 }
 
 
-function AppointmentsModule({ appointments, blocks, loading, onRefresh, onStatusChange, onCreateBlock, onDeleteBlock, canManageBlocks, onExport }) {
+function AppointmentsModule({ appointments, blocks, loading, onRefresh, onStatusChange, onCreateBlock, onDeleteBlock, canManageBlocks, onExport, onOpenIntegrations = () => window.dispatchEvent(new CustomEvent("zevroa:open-admin-module", { detail: "integrations" })) }) {
   const [dateFilter, setDateFilter] = useState("");
   const [blockForm, setBlockForm] = useState({ date: "", start: "", end: "", reason: "" });
   const visible = appointments.filter((appointment) => !dateFilter || String(appointment.date).slice(0, 10) === dateFilter);
   const visibleBlocks = blocks.filter((block) => !dateFilter || String(block.date).slice(0, 10) === dateFilter);
+  const calendarAnchor = new Date(`${dateFilter || localIsoDate()}T12:00:00`);
+  calendarAnchor.setDate(calendarAnchor.getDate() - ((calendarAnchor.getDay() + 6) % 7));
+  const calendarDays = Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(calendarAnchor);
+    date.setDate(calendarAnchor.getDate() + index);
+    const iso = localIsoDate(date);
+    return { iso, date, label: new Intl.DateTimeFormat("es-DO", { weekday: "short" }).format(date).replace(".", ""), number: date.getDate(), items: appointments.filter((appointment) => String(appointment.date).slice(0, 10) === iso) };
+  });
   const submitBlock = async (event) => { event.preventDefault(); await onCreateBlock(blockForm); setBlockForm({ date: "", start: "", end: "", reason: "" }); };
-  return <section className="records-content appointments-content"><div className="panel-heading"><div><span className="eyebrow">AGENDA COMERCIAL</span><h2>Citas.</h2></div><div className="panel-actions"><input type="date" value={dateFilter} onChange={(event) => setDateFilter(event.target.value)} aria-label="Filtrar citas por fecha" /><button className="secondary-action" type="button" onClick={onRefresh}>Actualizar</button></div></div><div className="appointments-summary"><span><strong>{visible.length}</strong> cita{visible.length === 1 ? "" : "s"} {dateFilter ? "para este día" : "registradas"}</span><span>Los horarios se bloquean automáticamente al alcanzar la capacidad configurada.</span></div>{loading ? <p className="empty-state">Cargando agenda…</p> : visible.length ? <div className="appointments-list">{visible.map((appointment) => <article className="appointment-admin-row" key={appointment.id}><div className="appointment-date"><strong>{formatDate(appointment.date)}</strong><span>{String(appointment.time).slice(0, 5)} · {Number(appointment.durationMinutes) || 60} min</span></div><div className="appointment-main"><strong>{appointment.customerName}</strong><span>{appointment.brand ? `${appointment.brand} ${appointment.model} · ${appointment.year}` : "Vehículo no disponible"}</span><small>{appointment.customerEmail || appointment.customerPhone || "Sin contacto"}</small>{appointment.notes && <p>{appointment.notes}</p>}</div><div className="appointment-actions"><span className={`status-pill ${appointment.status}`}>{appointment.status === "confirmed" ? "Confirmada" : appointment.status === "cancelled" ? "Cancelada" : "Pendiente"}</span><select value={appointment.status} onChange={(event) => onStatusChange(appointment.id, event.target.value)} aria-label={`Estado de la cita de ${appointment.customerName}`}><option value="pending">Pendiente</option><option value="confirmed">Confirmada</option><option value="cancelled">Cancelada</option></select></div></article>)}</div> : <AdminEmptyState eyebrow="AGENDA VACÍA" title="No hay citas para mostrar." text="Cuando un comprador solicite una visita, la cita aparecerá aquí para confirmarla." />}{canManageBlocks && <section className="appointment-blocks"><div className="panel-heading"><div><span className="eyebrow">EXCEPCIONES DE AGENDA</span><h3>Bloqueos.</h3></div></div><form className="appointment-block-form" onSubmit={submitBlock}><label>Fecha<input type="date" value={blockForm.date} onChange={(event) => setBlockForm({ ...blockForm, date: event.target.value })} required /></label><label>Desde<input type="time" value={blockForm.start} onChange={(event) => setBlockForm({ ...blockForm, start: event.target.value })} /></label><label>Hasta<input type="time" value={blockForm.end} onChange={(event) => setBlockForm({ ...blockForm, end: event.target.value })} /></label><label>Motivo<input value={blockForm.reason} onChange={(event) => setBlockForm({ ...blockForm, reason: event.target.value })} placeholder="Feriado, vacaciones…" required /></label><button className="primary-action" type="submit">Bloquear horario</button></form><div className="appointment-block-list">{visibleBlocks.length ? visibleBlocks.map((block) => <article key={block.id}><div><strong>{formatDate(block.date)}</strong><span>{block.start ? `${String(block.start).slice(0, 5)}–${String(block.end).slice(0, 5)}` : "Todo el día"} · {block.reason}</span></div><button className="text-button" type="button" onClick={() => onDeleteBlock(block.id)}>Eliminar</button></article>) : <p className="empty-state">No hay bloqueos para este filtro.</p>}</div></section>}</section>;
+  return <section className="records-content appointments-content"><div className="panel-heading"><div><span className="eyebrow">AGENDA COMERCIAL</span><h2>Citas.</h2><p className="module-intro">Organiza las visitas, confirma horarios y evita cruces en un solo lugar.</p></div><div className="panel-actions"><button className="secondary-action" type="button" onClick={() => setDateFilter("")}>Hoy</button><input type="date" value={dateFilter} onChange={(event) => setDateFilter(event.target.value)} aria-label="Filtrar citas por fecha" /><button className="secondary-action" type="button" onClick={onRefresh}>Actualizar</button></div></div><section className="calendar-sync-callout" aria-label="Sincronización de calendario"><div className="calendar-sync-icon"><CalendarBlankIcon size={24} weight="duotone" /></div><div><span className="eyebrow">PARA NO PERDER NINGUNA VISITA</span><h3>Conecta Google Calendar</h3><p>Las citas nuevas de tu showroom pueden aparecer automáticamente en el calendario del equipo. El dueño lo autoriza una sola vez desde Conexiones.</p></div><div className="calendar-sync-actions"><button className="primary-action" type="button" onClick={onOpenIntegrations}>Conectar calendario</button>{onExport && <button className="text-button" type="button" onClick={onExport}>Descargar .ics</button>}</div></section><div className="appointments-summary"><span><strong>{visible.length}</strong> cita{visible.length === 1 ? "" : "s"} {dateFilter ? "para este día" : "registradas"}</span><span>Los horarios se bloquean automáticamente al alcanzar la capacidad configurada.</span></div><section className="agenda-week" aria-label="Vista semanal de la agenda"><div className="agenda-week-head"><div><span className="eyebrow">VISTA RÁPIDA</span><strong>Esta semana</strong></div><small>Selecciona un día para ver sus citas</small></div><div className="agenda-week-grid">{calendarDays.map((day) => <button type="button" className={`agenda-day${dateFilter === day.iso ? " is-selected" : ""}${day.iso === localIsoDate() ? " is-today" : ""}`} key={day.iso} onClick={() => setDateFilter(day.iso)}><span>{day.label}</span><strong>{day.number}</strong><small>{day.items.length ? `${day.items.length} cita${day.items.length === 1 ? "" : "s"}` : "Libre"}</small>{day.items.slice(0, 2).map((item) => <em key={item.id}>{String(item.time).slice(0, 5)} · {item.customerName}</em>)}</button>)}</div></section>{loading ? <p className="empty-state">Cargando agenda…</p> : visible.length ? <div className="appointments-list">{visible.map((appointment) => <article className="appointment-admin-row" key={appointment.id}><div className="appointment-date"><strong>{formatDate(appointment.date)}</strong><span>{String(appointment.time).slice(0, 5)} · {Number(appointment.durationMinutes) || 60} min</span></div><div className="appointment-main"><strong>{appointment.customerName}</strong><span>{appointment.brand ? `${appointment.brand} ${appointment.model} · ${appointment.year}` : "Vehículo no disponible"}</span><small>{appointment.customerEmail || appointment.customerPhone || "Sin contacto"}</small>{appointment.notes && <p>{appointment.notes}</p>}</div><div className="appointment-actions"><span className={`status-pill ${appointment.status}`}>{appointment.status === "confirmed" ? "Confirmada" : appointment.status === "cancelled" ? "Cancelada" : "Pendiente"}</span><select value={appointment.status} onChange={(event) => onStatusChange(appointment.id, event.target.value)} aria-label={`Estado de la cita de ${appointment.customerName}`}><option value="pending">Pendiente</option><option value="confirmed">Confirmada</option><option value="cancelled">Cancelada</option></select></div></article>)}</div> : <AdminEmptyState eyebrow="AGENDA VACÍA" title="No hay citas para mostrar." text="Cuando un comprador solicite una visita, la cita aparecerá aquí para confirmarla." />}{canManageBlocks && <section className="appointment-blocks"><div className="panel-heading"><div><span className="eyebrow">EXCEPCIONES DE AGENDA</span><h3>Bloqueos.</h3></div></div><form className="appointment-block-form" onSubmit={submitBlock}><label>Fecha<input type="date" value={blockForm.date} onChange={(event) => setBlockForm({ ...blockForm, date: event.target.value })} required /></label><label>Desde<input type="time" value={blockForm.start} onChange={(event) => setBlockForm({ ...blockForm, start: event.target.value })} /></label><label>Hasta<input type="time" value={blockForm.end} onChange={(event) => setBlockForm({ ...blockForm, end: event.target.value })} /></label><label>Motivo<input value={blockForm.reason} onChange={(event) => setBlockForm({ ...blockForm, reason: event.target.value })} placeholder="Feriado, vacaciones…" required /></label><button className="primary-action" type="submit">Bloquear horario</button></form><div className="appointment-block-list">{visibleBlocks.length ? visibleBlocks.map((block) => <article key={block.id}><div><strong>{formatDate(block.date)}</strong><span>{block.start ? `${String(block.start).slice(0, 5)}–${String(block.end).slice(0, 5)}` : "Todo el día"} · {block.reason}</span></div><button className="text-button" type="button" onClick={() => onDeleteBlock(block.id)}>Eliminar</button></article>) : <p className="empty-state">No hay bloqueos para este filtro.</p>}</div></section>}</section>;
 }
 
 const emptyVehicle = { brand: "", brandLogoUrl: "", category: "sports", model: "", variant: "", year: new Date().getFullYear(), condition: "used", priceUsd: "", stockNumber: "", engine: "", power: "", transmission: "", drive: "", fuelType: "", exteriorColor: "", interiorColor: "", doors: "", seats: "", mileageKm: 0, location: "", warranty: "", features: "", description: "", stock: 1, status: "draft", maxDiscountPercent: 0, images: "", media3dUrl: "", procedural3dEnabled: false, videoUrl: "", videoPosterUrl: "", panorama360Url: "" };
@@ -1413,7 +1731,26 @@ const emptyUser = { name: "", email: "", password: "", role: "seller" };
 const emptySettings = { businessName: "ZEVROA", logoUrl: "", primaryColor: "#c8a24b", accentColor: "#b28b37", faviconUrl: "", phone: "", whatsapp: "", email: "", address: "", hours: "", instagramUrl: "", facebookUrl: "", currency: "USD", privacyText: "", termsText: "", appointmentTimezone: "America/Santo_Domingo", appointmentStart: "09:00", appointmentEnd: "18:00", appointmentDurationMinutes: 60, appointmentMinNoticeHours: 2, appointmentMaxDaysAhead: 30, appointmentDays: [1, 2, 3, 4, 5, 6], appointmentCapacity: 1, heroHeadline: "", heroSubheadline: "", heroImageUrl: "", showFinancing: true, showBrandRail: true, showModelLineRail: true, showBlog: true, faqItems: [], testimonials: [] };
 const emptyOrganization = { id: "", name: "ZEVROA", slug: "zevroa", logoUrl: "", customDomain: "", isActive: true };
 
-export default function Backoffice({ onBack, onVehiclesChanged, initialMode = "login", impersonation = null }) {
+function InvitationAcceptance({ token, onBack, onAccepted }) {
+  const [form, setForm] = useState({ password: "", confirmation: "" });
+  const [state, setState] = useState({ loading: false, error: "", success: "" });
+  const submit = async (event) => {
+    event.preventDefault();
+    if (form.password.length < 8) { setState({ loading: false, error: "La contraseña debe tener al menos 8 caracteres.", success: "" }); return; }
+    if (form.password !== form.confirmation) { setState({ loading: false, error: "Las contraseñas no coinciden.", success: "" }); return; }
+    setState({ loading: true, error: "", success: "" });
+    try {
+      const response = await fetch(`${apiUrl}/api/auth/accept-invitation`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, password: form.password }) });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "No se pudo aceptar la invitación.");
+      setState({ loading: false, error: "", success: "Cuenta creada. Ya puedes entrar al panel." });
+      window.setTimeout(() => onAccepted?.(payload.data?.user?.email || ""), 900);
+    } catch (error) { setState({ loading: false, error: mensajeDeError(error), success: "" }); }
+  };
+  return <main className="admin-page admin-login-page invitation-page"><button className="back-button" type="button" onClick={onBack}>← Volver al acceso</button><form className="admin-login" onSubmit={submit}><span className="eyebrow">ZEVROA · INVITACIÓN</span><h1>Activa tu <em>acceso.</em></h1><p className="account-welcome">Crea tu contraseña para entrar al espacio de trabajo del concesionario. Este enlace solo se puede usar una vez.</p><label>Nueva contraseña<input type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} autoComplete="new-password" minLength="8" required /></label><label>Repite la contraseña<input type="password" value={form.confirmation} onChange={(event) => setForm({ ...form, confirmation: event.target.value })} autoComplete="new-password" minLength="8" required /></label>{state.error && <p className="state-message error" role="alert">{state.error}</p>}{state.success && <p className="state-message success" role="status">{state.success}</p>}<button className="primary-action" type="submit" disabled={state.loading || Boolean(state.success)}>{state.loading ? "Creando cuenta…" : state.success ? "Cuenta creada" : "Crear acceso"}</button></form></main>;
+}
+
+function BackofficeWorkspace({ onBack, onVehiclesChanged, initialMode = "login", impersonation = null }) {
   // La sesión normal vive en una cookie HttpOnly; el token de soporte solo vive
   // en memoria de esta pestaña para no persistir credenciales en el navegador.
   const [token, setToken] = useState(() => impersonation?.token || "");
@@ -1421,6 +1758,8 @@ export default function Backoffice({ onBack, onVehiclesChanged, initialMode = "l
   const [authMode, setAuthMode] = useState(initialMode);
   const [login, setLogin] = useState({ email: "", password: "" });
   const [loginError, setLoginError] = useState("");
+  const [mfaChallenge, setMfaChallenge] = useState("");
+  const [mfaCode, setMfaCode] = useState("");
   const [recoveryEmail, setRecoveryEmail] = useState("");
   const [recoveryState, setRecoveryState] = useState({ loading: false, message: "", error: "" });
   const [activeModule, setActiveModule] = useState("dashboard");
@@ -1429,6 +1768,9 @@ export default function Backoffice({ onBack, onVehiclesChanged, initialMode = "l
   const [settingsDraftDirty, setSettingsDraftDirty] = useState(false);
   const [dashboard, setDashboard] = useState(null);
   const [dashboardError, setDashboardError] = useState("");
+  const [workQueue, setWorkQueue] = useState([]);
+  const [workQueueError, setWorkQueueError] = useState("");
+  const [workQueueLoading, setWorkQueueLoading] = useState(false);
   const [vehicles, setVehicles] = useState([]);
   const [taxonomy, setTaxonomy] = useState({ brands: [], categories: [] });
   const [offers, setOffers] = useState([]);
@@ -1437,6 +1779,14 @@ export default function Backoffice({ onBack, onVehiclesChanged, initialMode = "l
   const [analytics, setAnalytics] = useState([]);
   const [funnelData, setFunnelData] = useState(null);
   const [leads, setLeads] = useState([]);
+  const [contacts, setContacts] = useState([]);
+  const [contactsError, setContactsError] = useState("");
+  const [selectedContact, setSelectedContact] = useState(null);
+  const [contactDetail, setContactDetail] = useState(null);
+  const [contactTimeline, setContactTimeline] = useState([]);
+  const [contactDetailLoading, setContactDetailLoading] = useState(false);
+  const [contactDetailError, setContactDetailError] = useState("");
+  const [customersView, setCustomersView] = useState("crm");
   const [appointments, setAppointments] = useState([]);
   const [appointmentBlocks, setAppointmentBlocks] = useState([]);
   const [users, setUsers] = useState([]);
@@ -1464,9 +1814,12 @@ export default function Backoffice({ onBack, onVehiclesChanged, initialMode = "l
   const [editingId, setEditingId] = useState(null);
   const [stickerVehicle, setStickerVehicle] = useState(null);
   const [message, setMessage] = useState("");
+  const [lastSavedAt, setLastSavedAt] = useState(null);
+  const [toastAction, setToastAction] = useState(null);
   const [loading, setLoading] = useState(false);
   const [moduleLoading, setModuleLoading] = useState(false);
   const [theme, setTheme] = useState(() => localStorage.getItem("authentiq_theme") || "light");
+  const { confirm, prompt } = useAdminConfirm();
   useEffect(() => {
     const syncLeadDraft = (event) => setLeadDraftDirty(Boolean(event.detail));
     window.addEventListener("authentiq:lead-dirty", syncLeadDraft);
@@ -1477,68 +1830,105 @@ export default function Backoffice({ onBack, onVehiclesChanged, initialMode = "l
     window.addEventListener("authentiq:settings-dirty", syncSettingsDraft);
     return () => window.removeEventListener("authentiq:settings-dirty", syncSettingsDraft);
   }, []);
-  useEffect(() => {
-    const guardAdminNavigation = (event) => {
-      const dirty = activeModule === "leads" ? leadDraftDirty : activeModule === "settings" ? settingsDraftDirty : false;
-      if (!dirty) return;
-      const button = event.target.closest?.(".admin-nav-item");
-      if (!button || button.classList.contains("active")) return;
-      const warning = activeModule === "settings" ? "Tienes cambios de personalización sin guardar. ¿Quieres salir y descartarlos?" : "Tienes cambios de seguimiento sin guardar. ¿Quieres salir y descartarlos?";
-      if (!window.confirm(warning)) {
-        event.preventDefault();
-        event.stopPropagation();
-        return;
-      }
-      if (activeModule === "settings") setSettingsDraftDirty(false);
-      else setLeadDraftDirty(false);
-    };
-    document.addEventListener("click", guardAdminNavigation, true);
-    return () => document.removeEventListener("click", guardAdminNavigation, true);
-  }, [activeModule, leadDraftDirty, settingsDraftDirty]);
   useEffect(() => { if (!message) return undefined; const timer = window.setTimeout(() => setMessage(""), 3200); return () => window.clearTimeout(timer); }, [message]);
+  useEffect(() => {
+    if (!message) return;
+    if (/(guardad|actualizad|archivad|publicad|restaurad|duplicad|exportad|generad|recibid|confirmad|copiad|cread)/i.test(message)) setLastSavedAt(new Date());
+    if (!toastAction) return;
+    const timer = window.setTimeout(() => setToastAction(null), 3200);
+    return () => window.clearTimeout(timer);
+  }, [message, toastAction]);
+  useEffect(() => {
+    const openModule = (event) => { if (event.detail) navigateAdmin(event.detail); };
+    window.addEventListener("zevroa:open-admin-module", openModule);
+    return () => window.removeEventListener("zevroa:open-admin-module", openModule);
+  }, [activeModule, leadDraftDirty, settingsDraftDirty]);
 
-  const confirmDiscardAdminDraft = () => {
+  const confirmDiscardAdminDraft = async () => {
     const dirty = activeModule === "leads" ? leadDraftDirty : activeModule === "settings" ? settingsDraftDirty : false;
     if (!dirty) return true;
     const warning = activeModule === "settings" ? "Tienes cambios de personalización sin guardar. ¿Quieres salir y descartarlos?" : "Tienes cambios de seguimiento sin guardar. ¿Quieres salir y descartarlos?";
-    if (!window.confirm(warning)) return false;
+    if (!(await confirm({ title: "Descartar cambios", message: warning, confirmLabel: "Salir sin guardar", danger: true }))) return false;
     if (activeModule === "settings") setSettingsDraftDirty(false);
     else setLeadDraftDirty(false);
     return true;
   };
-  const navigateAdmin = (nextModule) => {
+  const navigateAdmin = async (nextModule) => {
     if (nextModule === activeModule) return true;
-    if (!confirmDiscardAdminDraft()) return false;
+    if (!(await confirmDiscardAdminDraft())) return false;
     setActiveModule(nextModule);
     return true;
   };
-  const openLeadFromDashboard = (lead) => {
+  const openLeadFromDashboard = async (lead) => {
     if (!lead?.id) return;
-    if (navigateAdmin("leads")) setLeadFocusId(lead.id);
+    if (await navigateAdmin("leads")) { setCustomersView("pipeline"); setLeadFocusId(lead.id); }
   };
 
-  const request = async (path, options = {}) => { const response = await fetch(`${apiUrl}${path}`, { ...options, credentials: "include", headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(options.headers || {}) } }); const payload = response.status === 204 ? null : await response.json(); if (response.status === 401) { setCurrentUser(null); setToken(""); setSessionResolved(true); throw new Error("La sesión expiró. Inicia sesión nuevamente."); } if (!response.ok) throw new Error(payload?.error || "La operación no pudo completarse"); return payload; };
-  const loadVehicles = async () => { setLoading(true); try { setVehicles((await request("/api/admin/vehicles")).data || []); } catch (error) { setMessage(error.message); } finally { setLoading(false); } };
-  const loadTaxonomy = async () => { try { setTaxonomy((await request("/api/admin/taxonomy")).data || { brands: [], categories: [] }); } catch (error) { setMessage(error.message); } };
-  const loadDashboard = async () => { setModuleLoading(true); setDashboardError(""); try { setDashboard((await request("/api/admin/dashboard")).data); } catch (error) { setDashboardError(error.message); setMessage(error.message); } finally { setModuleLoading(false); } };
-  const loadOffers = async () => { setModuleLoading(true); try { setOffers((await request("/api/admin/offers")).data || []); } catch (error) { setMessage(error.message); } finally { setModuleLoading(false); } };
-  const loadQuotes = async () => { setModuleLoading(true); try { setQuotes((await request("/api/admin/quotes")).data || []); } catch (error) { setMessage(error.message); } finally { setModuleLoading(false); } };
-  const loadAnalytics = async () => { try { const [events, funnel] = await Promise.all([request("/api/admin/analytics?days=30"), request("/api/admin/analytics/funnel?days=30")]); setAnalytics(events.data || []); setFunnelData(funnel.data || null); } catch (error) { setMessage(error.message); } };
-  const loadLeads = async () => { setModuleLoading(true); try { setLeads((await request("/api/admin/leads")).data || []); } catch (error) { setMessage(error.message); } finally { setModuleLoading(false); } };
-  const loadAppointments = async () => { setModuleLoading(true); try { setAppointments((await request("/api/admin/appointments")).data || []); } catch (error) { setMessage(error.message); } finally { setModuleLoading(false); } };
-  const loadAppointmentBlocks = async () => { try { setAppointmentBlocks((await request("/api/admin/appointment-blocks")).data || []); } catch (error) { setMessage(error.message); } };
-  const loadLeadHistory = async (id) => { try { return (await request(`/api/admin/leads/${id}/events`)).data || []; } catch (error) { setMessage(error.message); return []; } };
-  const loadUsers = async () => { try { setUsers((await request("/api/admin/users")).data || []); } catch (error) { setMessage(error.message); } };
-  const loadManagedUsers = async () => { setModuleLoading(true); try { setManagedUsers((await request("/api/admin/users/manage")).data || []); } catch (error) { setMessage(error.message); } finally { setModuleLoading(false); } };
-  const loadSettings = async () => { setModuleLoading(true); try { setSettings((await request("/api/admin/settings")).data || emptySettings); } catch (error) { setMessage(error.message); } finally { setModuleLoading(false); } };
-  const loadOrganization = async () => { try { setOrganization((await request("/api/admin/organization")).data || emptyOrganization); } catch (error) { setOrganizationMessage(error.message); } };
-  const loadOnboarding = async () => { try { setOnboarding((await request("/api/admin/onboarding")).data || null); } catch (error) { setMessage(error.message); } };
-  const loadIntegrations = async () => { if (currentUser?.role !== "admin") return; try { const [payload, billingPayload] = await Promise.all([request("/api/admin/integrations"), request("/api/admin/billing")]); setIntegrations(payload.data?.integrations || []); setBilling(billingPayload.data || payload.data?.billing || null); setBillingPlans(billingPayload.data?.plans || []); setIntegrationHealth(payload.data?.health || null); } catch (error) { setMessage(error.message); } };
-  const loadSocialDrafts = async () => { try { setSocialDrafts((await request("/api/admin/social/drafts")).data || []); } catch (error) { setMessage(error.message); } };
-  const loadBlog = async () => { setModuleLoading(true); try { setPosts((await request("/api/admin/blog")).data || []); } catch (error) { setMessage(error.message); } finally { setModuleLoading(false); } };
-  const loadAudit = async () => { setModuleLoading(true); try { setAuditLogs((await request("/api/admin/audit-logs")).data || []); } catch (error) { setMessage(error.message); } finally { setModuleLoading(false); } };
-  const loadNotifications = async () => { try { const payload = await request("/api/admin/notifications"); setNotifications(payload.data || []); setUnreadNotifications(payload.unread || 0); } catch (error) { setMessage(error.message); } };
-  const markNotificationsRead = async () => { try { await request("/api/admin/notifications/read", { method: "PATCH" }); setNotifications((current) => current.map((item) => ({ ...item, readAt: new Date().toISOString() }))); setUnreadNotifications(0); } catch (error) { setMessage(error.message); } };
+  const request = async (path, options = {}) => {
+    const method = String(options.method || "GET").toUpperCase();
+    const execute = async () => {
+      const response = await fetch(`${apiUrl}${path}`, { ...options, credentials: "include", headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(options.headers || {}) } });
+      const payload = response.status === 204 ? null : await response.json();
+      if (response.status === 401) { setCurrentUser(null); setToken(""); setSessionResolved(true); throw new Error("La sesión expiró. Inicia sesión nuevamente."); }
+      if (!response.ok) throw new Error(payload?.error || "La operación no pudo completarse");
+      return payload;
+    };
+    if (method === "GET") {
+      return queryClient.fetchQuery({ queryKey: ["admin", currentUser?.id || "session", path], queryFn: execute });
+    }
+    const result = await execute();
+    await queryClient.invalidateQueries({ queryKey: ["admin", currentUser?.id || "session"] });
+    return result;
+  };
+  const loadVehicles = async () => { setLoading(true); try { setVehicles((await request("/api/admin/vehicles")).data || []); } catch (error) { setMessage(mensajeDeError(error)); } finally { setLoading(false); } };
+  const loadTaxonomy = async () => { try { setTaxonomy((await request("/api/admin/taxonomy")).data || { brands: [], categories: [] }); } catch (error) { setMessage(mensajeDeError(error)); } };
+  const loadDashboard = async () => { setModuleLoading(true); setDashboardError(""); try { setDashboard((await request("/api/admin/dashboard")).data); } catch (error) { setDashboardError(mensajeDeError(error)); setMessage(mensajeDeError(error)); } finally { setModuleLoading(false); } };
+  const loadWorkQueue = async () => { setWorkQueueLoading(true); setWorkQueueError(""); try { setWorkQueue((await request("/api/admin/work-queue")).data || []); } catch (error) { setWorkQueueError(mensajeDeError(error)); } finally { setWorkQueueLoading(false); } };
+  const loadOffers = async () => { setModuleLoading(true); try { setOffers((await request("/api/admin/offers")).data || []); } catch (error) { setMessage(mensajeDeError(error)); } finally { setModuleLoading(false); } };
+  const loadQuotes = async () => { setModuleLoading(true); try { setQuotes((await request("/api/admin/quotes")).data || []); } catch (error) { setMessage(mensajeDeError(error)); } finally { setModuleLoading(false); } };
+  const loadAnalytics = async () => { try { const [events, funnel] = await Promise.all([request("/api/admin/analytics?days=30"), request("/api/admin/analytics/funnel?days=30")]); setAnalytics(events.data || []); setFunnelData(funnel.data || null); } catch (error) { setMessage(mensajeDeError(error)); } };
+  const loadLeads = async () => { setModuleLoading(true); try { setLeads((await request("/api/admin/leads")).data || []); } catch (error) { setMessage(mensajeDeError(error)); } finally { setModuleLoading(false); } };
+  const loadContacts = async () => { setContactsError(""); try { setContacts((await request("/api/admin/contacts")).data || []); } catch (error) { setContactsError(mensajeDeError(error)); } };
+  const selectContact = async (contact) => {
+    if (!contact?.id) return;
+    setSelectedContact(contact); setContactDetail(null); setContactTimeline([]); setContactDetailError(""); setContactDetailLoading(true);
+    try {
+      const [detailPayload, timelinePayload] = await Promise.all([request(`/api/admin/contacts/${contact.id}`), request(`/api/admin/contacts/${contact.id}/timeline`)]);
+      setContactDetail(detailPayload.data || null); setContactTimeline(timelinePayload.data || []);
+    } catch (error) { setContactDetailError(mensajeDeError(error)); } finally { setContactDetailLoading(false); }
+  };
+  const addContactNote = async (contactId, note) => {
+    try {
+      await request(`/api/admin/contacts/${contactId}/notes`, { method: "POST", body: JSON.stringify({ note }) });
+      setMessage("Nota guardada en el cliente");
+      await Promise.all([loadContacts(), selectContact({ id: contactId })]);
+    } catch (error) { setMessage(mensajeDeError(error)); }
+  };
+  const assignContact = async (contactId, assignedTo) => {
+    try {
+      await request(`/api/admin/contacts/${contactId}/assign`, { method: "PATCH", body: JSON.stringify({ assignedTo: assignedTo || null }) });
+      setMessage("Responsable actualizado");
+      await Promise.all([loadContacts(), selectContact({ id: contactId })]);
+    } catch (error) { setMessage(mensajeDeError(error)); }
+  };
+  const openContactFromWork = async (item) => {
+    if (!item?.contactId) return navigateAdmin(item?.type === "appointment" ? "appointments" : item?.type === "quote" ? "quotes" : item?.type === "offer" ? "offers" : "leads");
+    if (await navigateAdmin("leads")) { setCustomersView("crm"); await selectContact(contacts.find((contact) => contact.id === item.contactId) || { id: item.contactId, fullName: item.title }); }
+  };
+  const loadAppointments = async () => { setModuleLoading(true); try { setAppointments((await request("/api/admin/appointments")).data || []); } catch (error) { setMessage(mensajeDeError(error)); } finally { setModuleLoading(false); } };
+  const loadAppointmentBlocks = async () => { try { setAppointmentBlocks((await request("/api/admin/appointment-blocks")).data || []); } catch (error) { setMessage(mensajeDeError(error)); } };
+  const loadLeadHistory = async (id) => { try { return (await request(`/api/admin/leads/${id}/events`)).data || []; } catch (error) { setMessage(mensajeDeError(error)); return []; } };
+  const loadUsers = async () => { try { setUsers((await request("/api/admin/users")).data || []); } catch (error) { setMessage(mensajeDeError(error)); } };
+  const loadManagedUsers = async () => { setModuleLoading(true); try { setManagedUsers((await request("/api/admin/users/manage")).data || []); } catch (error) { setMessage(mensajeDeError(error)); } finally { setModuleLoading(false); } };
+  const loadSettings = async () => { setModuleLoading(true); try { setSettings((await request("/api/admin/settings")).data || emptySettings); } catch (error) { setMessage(mensajeDeError(error)); } finally { setModuleLoading(false); } };
+  const loadOrganization = async () => { try { setOrganization((await request("/api/admin/organization")).data || emptyOrganization); } catch (error) { setOrganizationMessage(mensajeDeError(error)); } };
+  const loadOnboarding = async () => { try { setOnboarding((await request("/api/admin/onboarding")).data || null); } catch (error) { setMessage(mensajeDeError(error)); } };
+  const loadIntegrations = async () => { if (currentUser?.role !== "admin") return; try { const [payload, billingPayload] = await Promise.all([request("/api/admin/integrations"), request("/api/admin/billing")]); setIntegrations(payload.data?.integrations || []); setBilling(billingPayload.data || payload.data?.billing || null); setBillingPlans(billingPayload.data?.plans || []); setIntegrationHealth(payload.data?.health || null); } catch (error) { setMessage(mensajeDeError(error)); } };
+  const loadSocialDrafts = async () => { try { setSocialDrafts((await request("/api/admin/social/drafts")).data || []); } catch (error) { setMessage(mensajeDeError(error)); } };
+  const loadBlog = async () => { setModuleLoading(true); try { setPosts((await request("/api/admin/blog")).data || []); } catch (error) { setMessage(mensajeDeError(error)); } finally { setModuleLoading(false); } };
+  const loadAudit = async () => { setModuleLoading(true); try { setAuditLogs((await request("/api/admin/audit-logs")).data || []); } catch (error) { setMessage(mensajeDeError(error)); } finally { setModuleLoading(false); } };
+  const loadNotifications = async () => { try { const payload = await request("/api/admin/notifications"); setNotifications(payload.data || []); setUnreadNotifications(payload.unread || 0); } catch (error) { setMessage(mensajeDeError(error)); } };
+  const markNotificationsRead = async () => { try { await request("/api/admin/notifications/read", { method: "PATCH" }); setNotifications((current) => current.map((item) => ({ ...item, readAt: new Date().toISOString() }))); setUnreadNotifications(0); } catch (error) { setMessage(mensajeDeError(error)); } };
   useEffect(() => { document.documentElement.dataset.theme = theme; localStorage.setItem("authentiq_theme", theme); }, [theme]);
   useEffect(() => {
     if (impersonation?.token || token || currentUser) {
@@ -1562,24 +1952,35 @@ export default function Backoffice({ onBack, onVehiclesChanged, initialMode = "l
     const accentColor = validColor(settings.accentColor, "#b28b37");
     document.documentElement.style.setProperty("--tenant-primary", primaryColor);
     document.documentElement.style.setProperty("--tenant-accent", accentColor);
-    document.documentElement.style.setProperty("--tenant-primary-ink", contrastSafeShade(primaryColor, "#f5f1e9"));
+    // Se publican las variantes calculadas, no el token final: escribir
+    // `--tenant-primary-ink` como estilo inline en <html> gana siempre contra la
+    // regla `html[data-theme="dark"]` de styles.css, que apunta a ese mismo
+    // elemento, y dejaba el backoffice en modo oscuro con el dorado calculado
+    // para fondo claro (3.37:1). Mismo criterio que en App.jsx; el CSS elige.
+    // La referencia es #ebe6dc, la superficie clara más oscura del sistema.
+    document.documentElement.style.setProperty("--tenant-primary-ink-light", contrastSafeShade(primaryColor, "#ebe6dc"));
+    document.documentElement.style.setProperty("--tenant-accent-ink-light", contrastSafeShade(accentColor, "#ebe6dc"));
     document.documentElement.style.setProperty("--tenant-on-primary", readableInkOn(primaryColor));
     document.documentElement.style.setProperty("--tenant-primary-hover", lighten(primaryColor));
     document.documentElement.style.setProperty("--tenant-primary-on-dark", contrastSafeTint(primaryColor, "#111315"));
-    document.documentElement.style.setProperty("--tenant-accent-ink", contrastSafeShade(accentColor, "#f5f1e9"));
+    document.documentElement.style.setProperty("--tenant-accent-on-dark", contrastSafeTint(accentColor, "#111315"));
     const favicon = document.querySelector("link[data-authentiq-favicon]");
     if (favicon) favicon.href = settings.faviconUrl || "/favicon.svg";
   }, [settings.primaryColor, settings.accentColor, settings.faviconUrl]);
-  useEffect(() => { if (!sessionResolved || !currentUser) return; const role = currentUser.role; loadDashboard(); loadNotifications(); if (["admin", "editor", "seller"].includes(role)) { loadVehicles(); loadOffers(); loadQuotes(); loadAnalytics(); loadLeads(); loadAppointments(); loadUsers(); } if (["admin", "editor"].includes(role)) { loadAppointmentBlocks(); loadTaxonomy(); loadSettings(); loadOnboarding(); } if (["admin", "editor", "content_editor"].includes(role)) { loadBlog(); loadSocialDrafts(); } if (role === "admin") { loadAudit(); loadManagedUsers(); loadOrganization(); loadIntegrations(); } }, [sessionResolved, currentUser?.role]);
+  useEffect(() => { if (!sessionResolved || !currentUser) return; const role = currentUser.role; loadDashboard(); loadNotifications(); if (["admin", "editor", "seller"].includes(role)) { loadVehicles(); loadOffers(); loadQuotes(); loadAnalytics(); loadLeads(); loadContacts(); loadAppointments(); loadUsers(); loadWorkQueue(); } if (["admin", "editor"].includes(role)) { loadAppointmentBlocks(); loadTaxonomy(); loadSettings(); loadOnboarding(); } if (["admin", "editor", "content_editor"].includes(role)) { loadBlog(); loadSocialDrafts(); } if (role === "admin") { loadAudit(); loadManagedUsers(); loadOrganization(); loadIntegrations(); } }, [sessionResolved, currentUser?.role]);
   const onboardingStorageKey = currentUser?.id ? `authentiq_onboarding_seen_${currentUser.id}` : "";
   useEffect(() => {
-    if (!token || currentUser?.role !== "admin" || !onboarding || onboarding.progress >= 100 || !onboardingStorageKey) { setWelcomeOnboardingOpen(false); return undefined; }
+    if (!currentUser || currentUser?.role !== "admin" || !onboarding || onboarding.progress >= 100 || !onboardingStorageKey) { setWelcomeOnboardingOpen(false); return undefined; }
     if (localStorage.getItem(onboardingStorageKey) === "1") return undefined;
-    const timer = window.setTimeout(() => setWelcomeOnboardingOpen(true), 420);
+    const timer = window.setTimeout(() => {
+      setActiveModule("settings");
+      setWelcomeOnboardingOpen(true);
+    }, 420);
     return () => window.clearTimeout(timer);
-  }, [token, currentUser?.role, onboarding?.progress, onboardingStorageKey]);
-  const handleLogin = async (event) => { event.preventDefault(); setLoginError(""); try { const response = await fetch(`${apiUrl}/api/auth/login`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify(login) }); const payload = await response.json(); if (!response.ok) throw new Error(payload.error || "No se pudo iniciar sesión"); setCurrentUser(payload.user); setToken(payload.token || ""); setSessionResolved(true); } catch (error) { setLoginError(error.message); } };
-  const submitRecovery = async (event) => { event.preventDefault(); setRecoveryState({ loading: true, message: "", error: "" }); try { const response = await fetch(`${apiUrl}/api/auth/password-reset/request`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: recoveryEmail }) }); const payload = await response.json(); if (!response.ok) throw new Error(payload.error || "No se pudo preparar la recuperación"); setRecoveryState({ loading: false, message: payload.message, error: "" }); } catch (error) { setRecoveryState({ loading: false, message: "", error: error.message }); } };
+  }, [currentUser?.id, currentUser?.role, onboarding?.progress, onboardingStorageKey]);
+  const handleLogin = async (event) => { event.preventDefault(); setLoginError(""); try { const response = await fetch(`${apiUrl}/api/auth/login`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify(login) }); const payload = await response.json(); if (!response.ok) throw new Error(payload.error || "No se pudo iniciar sesión"); if (payload.mfaRequired) { setMfaChallenge(payload.challengeToken || ""); setMfaCode(""); return; } setCurrentUser(payload.user); setToken(payload.token || ""); setSessionResolved(true); } catch (error) { setLoginError(mensajeDeError(error)); } };
+  const submitMfaChallenge = async (event) => { event.preventDefault(); setLoginError(""); try { const response = await fetch(`${apiUrl}/api/auth/mfa/challenge`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ challengeToken: mfaChallenge, code: mfaCode }) }); const payload = await response.json(); if (!response.ok) throw new Error(payload.error || "No se pudo validar el código"); setCurrentUser(payload.user); setToken(payload.token || ""); setMfaChallenge(""); setMfaCode(""); setSessionResolved(true); } catch (error) { setLoginError(mensajeDeError(error)); } };
+  const submitRecovery = async (event) => { event.preventDefault(); setRecoveryState({ loading: true, message: "", error: "" }); try { const response = await fetch(`${apiUrl}/api/auth/password-reset/request`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: recoveryEmail }) }); const payload = await response.json(); if (!response.ok) throw new Error(payload.error || "No se pudo preparar la recuperación"); setRecoveryState({ loading: false, message: payload.message, error: "" }); } catch (error) { setRecoveryState({ loading: false, message: "", error: mensajeDeError(error) }); } };
   // window.close() solo funciona si el navegador reconoce que esta pestaña se abrió
   // por script (como hace impersonateDealer en PlatformCenter); si no, no pasa nada
   // y cae al respaldo de volver a la pantalla pública en esta misma pestaña.
@@ -1587,49 +1988,53 @@ export default function Backoffice({ onBack, onVehiclesChanged, initialMode = "l
   const change = (field, value) => setForm((current) => ({ ...current, [field]: value }));
   const generate3d = async (vehicleId, files) => { const body = new FormData(); files.forEach((file) => body.append("images", file, file.name)); const response = await fetch(`${apiUrl}/api/admin/vehicles/${vehicleId}/3d-generation`, { method: "POST", credentials: "include", body }); const payload = await response.json(); if (!response.ok) throw new Error(payload.error || "No se pudo iniciar la generación 3D"); return payload.data; };
   const refresh3d = async (vehicleId, jobId) => (await request(`/api/admin/vehicles/${vehicleId}/3d-generation/${jobId}/refresh`)).data;
-  const edit = (vehicle) => { const media = vehicle.media || []; setEditingId(vehicle.id); setForm({ ...vehicle, features: (vehicle.features || []).join(", "), images: (vehicle.images || []).map((image) => image.url).join(", "), imageAltTexts: (vehicle.images || []).map((image) => image.altText || "").join("\n"), media3dUrl: media.find((item) => item.type === "model_3d")?.url || "", videoUrl: media.find((item) => item.type === "video")?.url || "", videoPosterUrl: media.find((item) => item.type === "video")?.posterUrl || "", panorama360Url: media.find((item) => item.type === "panorama_360")?.url || "" }); navigateAdmin("inventory"); };
-  const save = async (event) => { event.preventDefault(); setMessage(""); const images = String(form.images || "").split(",").map((image) => image.trim()).filter(Boolean); const isPublishing = ["pending_review", "published"].includes(form.status); if (isPublishing && (!images.length || String(form.description || "").trim().length < 40)) { setMessage("Para publicar agrega al menos una foto y una descripción de 40 caracteres."); return; } const model3dUrl = String(form.media3dUrl || "").trim(); const videoUrl = String(form.videoUrl || "").trim(); const media = [{ type: "model_3d", url: model3dUrl }, { type: "video", url: videoUrl, posterUrl: String(form.videoPosterUrl || "").trim() || images[0] || "" }, { type: "panorama_360", url: form.panorama360Url }].filter((item) => String(item.url || "").trim()); const autoSeoTitle = String(form.seoTitle || "").trim() || `${form.brand} ${form.model} ${form.year} | ZEVROA`; const autoSeoDescription = String(form.seoDescription || "").trim() || String(form.description || "").trim().slice(0, 160); /* Posicional: sin filter(Boolean), que desplazaba los alt a la imagen equivocada. */ const altLines = String(form.imageAltTexts || "").split(/\r?\n/).map((item) => item.trim()); const imageAltTexts = images.map((_, index) => altLines[index] || `${form.brand} ${form.model} ${form.year} · vista ${index + 1}`); const body = { ...form, seoTitle: autoSeoTitle, seoDescription: autoSeoDescription, media3dUrl: model3dUrl, year: Number(form.year), priceUsd: Number(form.priceUsd), doors: form.doors === "" ? null : Number(form.doors), seats: form.seats === "" ? null : Number(form.seats), mileageKm: Number(form.mileageKm), stock: Number(form.stock), maxDiscountPercent: Number(form.maxDiscountPercent), features: String(form.features || "").split(",").map((item) => item.trim()).filter(Boolean), images, imageAltTexts, media }; try { const payload = await request(editingId ? `/api/admin/vehicles/${editingId}` : "/api/admin/vehicles", { method: editingId ? "PUT" : "POST", body: JSON.stringify(body) }); onVehiclesChanged?.(payload?.data); setForm(emptyVehicle); setEditingId(null); setMessage("Vehículo guardado correctamente"); await Promise.all([loadVehicles(), loadDashboard()]); } catch (error) { setMessage(error.message); } };
+  const edit = async (vehicle) => { if (!(await navigateAdmin("inventory"))) return; const media = vehicle.media || []; setEditingId(vehicle.id); setForm({ ...vehicle, features: (vehicle.features || []).join(", "), images: (vehicle.images || []).map((image) => image.url).join(", "), imageAltTexts: (vehicle.images || []).map((image) => image.altText || "").join("\n"), media3dUrl: media.find((item) => item.type === "model_3d")?.url || "", videoUrl: media.find((item) => item.type === "video")?.url || "", videoPosterUrl: media.find((item) => item.type === "video")?.posterUrl || "", panorama360Url: media.find((item) => item.type === "panorama_360")?.url || "" }); };
+  const save = async (event) => { event.preventDefault(); setMessage(""); const images = String(form.images || "").split(",").map((image) => image.trim()).filter(Boolean); const isPublishing = ["pending_review", "published"].includes(form.status); if (isPublishing && (!images.length || String(form.description || "").trim().length < 40)) { setMessage("Para publicar agrega al menos una foto y una descripción de 40 caracteres."); return; } const model3dUrl = String(form.media3dUrl || "").trim(); const videoUrl = String(form.videoUrl || "").trim(); const media = [{ type: "model_3d", url: model3dUrl }, { type: "video", url: videoUrl, posterUrl: String(form.videoPosterUrl || "").trim() || images[0] || "" }, { type: "panorama_360", url: form.panorama360Url }].filter((item) => String(item.url || "").trim()); const autoSeoTitle = String(form.seoTitle || "").trim() || `${form.brand} ${form.model} ${form.year} | ZEVROA`; const autoSeoDescription = String(form.seoDescription || "").trim() || String(form.description || "").trim().slice(0, 160); /* Posicional: sin filter(Boolean), que desplazaba los alt a la imagen equivocada. */ const altLines = String(form.imageAltTexts || "").split(/\r?\n/).map((item) => item.trim()); const imageAltTexts = images.map((_, index) => altLines[index] || `${form.brand} ${form.model} ${form.year} · vista ${index + 1}`); const body = { ...form, seoTitle: autoSeoTitle, seoDescription: autoSeoDescription, media3dUrl: model3dUrl, year: Number(form.year), priceUsd: Number(form.priceUsd), doors: form.doors === "" ? null : Number(form.doors), seats: form.seats === "" ? null : Number(form.seats), mileageKm: Number(form.mileageKm), stock: Number(form.stock), maxDiscountPercent: Number(form.maxDiscountPercent), features: String(form.features || "").split(",").map((item) => item.trim()).filter(Boolean), images, imageAltTexts, media }; try { const payload = await request(editingId ? `/api/admin/vehicles/${editingId}` : "/api/admin/vehicles", { method: editingId ? "PUT" : "POST", body: JSON.stringify(body) }); onVehiclesChanged?.(payload?.data); setForm(emptyVehicle); setEditingId(null); setMessage("Vehículo guardado correctamente"); await Promise.all([loadVehicles(), loadDashboard()]); } catch (error) { setMessage(mensajeDeError(error)); } };
   const uploadImage = async (file) => { const body = new FormData(); body.append("file", file); const response = await fetch(`${apiUrl}/api/admin/media-upload`, { method: "POST", credentials: "include", body }); const payload = await response.json(); if (!response.ok) throw new Error(payload.error || "No se pudo subir el archivo"); return payload.data.url; };
   const uploadMediaPackage = async (files) => { const body = new FormData(); files.forEach((file) => body.append("files", file, file.webkitRelativePath || file.name)); const response = await fetch(`${apiUrl}/api/admin/media-package-upload`, { method: "POST", credentials: "include", body }); const payload = await response.json(); if (!response.ok) { const missing = payload.missingCount ? ` Faltan ${payload.missingCount} dependencias.` : ""; throw new Error(`${payload.error || "No se pudo subir la carpeta 3D"}${missing}`); } return payload.data.url; };
-  const deactivate = async (id) => { if (!window.confirm("¿Desactivar este vehículo?")) return; try { await request(`/api/admin/vehicles/${id}`, { method: "DELETE" }); await Promise.all([loadVehicles(), loadDashboard()]); } catch (error) { setMessage(error.message); } };
-  const duplicateVehicle = async (id) => { try { await request(`/api/admin/vehicles/${id}/duplicate`, { method: "POST" }); setMessage("Vehículo duplicado como borrador"); await Promise.all([loadVehicles(), loadDashboard()]); } catch (error) { setMessage(error.message); } };
-  const changeVehicleStatus = async (id, status) => { if (["sold","inactive"].includes(status) && !window.confirm(`¿Marcar este vehículo como ${status==="sold"?"vendido":"inactivo"}?`)) return; if (status === "published" && !window.confirm("¿Publicar este vehículo ahora? Quedará visible en el catálogo.")) return; try { await request(`/api/admin/vehicles/${id}/status`, { method: "PATCH", body: JSON.stringify({ status }) }); setMessage("Estado actualizado"); await Promise.all([loadVehicles(), loadDashboard()]); } catch (error) { setMessage(error.message); } };
-  const reviewVehicle = async (id, decision) => { try { await request("/api/admin/vehicles/" + id + "/review", { method: "PATCH", body: JSON.stringify({ decision }) }); setMessage(decision === "approve" ? "Vehículo aprobado y publicado" : "Vehículo devuelto a borrador"); await Promise.all([loadVehicles(), loadDashboard(), loadNotifications()]); } catch (error) { setMessage(error.message); } };
+  const deactivate = async (id) => { if (!(await confirm({ title: "Archivar vehículo", message: "El vehículo dejará de aparecer en el inventario activo y no será visible públicamente.", confirmLabel: "Archivar vehículo", danger: true }))) return; try { await request(`/api/admin/vehicles/${id}`, { method: "DELETE" }); setMessage("Vehículo archivado"); setToastAction({ label: "Deshacer", onClick: async () => { try { await request(`/api/admin/vehicles/${id}/status`, { method: "PATCH", body: JSON.stringify({ status: "draft" }) }); setToastAction(null); setMessage("Vehículo restaurado como borrador"); await Promise.all([loadVehicles(), loadDashboard()]); } catch (error) { setToastAction(null); setMessage(mensajeDeError(error)); } } }); await Promise.all([loadVehicles(), loadDashboard()]); } catch (error) { setMessage(mensajeDeError(error)); } };
+  const duplicateVehicle = async (id) => { try { await request(`/api/admin/vehicles/${id}/duplicate`, { method: "POST" }); setMessage("Vehículo duplicado como borrador"); await Promise.all([loadVehicles(), loadDashboard()]); } catch (error) { setMessage(mensajeDeError(error)); } };
+  const changeVehicleStatus = async (id, status) => { const statusLabel = status === "sold" ? "vendido" : status === "inactive" ? "inactivo" : status === "published" ? "publicado" : "borrador"; if (["sold", "inactive", "published"].includes(status) && !(await confirm({ title: `${status === "published" ? "Publicar" : "Marcar como"} vehículo`, message: status === "published" ? "Quedará visible en el catálogo y podrá compartirse públicamente." : `El estado del vehículo pasará a ${statusLabel}.`, confirmLabel: status === "published" ? "Publicar vehículo" : "Cambiar estado", danger: status !== "published" }))) return; try { await request(`/api/admin/vehicles/${id}/status`, { method: "PATCH", body: JSON.stringify({ status }) }); setMessage("Estado actualizado"); await Promise.all([loadVehicles(), loadDashboard()]); } catch (error) { setMessage(mensajeDeError(error)); } };
+  const bulkVehicles = async (ids, operation) => { try { const payload = await request("/api/admin/vehicles/bulk", { method: "POST", body: JSON.stringify({ ids, operation }) }); setMessage(`${payload.data.updated} vehículos actualizados`); await Promise.all([loadVehicles(), loadDashboard()]); } catch (error) { setMessage(mensajeDeError(error)); } };
+  const exportVehicles = async () => { try { const response = await fetch(`${apiUrl}/api/admin/export/vehicles.csv`, { credentials: "include", headers: token ? { Authorization: `Bearer ${token}` } : {} }); if (!response.ok) { const payload = await response.json().catch(() => ({})); throw new Error(payload.error || "No se pudo exportar el inventario"); } const blob = await response.blob(); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = `zevroa-inventario-${new Date().toISOString().slice(0, 10)}.csv`; link.click(); URL.revokeObjectURL(url); setMessage("Inventario exportado"); } catch (error) { setMessage(mensajeDeError(error)); } };
+  const reviewVehicle = async (id, decision) => { try { await request("/api/admin/vehicles/" + id + "/review", { method: "PATCH", body: JSON.stringify({ decision }) }); setMessage(decision === "approve" ? "Vehículo aprobado y publicado" : "Vehículo devuelto a borrador"); await Promise.all([loadVehicles(), loadDashboard(), loadNotifications()]); } catch (error) { setMessage(mensajeDeError(error)); } };
   const previewVehicle = () => { const media = [{ type: "model_3d", url: form.media3dUrl }, { type: "video", url: form.videoUrl, posterUrl: form.videoPosterUrl }, { type: "panorama_360", url: form.panorama360Url }].filter((item) => String(item.url || "").trim()); const preview = { ...form, id: "preview", priceUsd: Number(form.priceUsd || 0), mileageKm: Number(form.mileageKm || 0), media, images: String(form.images || "").split(",").map((url) => url.trim()).filter(Boolean).map((url, index) => ({ id: `preview-${index}`, url, sortOrder: index })) }; sessionStorage.setItem("authentiq_vehicle_preview", JSON.stringify(preview)); window.open("/preview", "_blank", "noopener,noreferrer"); };
-  const updateStatus = async (kind, id, status) => { if (["cancelled", "rejected"].includes(status) && !window.confirm(`¿Confirmas marcar este registro como ${status === "cancelled" ? "cancelado" : "rechazado"}?`)) return; try { await request(`/api/admin/${kind}/${id}/status`, { method: "PATCH", body: JSON.stringify({ status }) }); setMessage("Estado actualizado correctamente"); await Promise.all([loadOffers(), loadDashboard()]); } catch (error) { setMessage(error.message); } };
-  const updateLead = async (id, values) => { try { const current = leads.find((lead) => lead.id === id) || {}; const payload = { status: current.status || "new", notes: current.notes || "", assignedTo: current.assignedToId || "", priority: current.priority || 2, nextAction: current.nextAction || "", nextActionAt: current.nextActionAt || "", lostReason: current.lostReason || "", updatedAt: current.updatedAt || "", ...values }; await request(`/api/admin/leads/${id}`, { method: "PATCH", body: JSON.stringify(payload) }); await Promise.all([loadLeads(), loadDashboard()]); return true; } catch (error) { setMessage(error.message); return false; } };
-  const updateAppointment = async (id, status) => { if (status === "cancelled" && !window.confirm("¿Confirmas cancelar esta cita?")) return; try { await request(`/api/admin/appointments/${id}`, { method: "PATCH", body: JSON.stringify({ status }) }); setMessage("Cita actualizada correctamente"); await loadAppointments(); } catch (error) { setMessage(error.message); } };
+  const updateStatus = async (kind, id, status) => { if (["cancelled", "rejected"].includes(status) && !(await confirm({ title: status === "cancelled" ? "Cancelar registro" : "Rechazar registro", message: `El registro quedará marcado como ${status === "cancelled" ? "cancelado" : "rechazado"}.`, confirmLabel: status === "cancelled" ? "Cancelar registro" : "Rechazar", danger: true }))) return; try { await request(`/api/admin/${kind}/${id}/status`, { method: "PATCH", body: JSON.stringify({ status }) }); setMessage("Estado actualizado correctamente"); await Promise.all([loadOffers(), loadDashboard()]); } catch (error) { setMessage(mensajeDeError(error)); } };
+  const updateLead = async (id, values) => { try { const current = leads.find((lead) => lead.id === id) || {}; const payload = { status: current.status || "new", notes: current.notes || "", assignedTo: current.assignedToId || "", priority: current.priority || 2, nextAction: current.nextAction || "", nextActionAt: current.nextActionAt || "", lostReason: current.lostReason || "", updatedAt: current.updatedAt || "", ...values }; await request(`/api/admin/leads/${id}`, { method: "PATCH", body: JSON.stringify(payload) }); await Promise.all([loadLeads(), loadDashboard()]); return true; } catch (error) { setMessage(mensajeDeError(error)); return false; } };
+  const updateAppointment = async (id, status) => { if (status === "cancelled" && !(await confirm({ title: "Cancelar cita", message: "La cita se marcará como cancelada y dejará de ocupar ese horario.", confirmLabel: "Cancelar cita", danger: true }))) return; try { await request(`/api/admin/appointments/${id}`, { method: "PATCH", body: JSON.stringify({ status }) }); setMessage("Cita actualizada correctamente"); await loadAppointments(); } catch (error) { setMessage(mensajeDeError(error)); } };
   const createAppointmentFromLead = async (values) => { const payload = await request("/api/admin/appointments", { method: "POST", body: JSON.stringify(values) }); setMessage("Cita confirmada correctamente"); await Promise.all([loadAppointments(), loadLeads(), loadNotifications()]); return payload.data; };
-  const createAppointmentBlock = async (values) => { try { await request("/api/admin/appointment-blocks", { method: "POST", body: JSON.stringify(values) }); setMessage("Bloqueo guardado correctamente"); await Promise.all([loadAppointmentBlocks(), loadAppointments()]); } catch (error) { setMessage(error.message); throw error; } };
-  const deleteAppointmentBlock = async (id) => { if (!window.confirm("¿Eliminar este bloqueo?")) return; try { await request(`/api/admin/appointment-blocks/${id}`, { method: "DELETE" }); setMessage("Bloqueo eliminado"); await Promise.all([loadAppointmentBlocks(), loadAppointments()]); } catch (error) { setMessage(error.message); } };
-  const createQuote = async (values) => { try { await request("/api/admin/quotes", { method: "POST", body: JSON.stringify({ ...values, basePriceUsd: Number(values.basePriceUsd), discountUsd: Number(values.discountUsd || 0) }) }); setQuoteLead(null); setMessage("Cotización guardada correctamente"); await loadQuotes(); } catch (error) { setMessage(error.message); throw error; } };
+  const createAppointmentBlock = async (values) => { try { await request("/api/admin/appointment-blocks", { method: "POST", body: JSON.stringify(values) }); setMessage("Bloqueo guardado correctamente"); await Promise.all([loadAppointmentBlocks(), loadAppointments()]); } catch (error) { setMessage(mensajeDeError(error)); throw error; } };
+  const deleteAppointmentBlock = async (id) => { if (!(await confirm({ title: "Eliminar bloqueo", message: "El horario volverá a estar disponible para nuevas citas.", confirmLabel: "Eliminar bloqueo", danger: true }))) return; try { await request(`/api/admin/appointment-blocks/${id}`, { method: "DELETE" }); setMessage("Bloqueo eliminado"); await Promise.all([loadAppointmentBlocks(), loadAppointments()]); } catch (error) { setMessage(mensajeDeError(error)); } };
+  const createQuote = async (values) => { try { await request("/api/admin/quotes", { method: "POST", body: JSON.stringify({ ...values, basePriceUsd: Number(values.basePriceUsd), discountUsd: Number(values.discountUsd || 0) }) }); setQuoteLead(null); setMessage("Cotización guardada correctamente"); await loadQuotes(); } catch (error) { setMessage(mensajeDeError(error)); throw error; } };
   const openQuoteForLead = (lead) => { if (!confirmDiscardAdminDraft()) return; setQuoteLead(lead); setActiveModule("quotes"); };
-  const updateQuoteStatus = async (id, status) => { try { await request(`/api/admin/quotes/${id}/status`, { method: "PATCH", body: JSON.stringify({ status }) }); setMessage("Estado de cotización actualizado"); await loadQuotes(); } catch (error) { setMessage(error.message); } };
+  const updateQuoteStatus = async (id, status) => { try { await request(`/api/admin/quotes/${id}/status`, { method: "PATCH", body: JSON.stringify({ status }) }); setMessage("Estado de cotización actualizado"); await loadQuotes(); } catch (error) { setMessage(mensajeDeError(error)); } };
   const shareQuote = async (id) => { const payload = await request(`/api/admin/quotes/${id}/share`, { method: "POST" }); setMessage("Enlace público generado"); await loadQuotes(); return payload.data.url; };
   const changeUser = (field, value) => setUserForm((current) => ({ ...current, [field]: value }));
-  const saveUser = async (event) => { event.preventDefault(); setMessage(""); try { await request("/api/admin/users", { method: "POST", body: JSON.stringify(userForm) }); setUserForm(emptyUser); setMessage("Usuario creado correctamente"); await Promise.all([loadManagedUsers(), loadUsers()]); } catch (error) { setMessage(error.message); } };
-  const updateUser = async (user, values) => { try { await request(`/api/admin/users/${user.id}`, { method: "PATCH", body: JSON.stringify({ name: user.name, ...values }) }); await Promise.all([loadManagedUsers(), loadUsers()]); } catch (error) { setMessage(error.message); } };
-  const resetUserPassword = async (id) => { try { return (await request(`/api/admin/users/${id}/reset-password`, { method: "POST" })).data; } catch (error) { setMessage(error.message); return null; } };
-  const deleteUser = async (user) => { try { await request(`/api/admin/users/${user.id}`, { method: "DELETE" }); setMessage("Usuario eliminado correctamente"); await Promise.all([loadManagedUsers(), loadUsers()]); } catch (error) { setMessage(error.message); } };
-  const createTaxonomy = async (kind, values) => { try { await request(`/api/admin/taxonomy/${kind}`, { method: "POST", body: JSON.stringify(values) }); setMessage("Registro agregado al catálogo"); await loadTaxonomy(); } catch (error) { setMessage(error.message); throw error; } };
-  const updateTaxonomy = async (kind, record) => { const name = window.prompt(`Nombre de ${kind === "brands" ? "la marca" : "la categoría"}:`, record.name); if (name === null) return; const isActive = record.isActive ? window.confirm("¿Quieres mantener este registro activo? Pulsa Cancelar para desactivarlo.") : true; const logoUrl = kind === "brands" ? window.prompt("Logo URL (opcional):", record.logoUrl || "") : ""; try { await request(`/api/admin/taxonomy/${kind}/${record.id}`, { method: "PATCH", body: JSON.stringify({ name, logoUrl, isActive }) }); setMessage("Catálogo actualizado"); await loadTaxonomy(); } catch (error) { setMessage(error.message); } };
+  const saveUser = async (event) => { event.preventDefault(); setMessage(""); try { await request("/api/admin/users", { method: "POST", body: JSON.stringify(userForm) }); setUserForm(emptyUser); setMessage("Usuario creado correctamente"); await Promise.all([loadManagedUsers(), loadUsers()]); } catch (error) { setMessage(mensajeDeError(error)); } };
+  const inviteUser = async (values) => { const payload = await request("/api/admin/invitations", { method: "POST", body: JSON.stringify(values) }); return payload.data; };
+  const setupMfa = async (values = null) => (await request(values ? "/api/admin/mfa/verify" : "/api/admin/mfa/setup", { method: "POST", body: JSON.stringify(values || {}) })).data;
+  const updateUser = async (user, values) => { try { await request(`/api/admin/users/${user.id}`, { method: "PATCH", body: JSON.stringify({ name: user.name, ...values }) }); await Promise.all([loadManagedUsers(), loadUsers()]); } catch (error) { setMessage(mensajeDeError(error)); } };
+  const resetUserPassword = async (id) => { try { return (await request(`/api/admin/users/${id}/reset-password`, { method: "POST" })).data; } catch (error) { setMessage(mensajeDeError(error)); return null; } };
+  const deleteUser = async (user) => { try { await request(`/api/admin/users/${user.id}`, { method: "DELETE" }); setMessage("Usuario eliminado correctamente"); await Promise.all([loadManagedUsers(), loadUsers()]); } catch (error) { setMessage(mensajeDeError(error)); } };
+  const createTaxonomy = async (kind, values) => { try { await request(`/api/admin/taxonomy/${kind}`, { method: "POST", body: JSON.stringify(values) }); setMessage("Registro agregado al catálogo"); await loadTaxonomy(); } catch (error) { setMessage(mensajeDeError(error)); throw error; } };
+  const updateTaxonomy = async (kind, record) => { const name = await prompt({ title: `Editar ${kind === "brands" ? "marca" : "categoría"}`, message: "Actualiza el nombre que verá el equipo al crear vehículos.", label: "Nombre", defaultValue: record.name, required: true, confirmLabel: "Continuar" }); if (name === null) return; const isActive = record.isActive ? await confirm({ title: "Mantener registro activo", message: "Si lo mantienes activo, seguirá apareciendo en el asistente de inventario.", confirmLabel: "Mantener activa" }) : true; if (isActive === null) return; const logoUrl = kind === "brands" ? await prompt({ title: "Logo de la marca", message: "Puedes dejarlo vacío si no quieres cambiarlo.", label: "Logo URL", defaultValue: record.logoUrl || "", placeholder: "https://.../logo.svg", confirmLabel: "Guardar marca" }) : ""; if (logoUrl === null) return; try { await request(`/api/admin/taxonomy/${kind}/${record.id}`, { method: "PATCH", body: JSON.stringify({ name, logoUrl, isActive }) }); setMessage("Catálogo actualizado"); await loadTaxonomy(); } catch (error) { setMessage(mensajeDeError(error)); } };
   const changeSettings = (field, value) => setSettings((current) => ({ ...current, [field]: value }));
   const changeOrganization = (field, value) => setOrganization((current) => ({ ...current, [field]: value }));
-  const saveSettings = async (event) => { event.preventDefault(); setMessage(""); try { const payload = await request("/api/admin/settings", { method: "PATCH", body: JSON.stringify(settings) }); setSettings(payload.data); setMessage("Configuración guardada correctamente"); await loadOnboarding(); } catch (error) { setMessage(error.message); } };
-  const saveOrganization = async (event) => { event.preventDefault(); setOrganizationMessage(""); try { const payload = await request("/api/admin/organization", { method: "PATCH", body: JSON.stringify(organization) }); setOrganization(payload.data); setOrganizationMessage("Perfil guardado correctamente"); await loadOnboarding(); } catch (error) { setOrganizationMessage(error.message); } };
-  const saveIntegration = async (provider, config) => { try { await request(`/api/admin/integrations/${provider}`, { method: "PATCH", body: JSON.stringify({ config }) }); setMessage("Integración local actualizada"); await loadIntegrations(); } catch (error) { setMessage(error.message); } };
-  const connectGoogleCalendar = async () => { if (currentUser?.role !== "admin") { setMessage("Esta conexión la configura el dueño del concesionario."); return; } try { const payload = await request("/api/admin/integrations/google-calendar/connect"); if (!payload?.data?.authorizationUrl) throw new Error("No se pudo preparar la autorización de Google"); window.location.assign(payload.data.authorizationUrl); } catch (error) { setMessage(error.message); } };
-  const startBillingCheckout = async (planCode = "starter") => { try { const payload = await request("/api/admin/billing/checkout", { method: "POST", body: JSON.stringify({ planCode }) }); if (!payload?.data?.url) throw new Error("Stripe no devolvió una URL de checkout"); window.location.assign(payload.data.url); } catch (error) { setMessage(error.message); } };
-  const createSocialDraft = async (values) => { try { await request("/api/admin/social/drafts", { method: "POST", body: JSON.stringify(values) }); setMessage("Borrador social guardado"); await loadSocialDrafts(); } catch (error) { setMessage(error.message); throw error; } };
-  const exportCalendar = async () => { try { const response = await fetch(`${apiUrl}/api/admin/calendar.ics`, { credentials: "include", ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}) }); if (!response.ok) throw new Error("No se pudo exportar la agenda"); const blob = await response.blob(); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = "agenda-showroom.ics"; link.click(); URL.revokeObjectURL(url); setMessage("Agenda descargada correctamente"); } catch (error) { setMessage(error.message); } };
+  const saveSettings = async (event) => { event.preventDefault(); setMessage(""); try { const normalizedSettings = { ...settings, phone: normalizePhone(settings.phone), whatsapp: normalizePhone(settings.whatsapp) }; const payload = await request("/api/admin/settings", { method: "PATCH", body: JSON.stringify(normalizedSettings) }); setSettings(payload.data); setMessage("Configuración guardada correctamente"); await loadOnboarding(); } catch (error) { setMessage(mensajeDeError(error)); } };
+  const saveOrganization = async (event) => { event.preventDefault(); setOrganizationMessage(""); try { const payload = await request("/api/admin/organization", { method: "PATCH", body: JSON.stringify(organization) }); setOrganization(payload.data); setOrganizationMessage("Perfil guardado correctamente"); await loadOnboarding(); } catch (error) { setOrganizationMessage(mensajeDeError(error)); } };
+  const saveIntegration = async (provider, config) => { try { await request(`/api/admin/integrations/${provider}`, { method: "PATCH", body: JSON.stringify({ config }) }); setMessage("Integración local actualizada"); await loadIntegrations(); } catch (error) { setMessage(mensajeDeError(error)); } };
+  const connectGoogleCalendar = async () => { if (currentUser?.role !== "admin") { setMessage("Esta conexión la configura el dueño del concesionario."); return; } try { const payload = await request("/api/admin/integrations/google-calendar/connect"); if (!payload?.data?.authorizationUrl) throw new Error("No se pudo preparar la autorización de Google"); window.location.assign(payload.data.authorizationUrl); } catch (error) { setMessage(mensajeDeError(error)); } };
+  const startBillingCheckout = async (planCode = "starter") => { try { const payload = await request("/api/admin/billing/checkout", { method: "POST", body: JSON.stringify({ planCode }) }); if (!payload?.data?.url) throw new Error("Stripe no devolvió una URL de checkout"); window.location.assign(payload.data.url); } catch (error) { setMessage(mensajeDeError(error)); } };
+  const createSocialDraft = async (values) => { try { await request("/api/admin/social/drafts", { method: "POST", body: JSON.stringify(values) }); setMessage("Borrador social guardado"); await loadSocialDrafts(); } catch (error) { setMessage(mensajeDeError(error)); throw error; } };
+  const exportCalendar = async () => { try { const response = await fetch(`${apiUrl}/api/admin/calendar.ics`, { credentials: "include", ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}) }); if (!response.ok) throw new Error("No se pudo exportar la agenda"); const blob = await response.blob(); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = "agenda-showroom.ics"; link.click(); URL.revokeObjectURL(url); setMessage("Agenda descargada correctamente"); } catch (error) { setMessage(mensajeDeError(error)); } };
   const toggleTheme = () => setTheme((current) => current === "dark" ? "light" : "dark");
   const changeBlog = (field, value) => setBlogForm((current) => ({ ...current, [field]: value }));
-  const editBlog = (post) => { setEditingPostId(post.id); setBlogForm({ ...emptyBlog, ...post }); navigateAdmin("blog"); };
-  const saveBlog = async (event) => { event.preventDefault(); setMessage(""); try { await request(editingPostId ? `/api/admin/blog/${editingPostId}` : "/api/admin/blog", { method: editingPostId ? "PUT" : "POST", body: JSON.stringify(blogForm) }); setBlogForm(emptyBlog); setEditingPostId(null); setMessage("Artículo guardado correctamente"); await loadBlog(); } catch (error) { setMessage(error.message); } };
-  const archiveBlog = async (id) => { if (!window.confirm("¿Archivar este artículo?")) return; try { await request(`/api/admin/blog/${id}`, { method: "DELETE" }); await loadBlog(); } catch (error) { setMessage(error.message); } };
-  const logout = async () => { if (!confirmDiscardAdminDraft()) return; await fetch(`${apiUrl}/api/auth/logout`, { method: "POST", credentials: "include" }).catch(() => {}); setCurrentUser(null); setToken(""); setSessionResolved(true); };
+  const editBlog = async (post) => { if (!(await navigateAdmin("blog"))) return; setEditingPostId(post.id); setBlogForm({ ...emptyBlog, ...post }); };
+  const saveBlog = async (event) => { event.preventDefault(); setMessage(""); try { await request(editingPostId ? `/api/admin/blog/${editingPostId}` : "/api/admin/blog", { method: editingPostId ? "PUT" : "POST", body: JSON.stringify(blogForm) }); setBlogForm(emptyBlog); setEditingPostId(null); setMessage("Artículo guardado correctamente"); await loadBlog(); } catch (error) { setMessage(mensajeDeError(error)); } };
+  const archiveBlog = async (id) => { if (!(await confirm({ title: "Archivar artículo", message: "El artículo dejará de aparecer publicado, pero podrás conservarlo en el panel.", confirmLabel: "Archivar artículo", danger: true }))) return; try { await request(`/api/admin/blog/${id}`, { method: "DELETE" }); setMessage("Artículo archivado"); await loadBlog(); } catch (error) { setMessage(mensajeDeError(error)); } };
+  const logout = async () => { if (!confirmDiscardAdminDraft()) return; await fetch(`${apiUrl}/api/auth/logout`, { method: "POST", credentials: "include" }).catch(() => {}); queryClient.removeQueries({ queryKey: ["admin", currentUser?.id || "session"] }); setCurrentUser(null); setToken(""); setSessionResolved(true); };
   const handleBack = () => { if (confirmDiscardAdminDraft()) onBack(); };
-  const openOnboarding = () => { if (onboardingStorageKey) localStorage.removeItem(onboardingStorageKey); setWelcomeOnboardingOpen(true); };
+  const openOnboarding = () => { if (onboardingStorageKey) localStorage.removeItem(onboardingStorageKey); setActiveModule("settings"); setWelcomeOnboardingOpen(true); };
   const dismissOnboarding = () => { if (onboardingStorageKey) localStorage.setItem(onboardingStorageKey, "1"); setWelcomeOnboardingOpen(false); };
   const [passwordChangeError, setPasswordChangeError] = useState("");
   const [passwordChangeLoading, setPasswordChangeLoading] = useState(false);
@@ -1644,15 +2049,17 @@ export default function Backoffice({ onBack, onVehiclesChanged, initialMode = "l
       setCurrentUser(payload.user);
       setToken(payload.token || "");
       setSessionResolved(true);
-    } catch (error) { setPasswordChangeError(error.message); } finally { setPasswordChangeLoading(false); }
+    } catch (error) { setPasswordChangeError(mensajeDeError(error)); } finally { setPasswordChangeLoading(false); }
   };
 
   if (!sessionResolved) return <main className="admin-page"><p className="state-message">Comprobando tu sesión…</p></main>;
   if (!token && !currentUser) {
+    const invitationToken = new URLSearchParams(window.location.search).get("invite")?.trim() || "";
+    if (invitationToken) return <InvitationAcceptance token={invitationToken} onBack={onBack} onAccepted={(email) => { setLogin({ email, password: "" }); setAuthMode("login"); const cleanUrl = `${window.location.pathname}${window.location.hash || ""}`; window.history.replaceState({}, "", cleanUrl); }} />;
     if (authMode === "register") {
       return (
         <main className="admin-page admin-login-page dealer-register-page">
-          <button className="back-button" onClick={onBack}>← Volver a ZEVROA</button>
+          <button className="back-button" type="button" onClick={onBack}>← Volver a ZEVROA</button>
           {/* El alta venía del landing oscuro y caía en una página crema medio vacía.
               Esta columna mantiene la identidad y responde lo que el dealer se pregunta
               antes de dar su correo: qué recibe, qué cuesta y qué pasa después. */}
@@ -1680,6 +2087,7 @@ export default function Backoffice({ onBack, onVehiclesChanged, initialMode = "l
               setCurrentUser(payload.user);
               setToken(payload.token || "");
               setSessionResolved(true);
+              setActiveModule("settings");
               setAuthMode("login");
             }}
           />
@@ -1687,25 +2095,26 @@ export default function Backoffice({ onBack, onVehiclesChanged, initialMode = "l
       );
     }
     if (authMode === "forgot") {
-      return <main className="admin-page admin-login-page"><button className="back-button" onClick={() => setAuthMode("login")}>← Volver al acceso</button><form className="admin-login" onSubmit={submitRecovery}><span className="eyebrow">ZEVROA · SEGURIDAD</span><h1>Recupera tu <em>acceso.</em></h1><p className="account-welcome">Te enviaremos un enlace si existe una cuenta con ese correo.</p><label>Correo<input type="email" value={recoveryEmail} onChange={(event) => setRecoveryEmail(event.target.value)} autoComplete="email" required /></label>{recoveryState.message && <p className="state-message success" role="status">{recoveryState.message}</p>}{recoveryState.error && <p className="state-message error" role="alert">{recoveryState.error}</p>}<button className="primary-action" type="submit" disabled={recoveryState.loading}>{recoveryState.loading ? "Enviando…" : "Enviar enlace"}</button></form></main>;
+      return <main className="admin-page admin-login-page"><button className="back-button" type="button" onClick={() => setAuthMode("login")}>← Volver al acceso</button><form className="admin-login" onSubmit={submitRecovery}><span className="eyebrow">ZEVROA · SEGURIDAD</span><h1>Recupera tu <em>acceso.</em></h1><p className="account-welcome">Te enviaremos un enlace si existe una cuenta con ese correo.</p><label>Correo<input type="email" value={recoveryEmail} onChange={(event) => setRecoveryEmail(event.target.value)} autoComplete="email" required /></label>{recoveryState.message && <p className="state-message success" role="status">{recoveryState.message}</p>}{recoveryState.error && <p className="state-message error" role="alert">{recoveryState.error}</p>}<button className="primary-action" type="submit" disabled={recoveryState.loading}>{recoveryState.loading ? "Enviando…" : "Enviar enlace"}</button></form></main>;
     }
+    if (mfaChallenge) return <main className="admin-page admin-login-page"><button className="back-button" type="button" onClick={() => { setMfaChallenge(""); setMfaCode(""); }}>← Volver al acceso</button><form className="admin-login" onSubmit={submitMfaChallenge}><span className="eyebrow">ZEVROA · SEGURIDAD</span><h1>Confirma tu <em>identidad.</em></h1><p className="account-welcome">Escribe el código de 6 dígitos de tu aplicación autenticadora. También puedes usar un código de recuperación.</p><label>Código de autenticación<input inputMode="numeric" autoComplete="one-time-code" value={mfaCode} onChange={(event) => setMfaCode(event.target.value.replace(/\D/g, "").slice(0, 8))} autoFocus required /></label>{loginError && <p className="state-message error" role="alert">{loginError}</p>}<button className="primary-action" type="submit">Verificar y entrar</button></form></main>;
     return (
       <main className="admin-page admin-login-page">
-        <button className="back-button" onClick={onBack}>← Volver al catálogo</button>
+        <button className="back-button" type="button" onClick={onBack}>← Volver al catálogo</button>
         <form className="admin-login" onSubmit={handleLogin}>
           <span className="eyebrow">ZEVROA · PANEL DE CONTROL</span>
           <h1>Acceso <em>administrativo.</em></h1>
-          <p className="account-welcome" style={{ margin: "0 0 16px", color: "var(--auth-muted)", fontSize: "14px", lineHeight: "1.5" }}>
+          <p className="account-welcome admin-login-copy">
             Gestiona tu inventario, cotizaciones, clientes y herramientas comerciales en tiempo real.
           </p>
           <label>Correo<input type="email" value={login.email} onChange={(event) => setLogin({ ...login, email: event.target.value })} placeholder="admin@tuconcesionario.com" autoComplete="username" required /></label>
           <label>Contraseña<input type="password" value={login.password} onChange={(event) => setLogin({ ...login, password: event.target.value })} placeholder="Tu contraseña" autoComplete="current-password" required /></label>
-          {loginError && <p className="state-message error">{loginError}</p>}
+          {loginError && <p className="state-message error" role="alert">{loginError}</p>}
           <button className="primary-action" type="submit">Entrar al panel</button>
           <button className="text-button" type="button" onClick={() => { setRecoveryEmail(login.email); setRecoveryState({ loading: false, message: "", error: "" }); setAuthMode("forgot"); }}>¿Olvidaste tu contraseña?</button>
-          <div className="dealer-login-switch" style={{ marginTop: "20px", paddingTop: "18px", borderTop: "1px solid var(--auth-line, #ddd)", textAlign: "center" }}>
-            <p style={{ margin: "0 0 10px", fontSize: "14px", color: "var(--auth-muted, #777)" }}>¿Quieres tener tu propio showroom con tu marca y catálogo?</p>
-            <button className="secondary-action" type="button" onClick={() => setAuthMode("register")} style={{ width: "100%" }}>
+          <div className="dealer-login-switch">
+            <p>¿Quieres tener tu propio showroom con tu marca y catálogo?</p>
+            <button className="secondary-action" type="button" onClick={() => setAuthMode("register")}>
               Crear nuevo showroom de concesionario →
             </button>
           </div>
@@ -1717,30 +2126,34 @@ export default function Backoffice({ onBack, onVehiclesChanged, initialMode = "l
   // Una contraseña restablecida por un administrador solo sirve para llegar hasta aquí:
   // el backend también bloquea cualquier otra ruta mientras esta bandera siga activa.
   if (currentUser?.mustChangePassword) return <main className="admin-page admin-login-page"><form className="admin-login" onSubmit={submitPasswordChange}><span className="eyebrow">ZEVROA · PANEL DE CONTROL</span><h1>Define tu <em>nueva contraseña.</em></h1><p className="account-welcome">Tu contraseña fue restablecida por un administrador. Elige una nueva antes de continuar.</p><label>Nueva contraseña<input type="password" name="newPassword" minLength="8" autoComplete="new-password" required /></label>{passwordChangeError && <p className="state-message error">{passwordChangeError}</p>}<button className="primary-action" type="submit" disabled={passwordChangeLoading}>{passwordChangeLoading ? "Guardando…" : "Guardar y continuar"}</button><button className="text-button" type="button" onClick={logout}>Cerrar sesión</button></form></main>;
-  if (currentUser?.role === "platform_admin") return <PlatformCenter token={token} user={currentUser} onLogout={logout} onBack={onBack} />;
+  if (currentUser?.role === "platform_admin") return <Suspense fallback={<main className="admin-page"><p className="state-message">Cargando administración de plataforma…</p></main>}><PlatformCenter token={token} user={currentUser} onLogout={logout} onBack={onBack} /></Suspense>;
 
   // "?preview=1" fuerza al SPA a resolver la organización por el JWT de esta sesión en
   // vez de por el dominio actual: funciona sin importar si ya hay dominio propio asignado.
   const openPublic = () => window.open("/?preview=1", "_blank", "noopener,noreferrer");
-  const activeView = activeModule === "dashboard" ? <DashboardView data={dashboard} vehicles={vehicles} leads={leads} offers={offers} appointments={appointments} loading={moduleLoading} error={dashboardError} onRetry={loadDashboard} onNavigate={navigateAdmin} onOpenLead={openLeadFromDashboard} onboarding={onboarding} onOpenOnboarding={openOnboarding} onOpenPublic={openPublic} organization={organization} settings={settings} currentUser={currentUser} /> : activeModule === "inventory" ? <InventoryModule vehicles={vehicles} form={form} editingId={editingId} loading={loading} message={message} onChange={change} onSave={save} onEdit={edit} onCancel={() => { setEditingId(null); setForm(emptyVehicle); }} onDeactivate={deactivate} onDuplicate={duplicateVehicle} onRefresh={loadVehicles} onUpload={uploadImage} onPackageUpload={uploadMediaPackage} onReview={reviewVehicle} onStatusChange={changeVehicleStatus} onOpenSticker={setStickerVehicle} onOpenSocial={() => navigateAdmin("integrations")} /> : activeModule === "leads" ? <LeadsControlRoom records={leads} users={users} loading={moduleLoading} onRefresh={loadLeads} onUpdate={updateLead} onLoadHistory={loadLeadHistory} onAddAppointment={setAppointmentLead} onCreateQuote={openQuoteForLead} initialLeadId={leadFocusId} /> : activeModule === "appointments" ? <AppointmentsModule appointments={appointments} blocks={appointmentBlocks} loading={moduleLoading} onRefresh={() => Promise.all([loadAppointments(), loadAppointmentBlocks()])} onStatusChange={updateAppointment} onCreateBlock={createAppointmentBlock} onDeleteBlock={deleteAppointmentBlock} canManageBlocks={["admin", "editor"].includes(currentUser?.role)} /> : activeModule === "quotes" ? <QuotesModule quotes={quotes} leads={leads} vehicles={vehicles} loading={moduleLoading} initialLead={quoteLead} onRefresh={loadQuotes} onCreate={createQuote} onStatusChange={updateQuoteStatus} onShare={shareQuote} /> : activeModule === "blog" ? <BlogModule posts={posts} form={blogForm} editingId={editingPostId} loading={moduleLoading} message={message} onChange={changeBlog} onSave={saveBlog} onEdit={editBlog} onCancel={() => { setEditingPostId(null); setBlogForm(emptyBlog); }} onArchive={archiveBlog} onRefresh={loadBlog} /> : activeModule === "offers" ? <RecordsModule kind="offers" records={offers} loading={moduleLoading} onRefresh={loadOffers} onStatusChange={(id, status) => updateStatus("offers", id, status)} /> : activeModule === "reports" ? <ReportsModule dashboard={dashboard} vehicles={vehicles} leads={leads} offers={offers} loading={moduleLoading} analytics={analytics} funnelData={funnelData} /> : activeModule === "audit" ? <AuditModule logs={auditLogs} loading={moduleLoading} onRefresh={loadAudit} /> : activeModule === "users" ? <UsersModule users={managedUsers} form={userForm} onChange={changeUser} onSave={saveUser} onUpdate={updateUser} onResetPassword={resetUserPassword} onDelete={deleteUser} loading={moduleLoading} message={message} /> : activeModule === "subscription" ? <SubscriptionModule billing={billing} plans={billingPlans} health={integrationHealth} onRefresh={loadIntegrations} onStartBillingCheckout={startBillingCheckout} /> : activeModule === "integrations" ? <IntegrationsModule integrations={integrations} billing={billing} health={integrationHealth} drafts={socialDrafts} vehicles={vehicles} organization={organization} settings={settings} loading={moduleLoading} onRefresh={() => Promise.all([loadIntegrations(), loadSocialDrafts()])} onCreateDraft={createSocialDraft} onExportCalendar={exportCalendar} onConnectGoogleCalendar={connectGoogleCalendar} /> : <SettingsModule form={settings} organization={organization} onboarding={onboarding} onChange={changeSettings} onOrganizationChange={changeOrganization} onSave={saveSettings} onOrganizationSave={saveOrganization} onUpload={uploadImage} onNavigate={navigateAdmin} onOpenPublic={openPublic} loading={moduleLoading} message={message} organizationMessage={organizationMessage} />;
+  const activeView = activeModule === "dashboard" ? <DashboardView data={dashboard} vehicles={vehicles} leads={leads} offers={offers} appointments={appointments} loading={moduleLoading} error={dashboardError} onRetry={loadDashboard} onNavigate={navigateAdmin} onOpenLead={openLeadFromDashboard} onOpenContact={openContactFromWork} onboarding={onboarding} onOpenOnboarding={openOnboarding} onOpenPublic={openPublic} organization={organization} settings={settings} currentUser={currentUser} workQueue={workQueue} workQueueLoading={workQueueLoading} workQueueError={workQueueError} onRefreshWorkQueue={loadWorkQueue} /> : activeModule === "inventory" ? <InventoryModule vehicles={vehicles} form={form} editingId={editingId} loading={loading} message={message} onChange={change} onSave={save} onEdit={edit} onCancel={() => { setEditingId(null); setForm(emptyVehicle); }} onDeactivate={deactivate} onDuplicate={duplicateVehicle} onRefresh={loadVehicles} onUpload={uploadImage} onPackageUpload={uploadMediaPackage} onReview={reviewVehicle} onStatusChange={changeVehicleStatus} onBulk={bulkVehicles} onExport={exportVehicles} onOpenSticker={setStickerVehicle} onOpenSocial={() => navigateAdmin("integrations")} /> : activeModule === "leads" ? <div className="customers-module-shell"><div className="customer-view-switcher" role="tablist" aria-label="Vista de clientes"><button type="button" role="tab" aria-selected={customersView === "crm"} className={customersView === "crm" ? "active" : ""} onClick={() => setCustomersView("crm")}>Clientes</button><button type="button" role="tab" aria-selected={customersView === "pipeline"} className={customersView === "pipeline" ? "active" : ""} onClick={() => setCustomersView("pipeline")}>Seguimiento</button></div>{customersView === "crm" ? <ContactsModule contacts={contacts} users={users} loading={moduleLoading} error={contactsError} selectedContact={selectedContact} detail={contactDetail} timeline={contactTimeline} detailLoading={contactDetailLoading} detailError={contactDetailError} canAssign={["admin", "editor"].includes(currentUser?.role)} onRefresh={loadContacts} onSelect={selectContact} onAddNote={addContactNote} onAssign={assignContact} onOpenLead={(id) => { setCustomersView("pipeline"); setLeadFocusId(id); }} onCreateAppointment={setAppointmentLead} onCreateQuote={openQuoteForLead} onOpenPipeline={() => setCustomersView("pipeline")} /> : <LeadsControlRoom records={leads} users={users} loading={moduleLoading} onRefresh={loadLeads} onUpdate={updateLead} onLoadHistory={loadLeadHistory} onAddAppointment={setAppointmentLead} onCreateQuote={openQuoteForLead} initialLeadId={leadFocusId} />}</div> : activeModule === "appointments" ? <AppointmentsModule appointments={appointments} blocks={appointmentBlocks} loading={moduleLoading} onRefresh={() => Promise.all([loadAppointments(), loadAppointmentBlocks()])} onStatusChange={updateAppointment} onCreateBlock={createAppointmentBlock} onDeleteBlock={deleteAppointmentBlock} canManageBlocks={["admin", "editor"].includes(currentUser?.role)} /> : activeModule === "quotes" ? <QuotesModule quotes={quotes} leads={leads} vehicles={vehicles} loading={moduleLoading} initialLead={quoteLead} onRefresh={loadQuotes} onCreate={createQuote} onStatusChange={updateQuoteStatus} onShare={shareQuote} /> : activeModule === "blog" ? <BlogModule posts={posts} form={blogForm} editingId={editingPostId} loading={moduleLoading} message={message} onChange={changeBlog} onSave={saveBlog} onEdit={editBlog} onCancel={() => { setEditingPostId(null); setBlogForm(emptyBlog); }} onArchive={archiveBlog} onRefresh={loadBlog} /> : activeModule === "offers" ? <RecordsModule kind="offers" records={offers} loading={moduleLoading} onRefresh={loadOffers} onStatusChange={(id, status) => updateStatus("offers", id, status)} /> : activeModule === "reports" ? <ReportsModule dashboard={dashboard} vehicles={vehicles} leads={leads} offers={offers} loading={moduleLoading} analytics={analytics} funnelData={funnelData} /> : activeModule === "audit" ? <AuditModule logs={auditLogs} loading={moduleLoading} onRefresh={loadAudit} /> : activeModule === "users" ? <UsersModule users={managedUsers} form={userForm} onChange={changeUser} onSave={saveUser} onUpdate={updateUser} onResetPassword={resetUserPassword} onDelete={deleteUser} onInvite={inviteUser} onMfaSetup={setupMfa} loading={moduleLoading} message={message} /> : activeModule === "subscription" ? <SubscriptionModule billing={billing} plans={billingPlans} health={integrationHealth} onRefresh={loadIntegrations} onStartBillingCheckout={startBillingCheckout} /> : activeModule === "integrations" ? <IntegrationsModule integrations={integrations} billing={billing} health={integrationHealth} drafts={socialDrafts} vehicles={vehicles} organization={organization} settings={settings} loading={moduleLoading} onRefresh={() => Promise.all([loadIntegrations(), loadSocialDrafts()])} onCreateDraft={createSocialDraft} onExportCalendar={exportCalendar} onConnectGoogleCalendar={connectGoogleCalendar} /> : <SettingsModule form={settings} organization={organization} onboarding={onboarding} onChange={changeSettings} onOrganizationChange={changeOrganization} onSave={saveSettings} onOrganizationSave={saveOrganization} onUpload={uploadImage} onNavigate={navigateAdmin} onOpenPublic={openPublic} loading={moduleLoading} message={message} organizationMessage={organizationMessage} />;
   return (
     <main className="admin-page">
       {impersonation && <div className="impersonation-banner"><span>Modo soporte · viendo la cuenta de <strong>{currentUser?.name || currentUser?.email}</strong>. Los cambios se guardan en su cuenta real.</span><button className="text-button" type="button" onClick={exitImpersonation}>Salir del modo soporte</button></div>}
       <AdminNav activeModule={activeModule} onChange={navigateAdmin} onBack={handleBack} onLogout={logout} role={currentUser?.role} unreadNotifications={unreadNotifications} notifications={notifications} onReadNotifications={markNotificationsRead} onPreview={previewVehicle} onOpenOnboarding={openOnboarding} theme={theme} onToggleTheme={toggleTheme} vehicles={vehicles} businessName={organization?.name || settings?.businessName || "ZEVROA"} />
       <section className="admin-content-column">
-        <div className="admin-content-heading"><span>Espacio de trabajo</span><strong>{organization?.name || settings?.businessName || "Tu showroom"}</strong></div>
+        <div className="admin-content-heading"><span>Espacio de trabajo</span><div><strong>{organization?.name || settings?.businessName || "Tu showroom"}</strong><AdminSavedStatus savedAt={lastSavedAt} /></div></div>
         <AnimatePresence mode="wait" initial={false}>
           <motion.div key={activeModule} className="admin-module-transition" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }} transition={{ duration: 0.2, ease: "easeOut" }}>
-            {activeModule === "taxonomy" ? <TaxonomyModule taxonomy={taxonomy} loading={moduleLoading} onRefresh={loadTaxonomy} onCreate={createTaxonomy} onUpdate={updateTaxonomy} /> : activeView}
+            <Suspense fallback={<div className="admin-loading-state" role="status"><span className="loading-orbit" aria-hidden="true" />Preparando esta herramienta…</div>}>{activeModule === "taxonomy" ? <TaxonomyModule taxonomy={taxonomy} loading={moduleLoading} onRefresh={loadTaxonomy} onCreate={createTaxonomy} onUpdate={updateTaxonomy} /> : activeView}</Suspense>
           </motion.div>
         </AnimatePresence>
       </section>
       <AnimatePresence>{appointmentLead && <LeadAppointmentModal lead={appointmentLead} onClose={() => setAppointmentLead(null)} onCreate={createAppointmentFromLead} />}</AnimatePresence>
       <AnimatePresence>{welcomeOnboardingOpen && onboarding && <WelcomeOnboarding onboarding={onboarding} organization={organization} onNavigate={navigateAdmin} onDismiss={dismissOnboarding} onOpenPublic={openPublic} />}</AnimatePresence>
-      <AnimatePresence>{stickerVehicle && <WindowStickerModal vehicle={stickerVehicle} organization={organization} settings={settings} onClose={() => setStickerVehicle(null)} />}</AnimatePresence>
-      <AnimatePresence><AdminToast message={message} /></AnimatePresence>
+      <AnimatePresence>{stickerVehicle && <Suspense fallback={null}><WindowStickerModal vehicle={stickerVehicle} organization={organization} settings={settings} onClose={() => setStickerVehicle(null)} /></Suspense>}</AnimatePresence>
+      <AnimatePresence><AdminToast message={message} action={toastAction} /></AnimatePresence>
     </main>
   );
+}
+
+export default function Backoffice(props) {
+  return <AdminDialogsProvider><BackofficeWorkspace {...props} /></AdminDialogsProvider>;
 }
 
 

@@ -17,7 +17,10 @@ const siteUrl = (args.includes("--url") ? args[args.indexOf("--url") + 1] : proc
 const headful = args.includes("--headful");
 const skip3d = args.includes("--skip-3d");
 const siteOrigin = new URL(`${siteUrl}/`);
-const demoTenant = String(process.env.BROWSER_TENANT || (siteOrigin.hostname === "localhost" || siteOrigin.hostname === "127.0.0.1" ? "dealer-demo" : "")).trim().toLowerCase();
+const configuredDemoTenant = process.env.BROWSER_TENANT;
+const demoTenant = String(configuredDemoTenant !== undefined
+  ? configuredDemoTenant
+  : (siteOrigin.hostname === "localhost" || siteOrigin.hostname === "127.0.0.1" ? "dealer-demo" : "")).trim().toLowerCase();
 const apiHeaders = demoTenant ? { "X-Authentiq-Tenant": demoTenant } : {};
 const appUrl = (pathname = "/") => {
   const url = new URL(pathname, `${siteUrl}/`);
@@ -154,6 +157,7 @@ async function main() {
     // texturas mal formadas, APIs en desuso, atributos que el navegador ignora.
     // No hacen fallar la comprobacion; se listan al final para poder decidir.
     const failedRequests = [];
+    const requestUrls = new Map();
     cdp.on((method, params) => {
       if (method === "Runtime.consoleAPICalled" && (params.type === "warning" || params.type === "warn")) {
         const texto = params.args.map((arg) => arg.value ?? arg.description ?? arg.type).join(" ").slice(0, 220);
@@ -166,8 +170,9 @@ async function main() {
         consoleErrors.push(`EXCEPCIÓN: ${params.exceptionDetails?.exception?.description || params.exceptionDetails?.text || ""}`.slice(0, 300));
       }
       if (method === "Network.loadingFailed" && !params.canceled) {
-        failedRequests.push(`${params.type} — ${params.errorText}`);
+        failedRequests.push(`${params.type} — ${params.errorText || "error desconocido"}${requestUrls.get(params.requestId) ? ` — ${requestUrls.get(params.requestId).slice(0, 140)}` : ""}`);
       }
+      if (method === "Network.requestWillBeSent") requestUrls.set(params.requestId, params.request.url);
       if (method === "Network.responseReceived" && params.response.status >= 400) {
         // El showroom comprueba en segundo plano si existe una sesión de
         // comprador basada en cookie HttpOnly. Para un visitante anónimo, el
@@ -196,6 +201,22 @@ async function main() {
       await waitFor(cdp, readyExpression);
     };
 
+    // La portada de plataforma puede empezar en el landing y abrir el catálogo
+    // bajo demanda. El test antiguo esperaba tarjetas directamente en "/" y
+    // convertía ese flujo válido en un falso negativo.
+    const navigateHomeWithCatalog = async () => {
+      await navigate(appUrl("/"), "Boolean(document.querySelector('.studio-hero')) || document.querySelectorAll('.vehicle-card').length > 0");
+      const landing = await cdp.evaluate("Boolean(document.querySelector('.studio-hero'))");
+      if (landing) {
+        await cdp.evaluate(`(() => {
+          const button = [...document.querySelectorAll('button')].find((item) => /ver demo|explorar una demo/i.test(item.textContent || ''));
+          button?.click();
+        })()`);
+        await waitFor(cdp, "document.querySelectorAll('.vehicle-card').length > 0");
+      }
+      return landing;
+    };
+
     const setViewport = (viewport) => cdp.send("Emulation.setDeviceMetricsOverride", {
       width: viewport.width, height: viewport.height, deviceScaleFactor: 1, mobile: viewport.mobile,
     });
@@ -209,7 +230,7 @@ async function main() {
     console.log(`\n== CATÁLOGO · ${siteUrl} ==`);
     for (const viewport of viewports) {
       await setViewport(viewport);
-      await navigate(appUrl("/"), "document.querySelectorAll('.vehicle-card').length > 0");
+      const startedOnLanding = await navigateHomeWithCatalog();
       const metrics = await cdp.evaluate(`(() => {
         const doc = document.documentElement;
         const overflow = Math.max(doc.scrollWidth, document.body.scrollWidth) - window.innerWidth;
@@ -230,6 +251,7 @@ async function main() {
         return {
           overflow, wide, small, smallList,
           cards: document.querySelectorAll('.vehicle-card').length,
+          landing: Boolean(document.querySelector('.studio-hero')),
           title: document.title,
           root: (document.getElementById('root')?.innerHTML || '').length,
         };
@@ -237,6 +259,7 @@ async function main() {
       await shoot(`catalogo-${viewport.name}`);
       check(`${viewport.name} · la página monta contenido real`, metrics.root > 2000, `${metrics.root} bytes en #root`);
       check(`${viewport.name} · sin desbordamiento horizontal`, metrics.overflow <= 1, `sobresale ${metrics.overflow}px · ${metrics.wide.join(" | ")}`);
+      check(`${viewport.name} · landing o catálogo disponibles`, startedOnLanding || metrics.cards > 0, startedOnLanding ? "landing detectado; catálogo abierto para continuar" : `${metrics.cards} tarjetas`);
       check(`${viewport.name} · el catálogo pinta vehículos`, metrics.cards > 0, `${metrics.cards} tarjetas`);
       check(`${viewport.name} · sin errores de consola`, consoleErrors.length === 0, consoleErrors.slice(0, 2).join(" || "));
       check(`${viewport.name} · sin peticiones fallidas`, failedRequests.length === 0, failedRequests.slice(0, 2).join(" || "));
@@ -252,7 +275,7 @@ async function main() {
     // esa preferencia saltándose la transición. Para probar el camino normal hay
     // que emular a un comprador que no la ha pedido.
     await cdp.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "no-preference" }] });
-    await navigate(appUrl("/"), "document.querySelectorAll('.vehicle-card').length > 0");
+    await navigateHomeWithCatalog();
     await cdp.evaluate(`(() => {
       window.__vt = 0;
       const original = document.startViewTransition?.bind(document);
@@ -273,13 +296,26 @@ async function main() {
     // Y con la preferencia de reducir movimiento activa NO debe animarse, pero la
     // ficha tiene que abrirse igual: la accesibilidad no puede romper la navegación.
     await cdp.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
-    await navigate(appUrl("/"));
+    await navigateHomeWithCatalog();
     await wait(1200);
     await cdp.evaluate(`(() => { window.__vt = 0; const original = document.startViewTransition?.bind(document); if (original) document.startViewTransition = (cb) => { window.__vt += 1; return original(cb); }; })()`);
     await cdp.evaluate(`document.querySelector('.vehicle-card-image-button')?.click()`);
     await wait(1000);
     const reducedRun = await cdp.evaluate(`(() => ({ transitions: window.__vt || 0, path: location.pathname }))()`);
     check("Con movimiento reducido la ficha abre sin animar", reducedRun.path.startsWith("/vehiculos/") && reducedRun.transitions === 0, `ruta ${reducedRun.path}, llamadas ${reducedRun.transitions}`);
+    // El landing también debe obedecer la preferencia. Antes una regla tardía
+    // reactivaba la cinta de marcas aunque el navegador pidiera menos movimiento.
+    await navigate(siteUrl, "Boolean(document.querySelector('.studio-hero'))");
+    const reducedLanding = await cdp.evaluate(`(() => {
+      const marquee = document.querySelector('.studio-marquee-track');
+      const rail = document.querySelector('.studio-rail-sticky');
+      return {
+        marqueeAnimation: marquee ? getComputedStyle(marquee).animationName : "missing",
+        railPosition: rail ? getComputedStyle(rail).position : "missing",
+      };
+    })()`);
+    check("Con movimiento reducido el landing detiene la cinta", reducedLanding.marqueeAnimation === "none", `animación=${reducedLanding.marqueeAnimation}`);
+    check("Con movimiento reducido el landing no fija el recorrido", reducedLanding.railPosition === "static", `posición=${reducedLanding.railPosition}`);
     await cdp.send("Emulation.setEmulatedMedia", { features: [] });
 
     // ---- Ficha de vehículo con modelo 3D ---------------------------------
@@ -305,7 +341,7 @@ async function main() {
 
     console.log("\n== FICHA DE VEHÍCULO (con 3D real) ==");
     await setViewport(viewports[3]);
-    const apiUrl = process.env.API_BASE_URL || "http://127.0.0.1:3001";
+    const apiUrl = process.env.API_BASE_URL || (siteOrigin.hostname === "localhost" || siteOrigin.hostname === "127.0.0.1" ? `http://${siteOrigin.hostname}:3001` : siteUrl);
     const catalog = await (await fetch(`${apiUrl}/api/vehicles`, { headers: apiHeaders })).json();
     const target = catalog.data.find((item) => item.media?.some((media) => media.type === "model_3d")) || catalog.data[0];
     const slugify = (value) => String(value).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -374,10 +410,30 @@ async function main() {
     check("Ficha en móvil sin desbordamiento horizontal", mobileDetail <= 1, `sobresale ${mobileDetail}px`);
     await shoot("ficha-movil-390x844");
 
+    // La agenda pública es una acción comercial crítica: verificar que el
+    // comprador puede descubrir el selector visual sin enviar una solicitud.
+    await setViewport(viewports[0]);
+    await navigate(appUrl(`/vehiculos/${slug}`), "Boolean(document.querySelector('.detail-page'))");
+    const openedAppointment = await cdp.evaluate(`(() => { const button = document.querySelector('.test-drive-link'); if (!button) return false; button.click(); return true; })()`);
+    await waitFor(cdp, "Boolean(document.querySelector('.test-drive-modal'))", { timeout: 5000 });
+    const appointmentUi = await cdp.evaluate(`(() => ({
+      modal: Boolean(document.querySelector('.test-drive-modal')),
+      steps: document.querySelectorAll('.appointment-flow-steps span').length,
+      dates: document.querySelectorAll('.appointment-date-strip button').length,
+      times: Boolean(document.querySelector('.appointment-time-grid')),
+      mobileOverflow: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - window.innerWidth,
+    }))()`);
+    check("La ficha ofrece agendar una visita", openedAppointment && appointmentUi.modal);
+    check("La agenda pública explica sus pasos", appointmentUi.steps === 3, `pasos=${appointmentUi.steps}`);
+    check("La agenda pública muestra días seleccionables", appointmentUi.dates >= 7, `días=${appointmentUi.dates}`);
+    check("La agenda pública no se desborda en móvil", appointmentUi.mobileOverflow <= 1, `sobresale ${appointmentUi.mobileOverflow}px`);
+    check("La agenda pública no registra nada al abrirse", consoleErrors.length === 0 && failedRequests.length === 0, consoleErrors.slice(0, 2).join(" || ") || failedRequests.slice(0, 2).join(" || "));
+    await cdp.evaluate("document.querySelector('.test-drive-modal .modal-close')?.click()");
+
     // ---- Backoffice -------------------------------------------------------
     console.log("\n== BACKOFFICE (login) ==");
     await setViewport(viewports[2]);
-    await navigate(appUrl("/"), "document.querySelectorAll('.vehicle-card').length > 0");
+    await navigateHomeWithCatalog();
     const backoffice = await cdp.evaluate(`(() => {
       const button = document.querySelector('.nav-backoffice-link') || [...document.querySelectorAll('button')].find((el) => /BACKOFFICE|PANEL\s+DE\s+CONTROL/i.test(el.textContent));
       if (button) button.click();
@@ -393,11 +449,47 @@ async function main() {
     check("Backoffice sin errores de consola", consoleErrors.length === 0, consoleErrors.slice(0, 3).join(" || "));
     await shoot("backoffice-login-1280x800");
 
+    // La ruta oficial debe funcionar aunque el usuario la guarde, la abra desde
+    // un correo o la escriba directamente: no puede depender de un botón del
+    // catálogo ni de parámetros de desarrollo.
+    console.log("\n== BACKOFFICE (ruta directa) ==");
+    await setViewport(viewports[0]);
+    await navigate(`${siteUrl}/backoffice`, "Boolean(document.querySelector('.admin-login'))");
+    const directBackoffice = await cdp.evaluate(`(() => ({
+      login: Boolean(document.querySelector('.admin-login')),
+      title: document.title,
+      robots: document.querySelector('meta[name=robots]')?.content || '',
+      overflow: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - window.innerWidth,
+    }))()`);
+    check("/backoffice abre el acceso directo", directBackoffice.login);
+      check("/backoffice no se indexa", /noindex/i.test(directBackoffice.robots), directBackoffice.robots);
+      check("/backoffice móvil sin desbordamiento", directBackoffice.overflow <= 1, `sobresale ${directBackoffice.overflow}px`);
+      check("/backoffice sin errores de consola", consoleErrors.length === 0, consoleErrors.slice(0, 3).join(" || "));
+
+    // Los enlaces de recuperación se abren normalmente desde Gmail o WhatsApp
+    // en un navegador móvil nuevo: deben entregar la pantalla de cambio de
+    // contraseña aunque el token de prueba no se vaya a enviar.
+    console.log("\n== RECUPERACIÓN (ruta directa) ==");
+    await navigate(`${siteUrl}/backoffice/restablecer-contrasena?token=browser-check-token`, "Boolean(document.querySelector('.admin-login'))");
+    const recoveryRoute = await cdp.evaluate(`(() => ({
+      form: Boolean(document.querySelector('.admin-login')),
+      heading: document.body.innerText.includes('nueva contraseña'),
+      robots: document.querySelector('meta[name=robots]')?.content || '',
+      overflow: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - window.innerWidth,
+    }))()`);
+    check("La recuperación abre directamente", recoveryRoute.form && recoveryRoute.heading);
+    check("La recuperación no se indexa", /noindex/i.test(recoveryRoute.robots), recoveryRoute.robots);
+    check("Recuperación móvil sin desbordamiento", recoveryRoute.overflow <= 1, `sobresale ${recoveryRoute.overflow}px`);
+    check("Recuperación sin errores de consola", consoleErrors.length === 0, consoleErrors.slice(0, 3).join(" || "));
+
     // ---- Backoffice autenticado, módulo por módulo, en móvil y escritorio -----
-    const adminEmail = process.env.E2E_EMAIL || process.env.SMOKE_EMAIL || (demoTenant === "dealer-demo" ? "demo@dealer.local" : "admin@authentiq.local");
-    const adminPassword = process.env.E2E_PASSWORD || process.env.SMOKE_PASSWORD || "12345678";
-    const session = await fetch(`${apiUrl}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json", ...apiHeaders }, body: JSON.stringify({ email: adminEmail, password: adminPassword }) });
-    if (!session.ok) {
+    const localTarget = ["localhost", "127.0.0.1"].includes(siteOrigin.hostname);
+    const adminEmail = process.env.E2E_EMAIL || process.env.SMOKE_EMAIL || (localTarget ? (demoTenant === "dealer-demo" ? "demo@dealer.local" : "admin@authentiq.local") : "");
+    const adminPassword = process.env.E2E_PASSWORD || process.env.SMOKE_PASSWORD || (localTarget ? "12345678" : "");
+    const session = adminEmail && adminPassword
+      ? await fetch(`${apiUrl}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json", ...apiHeaders }, body: JSON.stringify({ email: adminEmail, password: adminPassword }) })
+      : null;
+    if (!session?.ok) {
       console.log("      (sin credenciales válidas: se omite la auditoría del backoffice autenticado)");
     } else {
       const { token, user } = await session.json();
@@ -410,9 +502,9 @@ async function main() {
         url.searchParams.set("impersonate", JSON.stringify({ token, user }));
         return url.toString();
       };
-      const commonOperations = [["dashboard", "Resumen"], ["inventory", "Inventario"], ["taxonomy", "Marcas y categorías"], ["leads", "Clientes"], ["appointments", "Citas"], ["quotes", "Cotizaciones"], ["blog", "Contenido"], ["offers", "Ofertas"], ["reports", "Reportes"]];
-      const modules = user.role === "editor" ? [...commonOperations, ["settings", "Personalizar showroom"]] : user.role === "admin" ? [...commonOperations, ["audit", "Actividad"], ["users", "Usuarios"], ["subscription", "Plan y facturación"], ["integrations", "Conexiones"], ["settings", "Personalizar showroom"]] : commonOperations;
-      const moduleReadyText = { dashboard: "Prioridad", inventory: "inventario", taxonomy: "Marcas y categorías", leads: "Clientes", appointments: "Citas", quotes: "Cotizaciones", blog: "Contenido", offers: "Ofertas", reports: "Reportes", audit: "Actividad", users: "Usuarios", subscription: "Tu plan, claro desde el primer día.", integrations: "Agenda", settings: "Tu showroom, a tu manera" };
+      const commonOperations = [["dashboard", "Inicio"], ["inventory", "Mi inventario"], ["taxonomy", "Marcas y categorías"], ["leads", "Clientes"], ["appointments", "Citas"], ["quotes", "Cotizaciones"], ["blog", "Contenido"], ["offers", "Ofertas"], ["reports", "Estadísticas"]];
+      const modules = user.role === "editor" ? [...commonOperations, ["settings", "Perfil y ajustes"]] : user.role === "admin" ? [...commonOperations, ["audit", "Actividad"], ["users", "Usuarios"], ["subscription", "Plan y facturación"], ["integrations", "Conexiones"], ["settings", "Perfil y ajustes"]] : commonOperations;
+      const moduleReadyText = { dashboard: "Prioridad", inventory: "inventario", taxonomy: "Marcas y categorías", leads: "Clientes", appointments: "Citas", quotes: "Cotizaciones", blog: "Contenido", offers: "Ofertas", reports: "Estadísticas", audit: "Actividad", users: "Usuarios", subscription: "Tu plan, claro desde el primer día.", integrations: "Agenda", settings: "Tu showroom, a tu manera" };
       for (const [width, height, label, mobile] of [[390, 844, "movil", true], [1280, 800, "escritorio", false]]) {
         await cdp.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile });
         await navigate(authenticatedAppUrl("/"), "document.querySelectorAll('.vehicle-card').length > 0");
@@ -454,6 +546,10 @@ async function main() {
           // módulo que lo renderizaba quedó sin usar y nadie lo notó: compilaba
           // igual. Esta comprobación impide que vuelva a desaparecer en silencio.
           if (key === "integrations") {
+            // El estudio se carga de forma diferida para no encarecer Inicio.
+            // Esperar su montaje evita confundir la carga normal del chunk con
+            // una herramienta inaccesible.
+            await waitFor(cdp, "Boolean(document.querySelector('.social-flyer-studio'))", { timeout: 3500 });
             const flyer = await cdp.evaluate(`(() => {
               const studio = document.querySelector('.social-flyer-studio');
               if (!studio) return { present: false };

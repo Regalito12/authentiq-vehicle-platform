@@ -9,7 +9,7 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const rl = readline.createInterface({ input, output });
 
 try {
-  const email = (process.argv.find((arg) => arg.startsWith("--email=")) || "--email=admin@authentiq.local").slice(8);
+  const email = (process.argv.find((arg) => arg.startsWith("--email=")) || "--email=admin@zevroa.local").slice(8);
   const fullName = process.argv.find((arg) => arg.startsWith("--name="))?.slice(7) || "Administrador";
   const password = await rl.question(`Contraseña para ${email}: `);
   if (password.length < 8) throw new Error("La contraseña debe tener al menos 8 caracteres");
