@@ -5216,7 +5216,33 @@ html[data-theme="dark"] .slug-preview, html[data-theme="dark"] .password-rule, h
 
 /* El layout de navegación del back office no debe aplicarse a las pantallas
    de autenticación: no tienen sidebar y el formulario debe quedar centrado. */
-.admin-page.admin-login-page:not(.dealer-register-page) { display: block; width: min(720px, 100%); max-width: 720px; padding: 36px 48px 90px; }
+.admin-page.admin-login-page:not(.dealer-register-page) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  width: min(100%, 680px);
+  max-width: 680px;
+  margin-inline: auto;
+  padding: 36px clamp(20px, 5vw, 48px) 80px;
+}
+.admin-page.admin-login-page:not(.dealer-register-page) > .back-button { justify-self: start; }
+.admin-page.admin-login-page:not(.dealer-register-page) > .admin-login {
+  width: 100%;
+  max-width: none;
+  margin: clamp(42px, 8vh, 72px) 0 0;
+  padding: clamp(26px, 5vw, 38px);
+}
+.admin-page.admin-login-page:not(.dealer-register-page) > .admin-login label,
+.admin-page.admin-login-page:not(.dealer-register-page) > .admin-login input,
+.admin-page.admin-login-page:not(.dealer-register-page) > .admin-login .primary-action,
+.admin-page.admin-login-page:not(.dealer-register-page) > .admin-login .secondary-action { width: 100%; }
+.admin-page.admin-login-page:not(.dealer-register-page) > .admin-login h1 {
+  max-width: 100%;
+  font-size: clamp(46px, 5.6vw, 68px);
+  letter-spacing: -.04em;
+  overflow-wrap: normal;
+  word-break: normal;
+}
 @media (min-width: 1081px) {
   body:has(.cookie-consent) .studio-whatsapp { bottom: 136px; }
   body:has(.admin-login-page) .cookie-consent { top: 18px; right: 18px; bottom: auto; width: min(520px, calc(100% - 36px)); }
