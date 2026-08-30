@@ -13,9 +13,14 @@ const email = process.env.E2E_EMAIL || process.env.SMOKE_EMAIL || "admin@authent
 const password = process.env.E2E_PASSWORD || process.env.SMOKE_PASSWORD || "12345678";
 const stamp = Date.now();
 const marker = `E2E-${stamp}`;
+const localIsoDate = (value = new Date()) => {
+  const date = new Date(value);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+};
 
 let passed = 0;
 let failed = 0;
+let crmContactId = null;
 const created = { vehicleId: null, offerIds: [], quoteIds: [], leadIds: [], organizationSlug: null, appointmentId: null };
 
 function check(label, condition, detail = "") {
@@ -119,12 +124,23 @@ async function main() {
 
   const adminLeads = await api("/api/admin/leads", { token });
   check("La oferta genera un lead en el CRM", (adminLeads.body?.data || []).some((item) => created.leadIds.includes(item.id)));
+  const contacts = await api("/api/admin/contacts", { token });
+  const matchingContacts = (contacts.body?.data || []).filter((item) => item.email === `e2e-${stamp}@authentiq.test`);
+  crmContactId = matchingContacts[0]?.id || null;
+  check("Oferta y lead se concentran en un único contacto", contacts.ok && matchingContacts.length === 1 && Boolean(crmContactId), `contactos=${matchingContacts.length}`);
+  if (crmContactId) {
+    const detail = await api(`/api/admin/contacts/${crmContactId}`, { token });
+    const timeline = await api(`/api/admin/contacts/${crmContactId}/timeline`, { token });
+    check("El contacto reúne lead y oferta", detail.ok && detail.body?.data?.leads?.length === 1 && detail.body?.data?.offers?.length === 1, `leads=${detail.body?.data?.leads?.length || 0} ofertas=${detail.body?.data?.offers?.length || 0}`);
+    check("El timeline comercial muestra la actividad", timeline.ok && (timeline.body?.data || []).some((item) => item.eventType === "offer_pending"), `eventos=${timeline.body?.data?.length || 0}`);
+  }
 
   // --- 7. Cotización --------------------------------------------------------
   const quote = await api("/api/admin/quotes", { token, method: "POST", body: JSON.stringify({ vehicleId: created.vehicleId, leadId: created.leadIds[0] || null, customerName: `Comprador ${marker}`, customerEmail: `e2e-${stamp}@authentiq.test`, basePriceUsd: 125000, discountUsd: 5000, validUntil: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10), notes: marker }) });
   check("Se crea una cotización", quote.status === 201, `status ${quote.status}`);
   if (quote.status === 201) {
     created.quoteIds.push(quote.body.data.id);
+    check("La cotización queda ligada al mismo contacto", Boolean(crmContactId) && quote.body.data.contactId === crmContactId, `contacto=${quote.body.data.contactId || "ninguno"}`);
     check("El total de la cotización descuenta correctamente", Number(quote.body.data.totalUsd) === 120000, `total ${quote.body.data.totalUsd}`);
     const sent = await api(`/api/admin/quotes/${quote.body.data.id}/status`, { token, method: "PATCH", body: JSON.stringify({ status: "sent" }) });
     check("Se cambia el estado de la cotización", sent.ok && sent.body?.data?.status === "sent", `status ${sent.status}`);
@@ -185,7 +201,7 @@ async function main() {
   const publicReserved = await api("/api/vehicles");
   check("Un vehículo reservado sigue visible en el catálogo", (publicReserved.body?.data || []).some((item) => item.id === created.vehicleId));
 
-  const offerReserved = await api("/api/offers", { method: "POST", body: JSON.stringify({ vehicleId: created.vehicleId, buyerName: "Tardío", amountUsd: 100000, privacyConsent: true }) });
+  const offerReserved = await api("/api/offers", { method: "POST", body: JSON.stringify({ vehicleId: created.vehicleId, buyerName: "Tardío", buyerEmail: `reserved-${stamp}@authentiq.test`, amountUsd: 100000, privacyConsent: true }) });
   check("Un vehículo reservado no admite ofertas nuevas", offerReserved.status === 409, `status ${offerReserved.status}`);
 
   const leadReserved = await api("/api/leads", { method: "POST", body: JSON.stringify({ vehicleId: created.vehicleId, name: `Interesado ${marker}`, email: `lead-${stamp}@authentiq.test`, message: marker, privacyConsent: true }) });
@@ -198,7 +214,7 @@ async function main() {
   const publicFinal = await api("/api/vehicles");
   check("El vehículo desactivado desaparece del catálogo", !(publicFinal.body?.data || []).some((item) => item.id === created.vehicleId));
 
-  const offerInactive = await api("/api/offers", { method: "POST", body: JSON.stringify({ vehicleId: created.vehicleId, buyerName: "Tardío", amountUsd: 100000, privacyConsent: true }) });
+  const offerInactive = await api("/api/offers", { method: "POST", body: JSON.stringify({ vehicleId: created.vehicleId, buyerName: "Tardío", buyerEmail: `inactive-${stamp}@authentiq.test`, amountUsd: 100000, privacyConsent: true }) });
   check("No se aceptan ofertas de un vehículo desactivado", offerInactive.status === 404, `status ${offerInactive.status}`);
 
   // --- 11. SEO y robots -----------------------------------------------------
@@ -331,7 +347,7 @@ async function checkAppointmentBooking() {
   const day = new Date(Date.now() + 21 * 24 * 60 * 60 * 1000);
   // Domingo no esta en los dias de atencion por defecto (lunes a sabado).
   if (day.getDay() === 0) day.setDate(day.getDate() + 1);
-  const date = day.toISOString().slice(0, 10);
+  const date = localIsoDate(day);
 
   const availability = await api(`/api/appointments/availability?date=${date}`);
   check("La disponibilidad de citas responde", availability.ok, `respondió ${availability.status}`);
@@ -342,7 +358,7 @@ async function checkAppointmentBooking() {
 
   const payload = { vehicleId: vehicle.id, name: `Comprador ${marker}`, email: `comprador-${stamp}@example.com`, phone: "+18095550100", date, time: slot.time, privacyConsent: true, notes: marker };
 
-  const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const yesterday = localIsoDate(new Date(Date.now() - 24 * 60 * 60 * 1000));
   const pastDate = await api("/api/appointments", { method: "POST", body: JSON.stringify({ ...payload, date: yesterday }) });
   check("Una cita con fecha pasada explica el error correctamente", pastDate.status === 400 && /fecha ya pasó/i.test(pastDate.body?.error || ""), `respondió ${pastDate.status}`);
 
@@ -358,6 +374,7 @@ async function checkAppointmentBooking() {
   created.appointmentId = booked.body?.data?.id || null;
 
   check("La reserva genera un lead en el CRM", Boolean(booked.body?.data?.leadId));
+  check("La cita queda ligada a un contacto comercial", Boolean(booked.body?.data?.contactId));
 
   // El horario reservado tiene que dejar de ofrecerse: si no, dos compradores
   // reservan lo mismo y el concesionario descubre el choque en el mostrador.
@@ -373,6 +390,14 @@ async function checkAppointmentBooking() {
   const agenda = await api("/api/admin/appointments", { token: admin.body?.token });
   const mine = (agenda.body?.data || []).some((item) => item.customerName === payload.name);
   check("La cita aparece en la agenda del concesionario", agenda.ok && mine, `respondió ${agenda.status}`);
+  const contacts = await api("/api/admin/contacts", { token: admin.body?.token });
+  // El teléfono puede identificar a un contacto que ya existía con otro correo;
+  // la fuente de verdad es el contactId devuelto por la reserva, no el correo.
+  const contact = (contacts.body?.data || []).find((item) => item.id === booked.body?.data?.contactId);
+  const detail = contact ? await api(`/api/admin/contacts/${contact.id}`, { token: admin.body?.token }) : { ok: false, body: null };
+  const timeline = contact ? await api(`/api/admin/contacts/${contact.id}/timeline`, { token: admin.body?.token }) : { ok: false, body: null };
+  check("La cita aparece en el contacto correcto", detail.ok && (detail.body?.data?.appointments || []).some((item) => item.id === created.appointmentId), `cita=${created.appointmentId || "ninguna"}`);
+  check("El timeline incluye la cita", timeline.ok && (timeline.body?.data || []).some((item) => item.eventType === "appointment_pending"), `eventos=${timeline.body?.data?.length || 0}`);
 }
 
 async function cleanup() {
