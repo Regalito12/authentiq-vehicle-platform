@@ -981,8 +981,16 @@ html[data-theme="dark"] .appointment-actions select { background: #111315; color
 
 .admin-login h1,
 .dealer-register-form h1 {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
   text-wrap: balance;
 }
+
+/* Los elementos de un grid tienen `min-width: auto` por defecto. Un titular
+   grande puede entonces ensanchar el track y sacar inputs/botones de la
+   tarjeta. El formulario nunca debe crecer por el contenido de un hijo. */
+.admin-login > * { min-width: 0; }
 
 .admin-login input,
 .admin-login select,
