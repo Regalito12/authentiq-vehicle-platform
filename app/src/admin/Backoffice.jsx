@@ -306,7 +306,7 @@ function AdminNav({ activeModule, onChange, onBack, onLogout, role, unreadNotifi
   const primaryKeys = primaryKeysByRole[role] || primaryKeysByRole.seller;
   const primaryItems = primaryKeys.flatMap((key) => visibleItems.filter(([itemKey]) => itemKey === key));
   const advancedItems = visibleItems.filter(([key]) => !primaryKeys.includes(key));
-  const moduleContext = { dashboard: ["Inicio", "Mira lo importante y decide la siguiente acción."], inventory: ["Mi inventario", "Mantén cada ficha lista para vender."], taxonomy: ["Marcas y categorías", "Controla el catálogo que usa tu equipo."], leads: ["Clientes", "Prioriza conversaciones y próximos pasos."], quotes: ["Cotizaciones", "Convierte una propuesta en una decisión."], blog: ["Contenido", "Cuenta mejor la historia de cada vehículo."], offers: ["Ofertas", "Responde rápido a las oportunidades."], reports: ["Estadísticas", "Lee el negocio antes de moverlo."], audit: ["Actividad", "Revisa lo que está pasando en el sistema."], users: ["Usuarios", "Administra acceso y responsabilidades."], subscription: ["Plan y facturación", "Entiende lo que incluye tu cuenta y decide cuándo crecer."], integrations: ["Conexiones", "Calendario, redes y cobros en un solo lugar."], settings: ["Perfil y ajustes", "Ajusta la identidad y operación del showroom."] }[activeModule] || ["Panel de control", `Operación ${businessName}`];
+  const moduleContext = { dashboard: ["Inicio", "Lo importante para decidir qué hacer hoy."], inventory: ["Mi inventario", "Publica y mantén tus vehículos al día."], taxonomy: ["Marcas y categorías", "Ordena los nombres del catálogo."], leads: ["Clientes", "Responde y define el próximo paso."], quotes: ["Cotizaciones", "Prepara propuestas y espera una decisión."], blog: ["Contenido", "Cuenta mejor la historia de cada vehículo."], offers: ["Ofertas", "Revisa y responde las propuestas."], reports: ["Estadísticas", "Mide qué está avanzando."], audit: ["Actividad", "Revisa los cambios del sistema."], users: ["Usuarios", "Define quién puede hacer cada cosa."], subscription: ["Plan y facturación", "Consulta tu plan; el piloto no requiere pago."], integrations: ["Conexiones", "Activa calendario, redes y correo cuando quieras."], settings: ["Perfil y ajustes", "Configura tu identidad, contacto y agenda."] }[activeModule] || ["Panel de control", `Operación ${businessName}`];
   useEffect(() => {
     if (advancedItems.some(([key]) => key === activeModule)) setAdvancedOpen(true);
   }, [activeModule, advancedItems.length]);
@@ -448,8 +448,8 @@ function DashboardSetupCard({ onboarding, onOpenOnboarding, onOpenPublic }) {
   return <section className={`dashboard-setup-card${isComplete ? " is-complete" : ""}`} aria-label="Estado de configuración del showroom">
     <div className="dashboard-setup-main">
       <div className="dashboard-setup-heading"><span className="eyebrow">CENTRO DE INICIO · PERSONALIZACIÓN</span><span className="dashboard-setup-percent">{progress}%</span></div>
-      <h3>{isComplete ? "Tu showroom está listo para vender." : "Haz que tu showroom quede listo para vender."}</h3>
-      <p>{isComplete ? "La identidad, la operación y la vitrina ya están configuradas. Ahora puedes revisar la experiencia como comprador." : `${essentialTotal - essentialDone === 1 ? "Te queda 1 ajuste esencial" : `Te quedan ${essentialTotal - essentialDone} ajustes esenciales`} para dejar tu showroom listo para recibir clientes.`}</p>
+      <h3>{isComplete ? "Tu showroom está listo." : "Deja tu showroom listo."}</h3>
+      <p>{isComplete ? "Revisa la vista pública y comparte el enlace." : `${essentialTotal - essentialDone === 1 ? "Te queda 1 ajuste esencial" : `Te quedan ${essentialTotal - essentialDone} ajustes esenciales`} para empezar a recibir clientes.`}</p>
       <div className="dashboard-setup-progress" aria-label={`${progress}% configurado`}><span style={{ width: `${progress}%` }} /></div>
       <div className="dashboard-setup-actions"><button className="primary-action" type="button" onClick={isComplete ? onOpenPublic : onOpenOnboarding}>{isComplete ? "Abrir showroom público ↗" : `Continuar con ${nextStep?.label?.toLowerCase() || "la configuración"} →`}</button>{!isComplete && <button className="text-button" type="button" onClick={onOpenPublic}>Ver vista pública</button>}</div>
     </div>
@@ -502,11 +502,11 @@ function DealerShareCard({ organization, settings, onNavigate }) {
           <span className="eyebrow">TU SHOWROOM · ENLACE EXCLUSIVO</span>
           <span className="dealer-slug-badge">Enlace: {slug}</span>
         </div>
-        <h3>{isPending ? "Tu vista previa privada" : "Comparte tu Showroom con tus Clientes"}</h3>
+        <h3>{isPending ? "Tu vista previa privada" : "Comparte tu showroom"}</h3>
         <p>
           {isPending
-            ? "Tu showroom todavía está en revisión: este enlace solo funciona en tu sesión de administrador, nadie más lo puede ver. Se convertirá en un enlace público cuando el equipo lo apruebe."
-            : "Este es el enlace directo a tu catálogo personalizado. Los clientes que ingresen verán únicamente tu inventario, tus precios, tus datos de contacto y la marca de tu concesionario."}
+            ? "Está en revisión. Solo tú puedes ver esta vista previa hasta que sea aprobado."
+            : "Este enlace muestra únicamente tu inventario, precios y datos de contacto."}
         </p>
         {!isPending && customDomain && !customDomainReady && <p className="form-message">Tu dominio personalizado todavía no apunta al showroom. Comparte este enlace provisional mientras se actualiza el DNS.</p>}
         <div className="dealer-url-box">
@@ -547,7 +547,7 @@ function DealerShareCard({ organization, settings, onNavigate }) {
 function DealerFirstRunCard({ onNavigate }) {
   return <section className="dealer-first-run" aria-label="Primeros pasos del showroom">
     <div className="dealer-first-run-mark" aria-hidden="true"><CarSimpleIcon size={28} weight="duotone" /></div>
-    <div className="dealer-first-run-copy"><span className="eyebrow">PRIMER PASO</span><h3>Publica tu primer vehículo.</h3><p>Tu showroom ya tiene una base. Añade una ficha con fotos, precio y los datos esenciales para empezar a vender.</p></div>
+    <div className="dealer-first-run-copy"><span className="eyebrow">PRIMER PASO</span><h3>Publica tu primer vehículo.</h3><p>Añade fotos, precio y datos básicos. Después podrás compartirlo con tus clientes.</p></div>
     <button className="primary-action" type="button" onClick={() => onNavigate("inventory")}>Publicar mi primer vehículo →</button>
   </section>;
 }
@@ -576,7 +576,7 @@ function DashboardView({ data, vehicles = [], leads, offers, appointments, loadi
   // Un showroom sin vehículos todavía no necesita compartir enlaces, gráficos
   // ni métricas vacías. Su siguiente decisión debe ser única y evidente.
   if (snapshot.totalVehicles === 0) return <section className="dashboard-content dashboard-first-run">
-    <div className="dashboard-intro"><div><span className="eyebrow">ZEVROA · PRIMEROS PASOS</span><h2>Vamos a poner tu showroom en marcha.</h2></div><p>Completa una ficha y luego iremos sumando el resto de la operación.</p></div>
+    <div className="dashboard-intro"><div><span className="eyebrow">ZEVROA · PRIMEROS PASOS</span><h2>Empieza por tu inventario.</h2></div><p>Publica un vehículo y luego completa lo demás.</p></div>
     {organization?.approvalStatus === "pending" && <div className="dashboard-approval-banner"><strong>Tu showroom está en revisión.</strong><p>Puedes configurarlo en privado mientras preparas tu primer vehículo.</p></div>}
     {organization?.approvalStatus === "rejected" && <div className="dashboard-approval-banner is-rejected"><strong>Tu showroom necesita una revisión.</strong><p>Prepara el inventario y contacta al equipo de ZEVROA cuando esté listo.</p></div>}
     <DealerFirstRunCard onNavigate={onNavigate} />
@@ -794,6 +794,25 @@ function BrandPicker({ vehicles, form, onChange, taxonomy }) {
   return <><BrandPickerBase vehicles={vehicles} form={form} onChange={onChange} taxonomy={taxonomy} /><WizardIdentityFields form={form} onChange={onChange} /></>;
 }
 
+function normalizeVehicleWords(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .replace(/\s+/g, " ");
+}
+
+function repeatedVariantWarning(model, variant) {
+  const normalizedModel = normalizeVehicleWords(model);
+  const normalizedVariant = normalizeVehicleWords(variant);
+  if (!normalizedModel || !normalizedVariant || normalizedModel === normalizedVariant) return "";
+  return normalizedModel.endsWith(` ${normalizedVariant}`)
+    ? `El modelo ya termina en “${String(variant).trim()}”. Déjalo como modelo y usa la versión una sola vez para evitar un título duplicado.`
+    : "";
+}
+
 function WizardIdentityFields({ form, onChange }) {
   const fields = [
     ["category", "Categoría", "text"],
@@ -802,7 +821,8 @@ function WizardIdentityFields({ form, onChange }) {
     ["year", "Año", "number"],
     ["priceUsd", "Precio", "number"],
   ];
-  return <section className="inventory-field-section wizard-identity-fields"><summary><span><strong>Identidad y precio</strong><small>La información principal de la ficha.</small></span><b>5 campos</b></summary><div className="form-grid">{fields.map(([field, label, type]) => <label key={field}>{label}<input type={type} value={form[field] ?? ""} onChange={(event) => onChange(field, event.target.value)} required={field === "model" || field === "year" || field === "priceUsd"} /></label>)}</div></section>;
+  const warning = repeatedVariantWarning(form.model, form.variant);
+  return <section className="inventory-field-section wizard-identity-fields"><summary><span><strong>Identidad y precio</strong><small>La información principal de la ficha.</small></span><b>5 campos</b></summary><div className="form-grid">{fields.map(([field, label, type]) => <label key={field}>{label}<input type={type} value={form[field] ?? ""} onChange={(event) => onChange(field, event.target.value)} required={field === "model" || field === "year" || field === "priceUsd"} /></label>)}</div>{warning && <p className="vehicle-field-warning" role="alert">{warning}</p>}</section>;
 }
 
 function InventoryFieldSections({ fields, fieldLabels, numericFields, form, onChange, activeStep = null }) {
@@ -815,7 +835,8 @@ function InventoryFieldSections({ fields, fieldLabels, numericFields, form, onCh
   ];
   const visibleGroups = Number.isInteger(activeStep) ? groups.slice(activeStep, activeStep + 1) : groups;
   const renderField = (field) => <label key={field}>{fieldLabels[field] || field}<input type={numericFields.includes(field) ? "number" : "text"} value={form[field] ?? ""} onChange={(event) => onChange(field, event.target.value)} required={field === "model" || field === "year" || field === "priceUsd"} /></label>;
-  return <div className="inventory-field-sections">{visibleGroups.map((group, index) => <details className="inventory-field-section" key={group.id} open><summary><span><strong>{group.title}</strong><small>{group.note}</small></span><b>{group.fields.length + (group.id === "availability" ? 2 : 0)} campos</b></summary><div className="form-grid">{group.fields.map(renderField)}{group.id === "availability" && <><label>Estado<select value={form.status} onChange={(event) => onChange("status", event.target.value)}><option value="draft">Borrador</option><option value="pending_review">En revisión</option><option value="published">Publicado</option><option value="reserved">Reservado</option><option value="sold">Vendido</option><option value="inactive">Inactivo</option></select></label><label>Condición<select value={form.condition} onChange={(event) => onChange("condition", event.target.value)}><option value="new">Nuevo</option><option value="used">Usado</option></select></label></>}</div></details>)}</div>;
+  const warning = repeatedVariantWarning(form.model, form.variant);
+  return <div className="inventory-field-sections">{visibleGroups.map((group, index) => <details className="inventory-field-section" key={group.id} open><summary><span><strong>{group.title}</strong><small>{group.note}</small></span><b>{group.fields.length + (group.id === "availability" ? 2 : 0)} campos</b></summary><div className="form-grid">{group.fields.map(renderField)}{group.id === "availability" && <><label>Estado<select value={form.status} onChange={(event) => onChange("status", event.target.value)}><option value="draft">Borrador</option><option value="pending_review">En revisión</option><option value="published">Publicado</option><option value="reserved">Reservado</option><option value="sold">Vendido</option><option value="inactive">Inactivo</option></select></label><label>Condición<select value={form.condition} onChange={(event) => onChange("condition", event.target.value)}><option value="new">Nuevo</option><option value="used">Usado</option></select></label></>}</div>{group.id === "identity" && warning && <p className="vehicle-field-warning" role="alert">{warning}</p>}</details>)}</div>;
 }
 
 const vehicleStatusLabels = { draft: "Borrador", pending_review: "En revisión", published: "Publicado", reserved: "Reservado", sold: "Vendido", inactive: "Inactivo" };

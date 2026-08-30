@@ -575,6 +575,7 @@ html[data-theme="dark"] .admin-empty-state strong { color: var(--text-invert); }
 .detail-actions { display: grid; gap: 10px; margin-top: 30px; }
 .detail-actions .primary-action { min-height: 50px; box-shadow: 0 8px 20px rgba(178,139,55,.14); }
 .detail-actions .secondary-action { min-height: 46px; }
+.detail-action-hint { margin: 0; color: var(--text-muted); font-size: 14px; line-height: 1.4; }
 .detail-utilities { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 16px; }
 .detail-utility-action { display: inline-flex; align-items: center; min-height: 32px; border: 0; padding: 0; background: transparent; color: var(--tenant-primary-ink); font: 500 14px "IBM Plex Mono", monospace; letter-spacing: .05em; text-decoration: none; text-transform: uppercase; }
 .detail-utility-action:hover { color: var(--state-danger); }
@@ -662,6 +663,7 @@ html[data-theme="dark"] .admin-empty-state strong { color: var(--text-invert); }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 10px; margin-bottom: 16px; }
 .admin-form > label { margin-bottom: 16px; }
 .form-message { border-left: 2px solid var(--tenant-primary); padding: 8px 12px; color: var(--text-muted); font-size: 14px; }
+.vehicle-field-warning { margin: 14px 0 0; padding: 10px 12px; border-left: 2px solid #b87922; background: rgba(184, 121, 34, .09); color: var(--auth-ink); font-size: 14px; line-height: 1.45; }
 .text-button { border: 0; padding: 0; background: transparent; color: var(--text-muted); font: 500 14px "IBM Plex Mono", monospace; letter-spacing: .06em; text-transform: uppercase; }
 .text-button:hover { color: var(--text-ink); }
 .danger-text { color: var(--state-danger); margin-left: 14px; }
@@ -1504,6 +1506,8 @@ html[data-theme="dark"] .report-insight > p, html[data-theme="dark"] .insight-li
 .modal-vehicle { margin: 0 0 24px; color: var(--text-muted); font: 14px "IBM Plex Mono", monospace; text-transform: uppercase; letter-spacing: .04em; }
 .lead-form { display: grid; gap: 14px; }
 .lead-form label { display: grid; gap: 7px; color: var(--text-muted); font: 500 14px "IBM Plex Mono", monospace; letter-spacing: .08em; text-transform: uppercase; }
+.lead-form label > span { color: var(--text-muted-soft); font: 400 14px "Inter Tight", sans-serif; letter-spacing: 0; text-transform: none; }
+.lead-form-context { max-width: 54ch; margin: -8px 0 4px; color: var(--text-muted); font-size: 14px; line-height: 1.45; }
 .lead-form input, .lead-form textarea { width: 100%; border: 1px solid var(--rule-warm); padding: 12px; background: #fff; color: var(--text-ink); font: 14px "Inter Tight", sans-serif; letter-spacing: normal; text-transform: none; }
 .lead-form textarea { min-height: 84px; resize: vertical; }
 .lead-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }

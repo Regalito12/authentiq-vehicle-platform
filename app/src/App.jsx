@@ -154,6 +154,20 @@ function normalizeSearchText(value) {
   return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 }
 
+const categoryLabels = { suv: "SUV", sports: "Deportivo", sedan: "Sedán", coupe: "Coupé", pickup: "Pickup", hatchback: "Hatchback", convertible: "Convertible" };
+const fuelLabels = { Electrico: "Eléctrico", electrico: "Eléctrico", Gasolina: "Gasolina", gasolina: "Gasolina", Diesel: "Diésel", diesel: "Diésel", Hibrido: "Híbrido", hibrido: "Híbrido" };
+function categoryDisplay(value) { return categoryLabels[String(value || "").toLowerCase()] || String(value || ""); }
+function fuelDisplay(value) { return fuelLabels[String(value || "")] || String(value || ""); }
+function transmissionDisplay(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (/PDK/i.test(raw)) return "Automática PDK";
+  if (/Steptronic/i.test(raw)) return "Automática Steptronic";
+  if (/AMG SPEEDSHIFT/i.test(raw)) return "Automática AMG";
+  const speed = raw.match(/(\d+)-Speed/i);
+  return speed ? `Automática · ${speed[1]} velocidades` : raw;
+}
+
 function editDistance(left, right) {
   const a = String(left || "");
   const b = String(right || "");
@@ -1439,7 +1453,7 @@ function BuyerRequestModal({ kind, vehicle = null, onClose }) {
             <form className="lead-form" onSubmit={(event) => { if (step === 1) { event.preventDefault(); advance(); } else submit(event); }}>
               {step === 1 ? (
                 <>
-                  <p className="buyer-request-step-note">Primero deja una forma de contactarte. Toma menos de un minuto.</p>
+                  <p className="buyer-request-step-note">Primero dinos cómo contactarte.</p>
                   <label>Nombre<input value={form.name} onChange={(event) => change("name", event.target.value)} autoComplete="name" required /></label>
                   <div className="lead-form-grid">
                     <label>Correo<input type="email" value={form.email} onChange={(event) => change("email", event.target.value)} autoComplete="email" required /></label>
@@ -1450,7 +1464,7 @@ function BuyerRequestModal({ kind, vehicle = null, onClose }) {
                 </>
               ) : (
                 <>
-                  <p className="buyer-request-step-note">Cuéntanos lo esencial para que el asesor llegue preparado.</p>
+                  <p className="buyer-request-step-note">Ahora dinos qué necesitas.</p>
                   <label>{isTradeIn ? "Marca y modelo de tu vehículo" : "Qué vehículo estás buscando"}<input value={form.currentVehicle} onChange={(event) => change("currentVehicle", event.target.value)} placeholder={isTradeIn ? "Ej. Toyota RAV4 Limited" : "Ej. SUV familiar, 3 filas, automático"} required /></label>
                   <div className="lead-form-grid">
                     <label>{isTradeIn ? "Año" : "Año desde (opcional)"}<input type="number" min="1900" max="2100" value={form.year} onChange={(event) => change("year", event.target.value)} /></label>
@@ -2107,9 +2121,9 @@ function VehicleCard({ vehicle, onOpen, onToggleCompare, isCompared, isFavorite,
         <div>
           <h3>{vehicle.brand} {vehicle.model}</h3>
           <span className="vehicle-meta">{vehicle.year} · {vehicle.variant || vehicle.fuelType || vehicle.power || "—"}</span>
-          <span className="vehicle-card-specs"><i>◉</i>{vehicle.fuelType || "Gasolina"}<i>⚙</i>{vehicle.transmission || "Automático"}<i>↗</i>{Number(vehicle.mileageKm || 0).toLocaleString("en-US")} km</span>
+           <span className="vehicle-card-specs"><i>◉</i>{fuelDisplay(vehicle.fuelType || "Gasolina")}<i>⚙</i>{transmissionDisplay(vehicle.transmission || "Automático")}<i>↗</i>{Number(vehicle.mileageKm || 0).toLocaleString("en-US")} km</span>
         </div>
-        <strong>{formatPrice(vehicle.priceUsd)}</strong>
+        <strong>{vehiclePrice(vehicle)}</strong>
         <span className="vehicle-card-cta">Abrir ficha <span>↗</span></span>
       </button>
       {onQuickAction && <div className="vehicle-card-quick-actions"><button type="button" onClick={(event) => { event.stopPropagation(); onQuickAction(vehicle, "appointment"); }}>Agendar cita</button><button type="button" onClick={(event) => { event.stopPropagation(); onQuickAction(vehicle, "quote"); }}>Cotización</button>{whatsappNumber ? <a href={whatsappHref} target="_blank" rel="noreferrer" onClick={(event) => { event.stopPropagation(); trackEvent("whatsapp_click", { vehicleId: vehicle.id }); }}>WhatsApp</a> : <button type="button" onClick={shareVehicle}>Compartir</button>}{shareStatus && <span className="vehicle-share-status" role="status">{shareStatus}</span>}</div>}
@@ -2144,7 +2158,7 @@ function LeadForm({ vehicle, onClose, customerToken = "" }) {
       setStatus({ loading: false, error: "", success: true });
     } catch (error) { setStatus({ loading: false, error: mensajeDeError(error), success: false }); }
   };
-  return <motion.div className="lead-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}><motion.section className="lead-modal" role="dialog" aria-modal="true" aria-labelledby="lead-title" initial={{ y: 14, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ duration: .2, ease: "easeOut" }}><button className="modal-close" type="button" onClick={onClose} aria-label="Cerrar">×</button>{status.success ? <div className="lead-success"><span className="eyebrow">OFERTA RECIBIDA</span><h2>Tu oferta está en revisión.</h2><p>El equipo de {getBrandName()} revisará los datos y se pondrá en contacto contigo.</p><button className="primary-action" type="button" onClick={onClose}>Cerrar</button></div> : <><span className="eyebrow">CONTACTO COMERCIAL</span><h2 id="lead-title">Hacer una oferta.</h2><p className="modal-vehicle">{vehicle.brand} {vehicle.model} · {vehiclePrice(vehicle)}</p><form className="lead-form" onSubmit={submit}><label>Nombre<input value={form.buyerName} onChange={(event) => change("buyerName", event.target.value)} required /></label><div className="lead-form-grid"><label>Correo<input type="text" inputMode="email" autoComplete="email" value={form.buyerEmail} onChange={(event) => change("buyerEmail", event.target.value)} /></label><PhoneField label="Teléfono" value={form.buyerPhone} onChange={(value) => change("buyerPhone", value)} hint="Selecciona tu país e introduce tu número." /></div><label>Monto de oferta {vehicle.currency || vehicle.priceCurrency || publicCurrency}<input type="number" min="1" step="0.01" value={form.amountUsd} onChange={(event) => change("amountUsd", event.target.value)} required /></label><label>Mensaje<textarea value={form.message} onChange={(event) => change("message", event.target.value)} placeholder="Cuéntanos algo sobre tu propuesta..." /></label><TurnstileField onTokenChange={setTurnstileToken} /><label className="consent-check"><input type="checkbox" checked={form.privacyConsent} onChange={(event) => change("privacyConsent", event.target.checked)} required /><span>Acepto la política de privacidad y autorizo el uso de mis datos para esta solicitud.</span></label>{status.error && <p className="state-message error">{status.error}</p>}<button className="primary-action" type="submit" disabled={status.loading}>{status.loading ? "Enviando…" : "Enviar oferta"}</button></form></>}</motion.section></motion.div>;
+  return <motion.div className="lead-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}><motion.section className="lead-modal" role="dialog" aria-modal="true" aria-labelledby="lead-title" initial={{ y: 14, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ duration: .2, ease: "easeOut" }}><button className="modal-close" type="button" onClick={onClose} aria-label="Cerrar">×</button>{status.success ? <div className="lead-success"><span className="eyebrow">OFERTA RECIBIDA</span><h2>Tu oferta está en revisión.</h2><p>El equipo de {getBrandName()} revisará los datos y se pondrá en contacto contigo.</p><button className="primary-action" type="button" onClick={onClose}>Cerrar</button></div> : <><span className="eyebrow">CONTACTO COMERCIAL</span><h2 id="lead-title">Envía una oferta.</h2><p className="modal-vehicle">{vehicle.brand} {vehicle.model} · {vehiclePrice(vehicle)}</p><p className="lead-form-context">Indica tu propuesta. El dealer la revisará; enviarla no te obliga a comprar.</p><form className="lead-form" onSubmit={submit}><label>Nombre completo<input value={form.buyerName} onChange={(event) => change("buyerName", event.target.value)} required /></label><div className="lead-form-grid"><label>Correo <span>opcional si dejas teléfono</span><input type="text" inputMode="email" autoComplete="email" value={form.buyerEmail} onChange={(event) => change("buyerEmail", event.target.value)} /></label><PhoneField label="Teléfono" value={form.buyerPhone} onChange={(value) => change("buyerPhone", value)} hint="Selecciona tu país e introduce tu número." /></div><label>Monto de oferta · {vehicle.currency || vehicle.priceCurrency || publicCurrency}<input type="number" min="1" step="0.01" value={form.amountUsd} onChange={(event) => change("amountUsd", event.target.value)} required /></label><label>Mensaje <span>opcional</span><textarea value={form.message} onChange={(event) => change("message", event.target.value)} placeholder="Ej. Me interesa visitar el vehículo esta semana." /></label><TurnstileField onTokenChange={setTurnstileToken} /><label className="consent-check"><input type="checkbox" checked={form.privacyConsent} onChange={(event) => change("privacyConsent", event.target.checked)} required /><span>Acepto la política de privacidad y autorizo el uso de mis datos para esta solicitud.</span></label>{status.error && <p className="state-message error">{status.error}</p>}<button className="primary-action" type="submit" disabled={status.loading}>{status.loading ? "Enviando…" : "Enviar oferta"}</button></form></>}</motion.section></motion.div>;
 }
 
 function TestDriveModal({ vehicle, onClose }) {
@@ -2219,8 +2233,9 @@ function TestDriveModal({ vehicle, onClose }) {
         ) : (
           <>
             <span className="eyebrow">AGENDA · {getBrandName()}</span>
-            <h2 id="test-drive-title">Agenda tu cita.</h2>
+            <h2 id="test-drive-title">Elige tu visita.</h2>
             <p className="modal-vehicle">{vehicle.brand} {vehicle.model} · {vehicle.year}</p>
+            <p className="lead-form-context">Primero selecciona día y hora. Después te pediremos tus datos para confirmar la visita.</p>
             <div className="appointment-flow-steps" aria-label="Pasos para agendar">
               <span className={form.date ? "is-done" : "is-active"}><b>01</b>Día</span>
               <span className={form.time ? "is-done" : form.date ? "is-active" : ""}><b>02</b>Hora</span>
@@ -2604,14 +2619,14 @@ function VehicleDetail({ vehicle, vehicles = [], onBack, isFavorite = false, onT
           <div className="detail-brand-line"><BrandLogo brand={vehicle.brand} logoUrl={vehicle.brandLogoUrl} /><span className="eyebrow">{vehicle.condition === "new" ? "NUEVO INVENTARIO" : "INVENTARIO CERTIFICADO"}</span></div>
           <h1>{vehicle.brand} <em>{vehicle.model}</em></h1>
           {vehicle.variant && <p className="detail-variant">{vehicle.variant}</p>}
-          <p className="detail-price">{formatPrice(vehicle.priceUsd)}</p>
+          <p className="detail-price">{vehiclePrice(vehicle)}</p>
           <div className="specs">
             {[
               ["Motor", vehicle.engine],
               ["Potencia", vehicle.power, "Fuerza disponible del motor."],
-              ["Transmisión", vehicle.transmission],
+              ["Transmisión", transmissionDisplay(vehicle.transmission)],
               ["Tracción", vehicle.drive, "Indica qué ruedas reciben la fuerza del motor."],
-              ["Combustible", vehicle.fuelType],
+              ["Combustible", fuelDisplay(vehicle.fuelType)],
               ["Exterior", vehicle.exteriorColor],
               ["Interior", vehicle.interiorColor],
               ["Puertas / asientos", vehicle.doors || vehicle.seats ? `${vehicle.doors || "—"} / ${vehicle.seats || "—"}` : null],
@@ -2639,8 +2654,9 @@ function VehicleDetail({ vehicle, vehicles = [], onBack, isFavorite = false, onT
             <button className="detail-utility-action studio-jump" type="button" onClick={() => document.getElementById(vehicle.media?.some((item) => item.type === "model_3d") ? "vehicle-3d-viewer" : "vehicle-studio")?.scrollIntoView({ behavior: "smooth", block: "start" })}>{vehicle.media?.some((item) => item.type === "model_3d") ? "Explorar modelo 3D ↓" : "Explorar Studio ↓"}</button>
           </div>
           <div className="detail-actions">
-            <button className="primary-action" type="button" onClick={() => { setQuickVehicle(null); setLeadType("offer"); }} disabled={vehicle.status === "reserved"}>{vehicle.status === "reserved" ? "Vehículo reservado" : "Hacer una oferta"}</button>
-            <button className="secondary-action" type="button" onClick={() => { setQuickVehicle(null); setQuoteOpen(true); }}>Generar cotización PDF</button>
+            <button className="primary-action" type="button" onClick={() => { setQuickVehicle(null); setLeadType("offer"); }} disabled={vehicle.status === "reserved"}>{vehicle.status === "reserved" ? "Vehículo reservado" : "Enviar una oferta"}</button>
+            <button className="secondary-action" type="button" onClick={() => { setQuickVehicle(null); setQuoteOpen(true); }}>Ver resumen y guardar PDF</button>
+            <p className="detail-action-hint">Elige una opción. No es una compra ni un pago.</p>
           </div>
           <div className="detail-utilities">
             <ShareAction vehicle={vehicle} />
@@ -2661,17 +2677,17 @@ function VehicleDetail({ vehicle, vehicles = [], onBack, isFavorite = false, onT
       <aside className="detail-decision-bar" aria-label="Acciones principales del vehículo">
         <div>
           <span className="eyebrow">SIGUIENTE PASO</span>
-          <strong>{formatPrice(vehicle.priceUsd)}</strong>
+          <strong>{vehiclePrice(vehicle)}</strong>
           <p>{vehicle.status === "reserved" ? "Este vehículo está reservado. Podemos avisarte si vuelve a estar disponible." : "Un asesor responde tu solicitud con la información completa del vehículo."}</p>
         </div>
         <span className="detail-decision-vehicle">{vehicle.brand} {vehicle.model} · {vehicle.year}</span>
         <div className="detail-decision-actions">
-          <button className="primary-action" type="button" onClick={() => { setQuickVehicle(null); setLeadType("offer"); }} disabled={vehicle.status === "reserved"}>{vehicle.status === "reserved" ? "Reservado" : "Hacer una oferta"}</button>
-          <button className="secondary-action" type="button" onClick={() => { setQuickVehicle(null); setQuoteOpen(true); }}>Cotización</button>
+          <button className="primary-action" type="button" onClick={() => { setQuickVehicle(null); setLeadType("offer"); }} disabled={vehicle.status === "reserved"}>{vehicle.status === "reserved" ? "Reservado" : "Enviar una oferta"}</button>
+          <button className="secondary-action" type="button" onClick={() => { setQuickVehicle(null); setQuoteOpen(true); }}>Ver resumen</button>
         </div>
       </aside>
       <div className="detail-mobile-actions" aria-label="Acciones rápidas del vehículo">
-        <button className="primary-action" type="button" onClick={() => setLeadType("offer")} disabled={vehicle.status === "reserved"}>{vehicle.status === "reserved" ? "Reservado" : "Hacer una oferta"}</button>
+        <button className="primary-action" type="button" onClick={() => setLeadType("offer")} disabled={vehicle.status === "reserved"}>{vehicle.status === "reserved" ? "Reservado" : "Enviar una oferta"}</button>
         <button className="secondary-action" type="button" onClick={() => setLeadType("test-drive")}>Agendar cita</button>
         {whatsappNumber ? <a className="detail-mobile-whatsapp" href={whatsappHref} target="_blank" rel="noreferrer" aria-label="Contactar al concesionario por WhatsApp" onClick={() => trackEvent("whatsapp_click", { vehicleId: vehicle.id })}>WhatsApp</a> : <button className="detail-mobile-whatsapp" type="button" onClick={shareVehicle}>Compartir</button>}
       </div>
@@ -2735,9 +2751,9 @@ function CompareDock({ vehicles, onRemove, onClear }) {
 }
 
 function CompareTable({ vehicles }) {
-  if (vehicles.length < 2) return <section className="compare-table-section compare-table-empty" id="compare-table"><div className="compare-empty-mark">{vehicles.length ? "01" : "00"}</div><div><span className="eyebrow">COMPARACIÓN / {vehicles.length}/2 MÍNIMO</span><h2>{vehicles.length ? "Elige un modelo más." : "Compara antes de decidir."}</h2><p>{vehicles.length ? "Ya tienes un vehículo seleccionado. Añade otro desde cualquier tarjeta para ver precio, potencia, kilometraje y ficha técnica en paralelo." : "Selecciona hasta tres vehículos y revisa sus diferencias en una sola vista, sin perder tu selección."}</p><a className="detail-utility-action" href="#catalog">Explorar inventario ↓</a></div></section>;
-  const rows = [["Precio", (vehicle) => formatPrice(vehicle.priceUsd)], ["Año", (vehicle) => vehicle.year], ["Versión", (vehicle) => vehicle.variant || "—"], ["Combustible", (vehicle) => vehicle.fuelType || "—"], ["Transmisión", (vehicle) => vehicle.transmission || "—"], ["Potencia", (vehicle) => vehicle.power || "—"], ["Kilometraje", (vehicle) => `${Number(vehicle.mileageKm || 0).toLocaleString("en-US")} km`], ["Tracción", (vehicle) => vehicle.drive || "—"], ["Ubicación", (vehicle) => vehicle.location || "—"]];
-  return <section className="compare-table-section" id="compare-table"><div className="section-head"><div><span className="eyebrow">COMPARACIÓN</span><h2>Decide con claridad.</h2></div><p>{vehicles.length} vehículos seleccionados</p></div><div className="compare-vehicle-rail" style={{ "--compare-columns": vehicles.length }} aria-label="Modelos seleccionados para comparar">{vehicles.map((vehicle, index) => <article className="compare-vehicle-card" key={vehicle.id}><img src={publicMediaUrl(vehicle.images?.[0]?.url) || "/assets/hero-highway.webp"} alt={`${vehicle.brand} ${vehicle.model}`} loading="lazy" decoding="async" /><div><span className="eyebrow">0{index + 1} · {vehicle.year} · {vehicle.condition === "new" ? "NUEVO" : "CERTIFICADO"}</span><h3>{vehicle.brand} {vehicle.model}</h3><strong>{formatPrice(vehicle.priceUsd)}</strong><p><b>{vehicle.power || "—"}</b><span>Potencia</span></p></div></article>)}</div><div className="compare-table" style={{ "--compare-columns": vehicles.length }}><div className="compare-table-labels"><span>Modelo</span>{rows.map(([label]) => <span key={label}>{label}</span>)}</div>{vehicles.map((vehicle) => <div className="compare-column" key={vehicle.id}><strong>{vehicle.brand} {vehicle.model}</strong>{rows.map(([_label, value]) => <span key={_label}>{value(vehicle)}</span>)}</div>)}</div></section>;
+  if (vehicles.length < 2) return <section className="compare-table-section compare-table-empty" id="compare-table"><div className="compare-empty-mark">{vehicles.length ? "01" : "00"}</div><div><span className="eyebrow">COMPARACIÓN · {vehicles.length}/2</span><h2>{vehicles.length ? "Añade un modelo más." : "Compara antes de decidir."}</h2><p>{vehicles.length ? "Añade otro desde cualquier tarjeta para ver precio, potencia, kilometraje y ficha técnica en paralelo." : "Selecciona hasta tres vehículos y revisa sus diferencias en una sola vista."}</p><a className="detail-utility-action" href="#catalog">Explorar inventario ↓</a></div></section>;
+  const rows = [["Precio", (vehicle) => vehiclePrice(vehicle)], ["Año", (vehicle) => vehicle.year], ["Versión", (vehicle) => vehicle.variant || "—"], ["Combustible", (vehicle) => fuelDisplay(vehicle.fuelType) || "—"], ["Transmisión", (vehicle) => transmissionDisplay(vehicle.transmission) || "—"], ["Potencia", (vehicle) => vehicle.power || "—"], ["Kilometraje", (vehicle) => `${Number(vehicle.mileageKm || 0).toLocaleString("en-US")} km`], ["Tracción", (vehicle) => vehicle.drive || "—"], ["Ubicación", (vehicle) => vehicle.location || "—"]];
+  return <section className="compare-table-section" id="compare-table"><div className="section-head"><div><span className="eyebrow">COMPARACIÓN</span><h2>Decide con claridad.</h2></div><p>{vehicles.length} vehículos seleccionados</p></div><div className="compare-vehicle-rail" style={{ "--compare-columns": vehicles.length }} aria-label="Modelos seleccionados para comparar">{vehicles.map((vehicle, index) => <article className="compare-vehicle-card" key={vehicle.id}><img src={publicMediaUrl(vehicle.images?.[0]?.url) || "/assets/hero-highway.webp"} alt={`${vehicle.brand} ${vehicle.model}`} loading="lazy" decoding="async" /><div><span className="eyebrow">0{index + 1} · {vehicle.year} · {vehicle.condition === "new" ? "NUEVO" : "CERTIFICADO"}</span><h3>{vehicle.brand} {vehicle.model}</h3><strong>{vehiclePrice(vehicle)}</strong><p><b>{vehicle.power || "—"}</b><span>Potencia</span></p></div></article>)}</div><div className="compare-table" style={{ "--compare-columns": vehicles.length }}><div className="compare-table-labels"><span>Modelo</span>{rows.map(([label]) => <span key={label}>{label}</span>)}</div>{vehicles.map((vehicle) => <div className="compare-column" key={vehicle.id}><strong>{vehicle.brand} {vehicle.model}</strong>{rows.map(([_label, value]) => <span key={_label}>{value(vehicle)}</span>)}</div>)}</div></section>;
 }
 
 function BrandRail({ vehicles, brands, onChooseBrand }) {
@@ -2863,11 +2879,11 @@ function IntentRail({ categories, conditions, fuelTypes, onChoose }) {
     ...(fuelTypes.includes("Electrico") ? [["fuel:Electrico", "Eléctrico", "Tecnología y silencio"]] : []),
     ...(conditions.includes("new") ? [["condition:new", "Nuevo", "Entrega y configuración"]] : []),
   ];
-  return <section className="intent-rail" aria-label="Explorar por intención"><div className="intent-rail-copy"><span className="eyebrow">EMPIEZA POR LO QUE IMPORTA</span><h2>¿Qué estás buscando?</h2><p>Una primera orientación para encontrar tu próxima selección.</p></div><div className="intent-rail-options">{intents.map(([value, label, detail]) => <button type="button" className="intent-option" key={value} onClick={() => onChoose(value)}><strong>{label}</strong><span>{detail}</span><i>→</i></button>)}</div></section>;
+  return <section className="intent-rail" aria-label="Explorar por intención"><div className="intent-rail-copy"><span className="eyebrow">EMPIEZA AQUÍ</span><h2>¿Qué buscas?</h2><p>Elige una ruta y te llevamos al inventario.</p></div><div className="intent-rail-options">{intents.map(([value, label, detail]) => <button type="button" className="intent-option" key={value} onClick={() => onChoose(value)}><strong>{label}</strong><span>{detail}</span><i>→</i></button>)}</div></section>;
 }
 
 function ShowroomTrustRail({ onTradeIn, onSearchAlert }) {
-  return <section className="showroom-trust-rail" aria-label="Cómo comprar en este showroom"><div><span>01</span><strong>Explora sin presión</strong><p>Compara, guarda favoritos y revisa la información antes de hablar.</p></div><div><span>02</span><strong>Habla con contexto</strong><p>Agenda, cotiza o comparte el modelo exacto que estás evaluando.</p></div><div className="showroom-trust-action"><span>03</span><strong>Si aún no aparece</strong><p>Guarda una búsqueda o cuéntanos qué vehículo quieres renovar.</p><div><button type="button" onClick={onSearchAlert}>Guardar búsqueda</button><button type="button" onClick={onTradeIn}>Quiero tasar el mío</button></div></div></section>;
+  return <section className="showroom-trust-rail" aria-label="Cómo comprar en este showroom"><div><span>01</span><strong>Explora y compara</strong><p>Guarda tus favoritos y revisa cada ficha.</p></div><div><span>02</span><strong>Elige cómo avanzar</strong><p>Pregunta, agenda una visita o envía una oferta.</p></div><div className="showroom-trust-action"><span>03</span><strong>¿No lo encuentras?</strong><p>Cuéntanos qué necesitas y te ayudamos a buscarlo.</p><div><button type="button" onClick={onSearchAlert}>Pedir ayuda</button><button type="button" onClick={onTradeIn}>Valorar mi vehículo</button></div></div></section>;
 }
 
 function ModelLineRail({ vehicles, selectedBrand, onChooseLine }) {
@@ -3394,8 +3410,8 @@ function App() {
         <div className="hero-content">
           <span className="eyebrow">{showroomCity ? `${getBrandName()} · ${showroomCity}` : getBrandName()}</span>
           {businessSettings.heroHeadline ? <h1>{businessSettings.heroHeadline}</h1> : <h1>Elige lo que <em>te mueve.</em></h1>}
-          <p>{businessSettings.heroSubheadline || "Vehículos con carácter, información clara y una atención diseñada alrededor de tu próxima historia."}</p>
-          <div className="hero-actions"><a href="#catalog" className="hero-link primary-action hero-primary-action">Explorar inventario ↓</a><a href={`/presentacion${requestedDealerSlug ? `?dealer=${encodeURIComponent(requestedDealerSlug)}` : ""}`} className="hero-link hero-secondary-action">Ver presentación →</a><button type="button" className="hero-link hero-tertiary-action" onClick={() => setBuyerRequestKind("trade-in")}>¿Tienes vehículo? Valóralo →</button></div>
+          <p>{businessSettings.heroSubheadline || "Busca, compara y habla con el dealer con toda la información a la vista."}</p>
+          <div className="hero-actions"><a href="#catalog" className="hero-link primary-action hero-primary-action">Explorar inventario ↓</a><a href={`/presentacion${requestedDealerSlug ? `?dealer=${encodeURIComponent(requestedDealerSlug)}` : ""}`} className="hero-link hero-secondary-action">Ver presentación →</a></div>
         </div>
         {hasInventory && <div className="hero-proof" aria-label={`Inventario de ${getBrandName()}`}>
           <span><strong><AnimatedMetric value={vehicles.length} suffix="" /></strong> {vehicles.length === 1 ? "vehículo disponible" : "vehículos disponibles"}</span>
@@ -3422,17 +3438,17 @@ function App() {
       <CompareDock vehicles={compareVehicles} onRemove={(id) => setCompareVehicles((current) => current.filter((item) => item.id !== id))} onClear={() => setCompareVehicles([])} />
 
       <section className="catalog" id="catalog" aria-busy={loading}>
-        <div className="section-head"><div><span className="eyebrow">INVENTARIO · {vehicles.length.toString().padStart(2, "0")} MODELOS</span><h2>Catálogo activo.</h2></div><p>Inventario actualizado para ayudarte a decidir mejor.</p></div>
-         <div className="catalog-intro-note">Una selección breve, pensada para decidir mejor.</div>
+        <div className="section-head"><div><span className="eyebrow">INVENTARIO · {vehicles.length.toString().padStart(2, "0")} MODELOS</span><h2>Vehículos disponibles.</h2></div><p>Compara fotos, detalles y precio en un mismo lugar.</p></div>
+         <div className="catalog-intro-note">Elige un modelo para ver su ficha completa.</div>
          <BudgetSearchPanel vehicles={vehicles} activeBudget={Number(maxMonthlyPayment) || 0} activeDownPayment={budgetDownPayment} activeMonths={budgetMonths} onApply={applyBudget} onClear={clearFilters} />
-         <div className="filters-heading"><div><span className="eyebrow">BÚSQUEDA AVANZADA</span><strong>Filtra por lo que importa.</strong></div><span>Marca, precio, año y especificaciones</span><button className="filters-toggle" type="button" onClick={() => setFiltersOpen((current) => !current)} aria-expanded={filtersOpen}>{filtersOpen ? "Ocultar filtros" : "Más filtros"} <span>{filtersOpen ? "↑" : "↓"}</span></button></div>
+         <div className="filters-heading"><div><span className="eyebrow">ENCUENTRA TU VEHÍCULO</span><strong>Busca o ajusta los filtros.</strong></div><span>Marca, precio, año y especificaciones</span><button className="filters-toggle" type="button" onClick={() => setFiltersOpen((current) => !current)} aria-expanded={filtersOpen}>{filtersOpen ? "Ocultar filtros" : "Todos los filtros"} <span>{filtersOpen ? "↑" : "↓"}</span></button></div>
          <div className={`filters ${filtersOpen ? "filters-expanded" : ""}`}>
           <SmartVehicleSearch vehicles={vehicles} value={search} onChange={changeSearch} resultCount={filteredVehicles.length} onClear={() => setSearch("")} />
           <select className="filter-secondary" value={brand} onChange={(event) => setBrand(event.target.value)} aria-label="Filtrar por marca"><option value="all">Todas las marcas</option>{brands.map((item) => <option key={item} value={item}>{item}</option>)}</select>
-          <select value={category} onChange={(event) => setCategory(event.target.value)} aria-label="Filtrar por tipo"><option value="all">Todos los tipos</option>{categories.map((item) => <option key={item} value={item}>{item}</option>)}</select>
+           <select value={category} onChange={(event) => setCategory(event.target.value)} aria-label="Filtrar por tipo"><option value="all">Todos los tipos</option>{categories.map((item) => <option key={item} value={item}>{categoryDisplay(item)}</option>)}</select>
           <select className="filter-secondary" value={condition} onChange={(event) => setCondition(event.target.value)} aria-label="Filtrar por condición"><option value="all">Nuevo y certificado</option>{conditions.map((item) => <option key={item} value={item}>{item === "new" ? "Nuevo" : "Certificado"}</option>)}</select>
-          <select className="filter-secondary" value={fuelType} onChange={(event) => setFuelType(event.target.value)} aria-label="Filtrar por combustible"><option value="all">Cualquier combustible</option>{fuelTypes.map((item) => <option key={item} value={item}>{item}</option>)}</select>
-          <select className="filter-secondary" value={transmission} onChange={(event) => setTransmission(event.target.value)} aria-label="Filtrar por transmisión"><option value="all">Cualquier transmisión</option>{transmissions.map((item) => <option key={item} value={item}>{item}</option>)}</select>
+           <select className="filter-secondary" value={fuelType} onChange={(event) => setFuelType(event.target.value)} aria-label="Filtrar por combustible"><option value="all">Cualquier combustible</option>{fuelTypes.map((item) => <option key={item} value={item}>{fuelDisplay(item)}</option>)}</select>
+           <select className="filter-secondary" value={transmission} onChange={(event) => setTransmission(event.target.value)} aria-label="Filtrar por transmisión"><option value="all">Cualquier transmisión</option>{transmissions.map((item) => <option key={item} value={item}>{transmissionDisplay(item)}</option>)}</select>
           <input className="filter-number" type="number" min="0" value={minPrice} onChange={(event) => setMinPrice(event.target.value)} placeholder="Precio desde" aria-label="Precio mínimo" />
           <input className="filter-number" type="number" min="0" value={maxPrice} onChange={(event) => setMaxPrice(event.target.value)} placeholder="Precio hasta" aria-label="Precio máximo" />
           <input className="filter-number filter-year filter-secondary" type="number" min="1900" max="2100" value={minYear} onChange={(event) => setMinYear(event.target.value)} placeholder="Año desde" aria-label="Año mínimo" />

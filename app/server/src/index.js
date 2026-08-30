@@ -893,6 +893,27 @@ async function writeAudit(req, action, entityType, entityId = null, metadata = {
   } catch (error) { console.error("Audit log failed", error); }
 }
 
+function normalizeVehicleWords(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .replace(/\s+/g, " ");
+}
+
+function cleanRepeatedVariant(model, variant) {
+  const rawModel = String(model || "").trim();
+  const rawVariant = String(variant || "").trim();
+  const modelWords = normalizeVehicleWords(rawModel).split(" ").filter(Boolean);
+  const variantWords = normalizeVehicleWords(rawVariant).split(" ").filter(Boolean);
+  if (!rawModel || !rawVariant || !variantWords.length || modelWords.length <= variantWords.length) return rawModel;
+  const suffix = modelWords.slice(-variantWords.length);
+  if (suffix.join(" ") !== variantWords.join(" ")) return rawModel;
+  return modelWords.slice(0, -variantWords.length).join(" ") || rawModel;
+}
+
 function vehiclePayload(body) {
   const media = Array.isArray(body.media) ? body.media.map((item) => ({
     type: ["video", "model_3d", "panorama_360"].includes(item?.type) ? item.type : null,
@@ -907,7 +928,7 @@ function vehiclePayload(body) {
     brand: String(body.brand || "").trim(),
     brandLogoUrl: String(body.brandLogoUrl || "").trim().slice(0, 2000) || null,
     category: String(body.category || "").trim() || null,
-    model: String(body.model || "").trim(),
+    model: cleanRepeatedVariant(body.model, body.variant),
     variant: String(body.variant || "").trim() || null,
     year: Number(body.year),
     condition: body.condition === "new" ? "new" : "used",
