@@ -7,3 +7,5 @@ server/.env.*
 3d/*.png
 playwright-report/
 test-results/
+
+.vercel
