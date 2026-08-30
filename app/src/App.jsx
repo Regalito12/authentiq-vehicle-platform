@@ -15,6 +15,7 @@ import { AnimatedThemeTogglerStarDemo } from "./components/ui/animated-theme-tog
 import { ArrowUpRightIcon, CalendarBlankIcon, CarSimpleIcon, ChartLineUpIcon, ChatsCircleIcon, FileTextIcon, GlobeHemisphereWestIcon, MagnifyingGlassIcon, SquaresFourIcon, UsersThreeIcon } from "@phosphor-icons/react";
 import { SpeedInsights } from "@vercel/speed-insights/react";
 import UpdateBanner from "./components/UpdateBanner.jsx";
+import ConnectionStatusBanner from "./components/ConnectionStatusBanner.jsx";
 import { mensajeDeError } from "./utils/errors.js";
 
 class SectionBoundary extends Component {
@@ -128,15 +129,26 @@ function publicMediaUrl(url) {
 
 const analyticsSessionId = (() => { const key = "authentiq_analytics_session"; const current = localStorage.getItem(key); if (current) return current; const next = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`; localStorage.setItem(key, next); return next; })();
 function publicRequestKey(prefix) { return `${prefix}-${crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}`; }
-function trackEvent(eventName, payload = {}) { if (localStorage.getItem("authentiq_cookie_consent") !== "accepted") return; const query = new URLSearchParams(window.location.search); const source = payload.source || query.get("utm_source") || query.get("source") || "direct"; fetch(`${apiUrl}/api/events`, { method: "POST", keepalive: true, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventName, path: window.location.pathname, source, sessionId: analyticsSessionId, metadata: { utmMedium: query.get("utm_medium") || "", utmCampaign: query.get("utm_campaign") || "", utmContent: query.get("utm_content") || "" }, ...payload }) }).catch(() => {}); }
+const analyticsEventAliases = { page_view: "view_home", catalog_view: "view_search_results", vehicle_view: "view_vehicle", vehicle_share: "share_vehicle", filter_used: "filter_applied", compare_used: "compare_used", whatsapp_click: "lead_whatsapp_click", offer_submitted: "lead_form_submitted", contact_submitted: "lead_form_submitted", appointment_submitted: "test_drive_requested", trade_in_submitted: "lead_form_submitted", search_alert_submitted: "search_submitted", price_alert_submitted: "price_alert_submitted" };
+function trackEvent(eventName, payload = {}) { if (localStorage.getItem("authentiq_cookie_consent") !== "accepted") return; const query = new URLSearchParams(window.location.search); const source = payload.source || query.get("utm_source") || query.get("source") || "direct"; const { source: _source, ...safePayload } = payload; fetch(`${apiUrl}/api/events`, { method: "POST", keepalive: true, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventName: analyticsEventAliases[eventName] || eventName, path: window.location.pathname, source, sessionId: analyticsSessionId, metadata: { utmMedium: query.get("utm_medium") || "", utmCampaign: query.get("utm_campaign") || "", utmContent: query.get("utm_content") || "", userType: "buyer" }, ...safePayload }) }).catch(() => {}); }
 
-function formatPrice(value) {
-  return `$${Number(value).toLocaleString("en-US")} USD`;
+let publicCurrency = "USD";
+
+function formatMoney(value, currency = publicCurrency, fractionDigits = 0) {
+  const safeCurrency = /^[A-Z]{3,8}$/.test(String(currency || "")) ? String(currency).toUpperCase() : "USD";
+  return new Intl.NumberFormat(safeCurrency === "DOP" ? "es-DO" : "en-US", { style: "currency", currency: safeCurrency, currencyDisplay: "symbol", minimumFractionDigits: fractionDigits, maximumFractionDigits: fractionDigits }).format(Number(value || 0));
 }
 
-function formatFinancePrice(value) {
-  return `$${Number(value || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD`;
+function formatPrice(value, currency = publicCurrency) {
+  return formatMoney(value, currency, 0);
 }
+
+function formatFinancePrice(value, currency = publicCurrency) {
+  return formatMoney(value, currency, 2);
+}
+
+function vehicleAmount(vehicle) { return Number(vehicle?.price ?? vehicle?.priceAmount ?? vehicle?.priceUsd ?? 0); }
+function vehiclePrice(vehicle) { return formatPrice(vehicleAmount(vehicle), vehicle?.currency || vehicle?.priceCurrency || "USD"); }
 
 function normalizeSearchText(value) {
   return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
@@ -257,26 +269,61 @@ function findVehicleByPath(vehicles, pathname) {
 }
 
 function ShareAction({ vehicle }) {
-  const [shared, setShared] = useState(false);
+  const [shareStatus, setShareStatus] = useState("");
   const share = async (event) => {
     event.stopPropagation();
     const url = `${window.location.origin}${vehiclePath(vehicle)}`;
     try {
-      if (navigator.share) await navigator.share({ title: `${vehicle.brand} ${vehicle.model}`, text: `Mira este ${vehicle.brand} ${vehicle.model} en ${getBrandName()}`, url });
-      else await navigator.clipboard.writeText(url);
-      setShared(true);
-      window.setTimeout(() => setShared(false), 1800);
+      const result = await shareOrCopyUrl(url, `${vehicle.brand} ${vehicle.model}`);
+      setShareStatus(result === "copied" ? "Enlace copiado ✓" : result === "shared" ? "Compartido ✓" : "Copia el enlace desde el navegador");
+      window.setTimeout(() => setShareStatus(""), 2200);
       trackEvent("vehicle_share", { vehicleId: vehicle.id });
-    } catch { setShared(false); }
+    } catch { setShareStatus("No se pudo compartir. Inténtalo de nuevo."); }
   };
-  return <button className="detail-utility-action" type="button" onClick={share}>{shared ? "Enlace copiado ✓" : "Compartir vehículo ↗"}</button>;
+  return <button className="detail-utility-action" type="button" onClick={share} aria-describedby={shareStatus ? "vehicle-share-status" : undefined}>{shareStatus || "Compartir vehículo ↗"}{shareStatus && <span id="vehicle-share-status" className="visually-hidden" role="status" aria-live="polite">{shareStatus}</span>}</button>;
 }
+
+function readCatalogParam(name, fallback = "") {
+  return new URLSearchParams(window.location.search).get(name) || fallback;
+}
+
+const initialCatalogFilters = {
+  search: readCatalogParam("q"),
+  brand: readCatalogParam("brand", "all"),
+  category: readCatalogParam("category", "all"),
+  condition: readCatalogParam("condition", "all"),
+  fuelType: readCatalogParam("fuel", "all"),
+  transmission: readCatalogParam("transmission", "all"),
+  minPrice: readCatalogParam("minPrice"),
+  maxPrice: readCatalogParam("maxPrice"),
+  minYear: readCatalogParam("minYear"),
+  sort: readCatalogParam("sort", "newest"),
+};
 
 function localIsoDate(value = new Date()) { const date = new Date(value); return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 10); }
 async function shareOrCopyUrl(url, title) {
   if (navigator.share) { await navigator.share({ title, url }); return "shared"; }
-  if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(url); return "copied"; }
+  if (await copyTextToClipboard(url)) return "copied";
   return "unavailable";
+}
+
+async function copyTextToClipboard(value) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return true;
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.top = "-1000px";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  let copied = false;
+  try { copied = document.execCommand("copy"); } catch { copied = false; }
+  textarea.remove();
+  return copied;
 }
 
 function downloadCalendarIcs({ title, description, location, startDate, durationMinutes = 60 }) {
@@ -1135,8 +1182,9 @@ function FinanceCalculator({ price, vehicle, onApplyFinancing, whatsapp = "", bu
   const totalInterest = Math.max(0, (payment * months) - principal);
 
   const whatsappNumber = whatsappDigits(whatsapp);
+  const vehicleCurrency = vehicle?.currency || vehicle?.priceCurrency || publicCurrency;
   const whatsappFinancingMessage = encodeURIComponent(
-    `Hola, me interesa el ${vehicle?.brand || ""} ${vehicle?.model || ""}${vehicle?.year ? ` ${vehicle.year}` : ""} en ${businessName}. Calculé una cuota estimada de $${Math.round(payment).toLocaleString("en-US")} USD/mes (Inicial: $${downPayment.toLocaleString("en-US")} USD · Plazo: ${months} meses). ¿Tienen opciones de crédito disponibles? Ficha: ${window.location.origin}${vehicle ? vehiclePath(vehicle) : ""}`
+    `Hola, me interesa el ${vehicle?.brand || ""} ${vehicle?.model || ""}${vehicle?.year ? ` ${vehicle.year}` : ""} en ${businessName}. Calculé una cuota estimada de ${formatFinancePrice(payment, vehicleCurrency)}/mes (Inicial: ${formatFinancePrice(downPayment, vehicleCurrency)} · Plazo: ${months} meses). ¿Tienen opciones de crédito disponibles? Ficha: ${window.location.origin}${vehicle ? vehiclePath(vehicle) : ""}`
   );
   const whatsappFinancingHref = `https://wa.me/${whatsappNumber}?text=${whatsappFinancingMessage}`;
 
@@ -1296,7 +1344,7 @@ function PriceAlertModal({ vehicle, onClose }) {
           <>
             <span className="eyebrow">OPORTUNIDAD · {getBrandName()}</span>
             <h2 id="price-alert-title">Avisarme si baja de precio.</h2>
-            <p className="modal-vehicle">{vehicle.brand} {vehicle.model} · Precio actual: {formatPrice(vehicle.priceUsd)}</p>
+            <p className="modal-vehicle">{vehicle.brand} {vehicle.model} · Precio actual: {vehiclePrice(vehicle)}</p>
             <form className="lead-form" onSubmit={submit}>
               <label>Nombre<input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required /></label>
               <div className="lead-form-grid">
@@ -1304,10 +1352,10 @@ function PriceAlertModal({ vehicle, onClose }) {
                 <PhoneField label="WhatsApp / Teléfono" value={form.phone} onChange={(value) => setForm({ ...form, phone: value })} required hint="Selecciona tu país e introduce el número donde responderás." />
               </div>
               <label>
-                Precio deseado en USD <span>(Opcional)</span>
+                Precio deseado en {vehicle.currency || vehicle.priceCurrency || publicCurrency} <span>(Opcional)</span>
                 <input
                   type="number"
-                  placeholder={`Ej. ${Math.round(Number(vehicle.priceUsd) * 0.9)}`}
+                  placeholder={`Ej. ${Math.round(vehicleAmount(vehicle) * 0.9)}`}
                   value={form.targetPrice}
                   onChange={(e) => setForm({ ...form, targetPrice: e.target.value })}
                 />
@@ -1465,11 +1513,11 @@ function QuoteModal({ vehicle, financingTerms, onClose, businessName = getBrandN
         </div>
         <div className="quote-price">
           <span>Precio de lista</span>
-          <strong><AnimatedNumber value={vehicle.priceUsd} format={(number) => `$${number.toLocaleString("en-US")} USD`} /></strong>
+          <strong>{vehiclePrice(vehicle)}</strong>
         </div>
         {financingTerms && <Disclosure title="Simulación financiera estimada" defaultOpen>
           <div className="quote-financing-summary">
-            <span>Inicial sugerida: <strong><AnimatedNumber value={financingTerms.downPayment} format={(number) => `$${number.toLocaleString("en-US")} USD`} /></strong></span>
+            <span>Inicial sugerida: <strong>{formatFinancePrice(financingTerms.downPayment, vehicle.currency || vehicle.priceCurrency || publicCurrency)}</strong></span>
             <span>Plazo: <strong><AnimatedNumber value={financingTerms.months} suffix=" meses" /></strong></span>
             <span>Cuota estimada: <strong><AnimatedNumber value={financingTerms.monthlyPayment} format={formatFinancePrice} />/mes</strong></span>
           </div>
@@ -1534,12 +1582,12 @@ function PublicQuotePage({ token }) {
         </div>
         <div className="public-quote-price">
           <span>Total propuesto</span>
-          <strong>{formatPrice(quote.totalUsd)}</strong>
+          <strong>{formatPrice(quote.totalAmount ?? quote.totalUsd, quote.currency)}</strong>
           {quote.validUntil && <small>Válida hasta {dateLabel(quote.validUntil)}</small>}
         </div>
         <div className="public-quote-specs">
-          <span>Precio base <b>{formatPrice(quote.basePriceUsd)}</b></span>
-          <span>Descuento <b>{Number(quote.discountUsd) ? `-${formatPrice(quote.discountUsd)}` : "Sin descuento"}</b></span>
+          <span>Precio base <b>{formatPrice(quote.baseAmount ?? quote.basePriceUsd, quote.currency)}</b></span>
+          <span>Descuento <b>{Number(quote.discountAmount ?? quote.discountUsd) ? `-${formatPrice(quote.discountAmount ?? quote.discountUsd, quote.currency)}` : "Sin descuento"}</b></span>
           <span>Condición <b>{accepted ? "Aceptada" : "Enviada"}</b></span>
         </div>
         {quote.notes && <p className="public-quote-notes">{quote.notes}</p>}
@@ -2078,7 +2126,7 @@ function CatalogError({ message, onRetry }) {
 }
 
 function LeadForm({ vehicle, onClose, customerToken = "" }) {
-  const [form, setForm] = useState({ buyerName: "", buyerEmail: "", buyerPhone: "", amountUsd: vehicle.priceUsd, message: "", privacyConsent: false });
+  const [form, setForm] = useState({ buyerName: "", buyerEmail: "", buyerPhone: "", amountUsd: vehicleAmount(vehicle), message: "", privacyConsent: false });
   const [turnstileToken, setTurnstileToken] = useState("");
   const [status, setStatus] = useState({ loading: false, error: "", success: false });
   useAccessibleDialog(onClose);
@@ -2087,7 +2135,7 @@ function LeadForm({ vehicle, onClose, customerToken = "" }) {
     event.preventDefault();
     if (form.buyerEmail.trim() && !/^\S+@\S+\.\S+$/.test(form.buyerEmail.trim())) { setStatus({ loading: false, error: "Revisa el correo electrónico: falta un formato válido (ej. nombre@correo.com).", success: false }); return; }
     setStatus({ loading: true, error: "", success: false });
-    const body = { vehicleId: vehicle.id, ...form, buyerPhone: normalizePhone(form.buyerPhone), amountUsd: Number(form.amountUsd), turnstileToken };
+    const body = { vehicleId: vehicle.id, ...form, buyerPhone: normalizePhone(form.buyerPhone), amount: Number(form.amountUsd), currency: vehicle.currency || vehicle.priceCurrency || publicCurrency, turnstileToken };
     try {
       const response = await fetch(`${apiUrl}/api/offers`, { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": publicRequestKey("offer"), ...(customerToken ? { Authorization: `Bearer ${customerToken}` } : {}) }, body: JSON.stringify(body) });
       const payload = await response.json();
@@ -2096,7 +2144,7 @@ function LeadForm({ vehicle, onClose, customerToken = "" }) {
       setStatus({ loading: false, error: "", success: true });
     } catch (error) { setStatus({ loading: false, error: mensajeDeError(error), success: false }); }
   };
-  return <motion.div className="lead-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}><motion.section className="lead-modal" role="dialog" aria-modal="true" aria-labelledby="lead-title" initial={{ y: 14, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ duration: .2, ease: "easeOut" }}><button className="modal-close" type="button" onClick={onClose} aria-label="Cerrar">×</button>{status.success ? <div className="lead-success"><span className="eyebrow">OFERTA RECIBIDA</span><h2>Tu oferta está en revisión.</h2><p>El equipo de {getBrandName()} revisará los datos y se pondrá en contacto contigo.</p><button className="primary-action" type="button" onClick={onClose}>Cerrar</button></div> : <><span className="eyebrow">CONTACTO COMERCIAL</span><h2 id="lead-title">Hacer una oferta.</h2><p className="modal-vehicle">{vehicle.brand} {vehicle.model} · {formatPrice(vehicle.priceUsd)}</p><form className="lead-form" onSubmit={submit}><label>Nombre<input value={form.buyerName} onChange={(event) => change("buyerName", event.target.value)} required /></label><div className="lead-form-grid"><label>Correo<input type="text" inputMode="email" autoComplete="email" value={form.buyerEmail} onChange={(event) => change("buyerEmail", event.target.value)} /></label><PhoneField label="Teléfono" value={form.buyerPhone} onChange={(value) => change("buyerPhone", value)} hint="Selecciona tu país e introduce tu número." /></div><label>Monto de oferta USD<input type="number" min="1" step="0.01" value={form.amountUsd} onChange={(event) => change("amountUsd", event.target.value)} required /></label><label>Mensaje<textarea value={form.message} onChange={(event) => change("message", event.target.value)} placeholder="Cuéntanos algo sobre tu propuesta..." /></label><TurnstileField onTokenChange={setTurnstileToken} /><label className="consent-check"><input type="checkbox" checked={form.privacyConsent} onChange={(event) => change("privacyConsent", event.target.checked)} required /><span>Acepto la política de privacidad y autorizo el uso de mis datos para esta solicitud.</span></label>{status.error && <p className="state-message error">{status.error}</p>}<button className="primary-action" type="submit" disabled={status.loading}>{status.loading ? "Enviando…" : "Enviar oferta"}</button></form></>}</motion.section></motion.div>;
+  return <motion.div className="lead-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}><motion.section className="lead-modal" role="dialog" aria-modal="true" aria-labelledby="lead-title" initial={{ y: 14, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ duration: .2, ease: "easeOut" }}><button className="modal-close" type="button" onClick={onClose} aria-label="Cerrar">×</button>{status.success ? <div className="lead-success"><span className="eyebrow">OFERTA RECIBIDA</span><h2>Tu oferta está en revisión.</h2><p>El equipo de {getBrandName()} revisará los datos y se pondrá en contacto contigo.</p><button className="primary-action" type="button" onClick={onClose}>Cerrar</button></div> : <><span className="eyebrow">CONTACTO COMERCIAL</span><h2 id="lead-title">Hacer una oferta.</h2><p className="modal-vehicle">{vehicle.brand} {vehicle.model} · {vehiclePrice(vehicle)}</p><form className="lead-form" onSubmit={submit}><label>Nombre<input value={form.buyerName} onChange={(event) => change("buyerName", event.target.value)} required /></label><div className="lead-form-grid"><label>Correo<input type="text" inputMode="email" autoComplete="email" value={form.buyerEmail} onChange={(event) => change("buyerEmail", event.target.value)} /></label><PhoneField label="Teléfono" value={form.buyerPhone} onChange={(value) => change("buyerPhone", value)} hint="Selecciona tu país e introduce tu número." /></div><label>Monto de oferta {vehicle.currency || vehicle.priceCurrency || publicCurrency}<input type="number" min="1" step="0.01" value={form.amountUsd} onChange={(event) => change("amountUsd", event.target.value)} required /></label><label>Mensaje<textarea value={form.message} onChange={(event) => change("message", event.target.value)} placeholder="Cuéntanos algo sobre tu propuesta..." /></label><TurnstileField onTokenChange={setTurnstileToken} /><label className="consent-check"><input type="checkbox" checked={form.privacyConsent} onChange={(event) => change("privacyConsent", event.target.checked)} required /><span>Acepto la política de privacidad y autorizo el uso de mis datos para esta solicitud.</span></label>{status.error && <p className="state-message error">{status.error}</p>}<button className="primary-action" type="submit" disabled={status.loading}>{status.loading ? "Enviando…" : "Enviar oferta"}</button></form></>}</motion.section></motion.div>;
 }
 
 function TestDriveModal({ vehicle, onClose }) {
@@ -2510,7 +2558,7 @@ function VehicleDetail({ vehicle, vehicles = [], onBack, isFavorite = false, onT
   const [appliedFinancing, setAppliedFinancing] = useState(null);
   const [quickVehicle, setQuickVehicle] = useState(null);
   const images = vehicle.images?.length ? vehicle.images : [{ url: "/assets/hero-highway.webp" }];
-  const structuredData = JSON.stringify({ "@context": "https://schema.org", "@type": "Vehicle", name: `${vehicle.brand} ${vehicle.model}`, model: vehicle.model, vehicleConfiguration: vehicle.variant || undefined, fuelType: vehicle.fuelType || undefined, color: vehicle.exteriorColor || undefined, brand: { "@type": "Brand", name: vehicle.brand }, vehicleModelDate: String(vehicle.year), image: images.map((item) => new URL(publicMediaUrl(item.url), window.location.origin).href), mileageFromOdometer: { "@type": "QuantitativeValue", value: Number(vehicle.mileageKm), unitCode: "KMT" }, offers: { "@type": "Offer", priceCurrency: "USD", price: Number(vehicle.priceUsd), availability: vehicle.status === "published" ? "https://schema.org/InStock" : "https://schema.org/LimitedAvailability" } }).replace(/</g, "\\u003c");
+  const structuredData = JSON.stringify({ "@context": "https://schema.org", "@type": "Vehicle", name: `${vehicle.brand} ${vehicle.model}`, model: vehicle.model, vehicleConfiguration: vehicle.variant || undefined, fuelType: vehicle.fuelType || undefined, color: vehicle.exteriorColor || undefined, brand: { "@type": "Brand", name: vehicle.brand }, vehicleModelDate: String(vehicle.year), image: images.map((item) => new URL(publicMediaUrl(item.url), window.location.origin).href), mileageFromOdometer: { "@type": "QuantitativeValue", value: Number(vehicle.mileageKm), unitCode: "KMT" }, offers: { "@type": "Offer", priceCurrency: vehicle.currency || vehicle.priceCurrency || publicCurrency, price: vehicleAmount(vehicle), availability: vehicle.status === "published" ? "https://schema.org/InStock" : "https://schema.org/LimitedAvailability" } }).replace(/</g, "\\u003c");
   useEffect(() => {
     const model = vehicle.media?.find((item) => item.type === "model_3d");
     if (model?.posterUrl) ensurePreload(publicMediaUrl(model.posterUrl), "image");
@@ -2728,7 +2776,7 @@ function BudgetSearchPanel({ vehicles, activeBudget, activeDownPayment = 20, act
     if (!numericBudget) return;
     onApply?.({ amount: numericBudget, downPayment, months });
   };
-  return <section className={`budget-search-panel${activeBudget ? " is-active" : ""}`} aria-label="Buscar vehículos por presupuesto mensual"><div className="budget-search-copy"><span className="eyebrow">BUSCAR POR PRESUPUESTO</span><h2>Empieza por la cuota que te conviene.</h2><p>Te mostramos vehículos que caben en tu presupuesto estimado. No es una aprobación financiera.</p>{activeBudget && <button type="button" className="text-button budget-clear" onClick={onClear}>Quitar presupuesto</button>}</div><div className="budget-search-controls"><label>Cuota máxima mensual<strong><span>$</span><input type="number" min="0" step="25" value={budget} onChange={(event) => setBudget(event.target.value)} aria-label="Cuota máxima mensual" /><span>USD</span></strong></label><label>Inicial <output>{downPayment}%</output><input type="range" min="0" max="70" step="5" value={downPayment} aria-label="Porcentaje de inicial" onChange={(event) => setDownPayment(Number(event.target.value))} /></label><label>Plazo <output>{months} meses</output><select value={months} aria-label="Plazo de financiamiento" onChange={(event) => setMonths(Number(event.target.value))}><option value="36">36 meses</option><option value="48">48 meses</option><option value="60">60 meses</option><option value="72">72 meses</option><option value="84">84 meses</option></select></label><div className="budget-search-result" aria-live="polite"><strong>{numericBudget ? matches.length : "—"}</strong><span>{numericBudget ? `vehículo${matches.length === 1 ? "" : "s"} encaja${matches.length === 1 ? "" : "n"}` : "define una cuota"}</span></div><button type="button" className="primary-action" onClick={apply} disabled={!numericBudget}>{activeBudget ? "Actualizar resultados →" : "Ver vehículos que encajan →"}</button></div><small className="budget-search-note">Estimación con 12% anual · inicial {downPayment}% · sin seguros ni gastos adicionales.</small></section>;
+  return <section className={`budget-search-panel${activeBudget ? " is-active" : ""}`} aria-label="Buscar vehículos por presupuesto mensual"><div className="budget-search-copy"><span className="eyebrow">BUSCAR POR PRESUPUESTO</span><h2>Empieza por la cuota que te conviene.</h2><p>Te mostramos vehículos que caben en tu presupuesto estimado. No es una aprobación financiera.</p>{activeBudget && <button type="button" className="text-button budget-clear" onClick={onClear}>Quitar presupuesto</button>}</div><div className="budget-search-controls"><label>Cuota máxima mensual<strong><span>{publicCurrency}</span><input type="number" min="0" step="25" value={budget} onChange={(event) => setBudget(event.target.value)} aria-label={`Cuota máxima mensual en ${publicCurrency}`} /><span>{publicCurrency}</span></strong></label><label>Inicial <output>{downPayment}%</output><input type="range" min="0" max="70" step="5" value={downPayment} aria-label="Porcentaje de inicial" onChange={(event) => setDownPayment(Number(event.target.value))} /></label><label>Plazo <output>{months} meses</output><select value={months} aria-label="Plazo de financiamiento" onChange={(event) => setMonths(Number(event.target.value))}><option value="36">36 meses</option><option value="48">48 meses</option><option value="60">60 meses</option><option value="72">72 meses</option><option value="84">84 meses</option></select></label><div className="budget-search-result" aria-live="polite"><strong>{numericBudget ? matches.length : "—"}</strong><span>{numericBudget ? `vehículo${matches.length === 1 ? "" : "s"} encaja${matches.length === 1 ? "" : "n"}` : "define una cuota"}</span></div><button type="button" className="primary-action" onClick={apply} disabled={!numericBudget}>{activeBudget ? "Actualizar resultados →" : "Ver vehículos que encajan →"}</button></div><small className="budget-search-note">Estimación con 12% anual · inicial {downPayment}% · sin seguros ni gastos adicionales.</small></section>;
 }
 
 function SmartVehicleSearch({ vehicles, value, onChange, resultCount, onClear }) {
@@ -2984,21 +3032,21 @@ function App() {
   const [customerActivity, setCustomerActivity] = useState({ offers: [], quotes: [], notifications: [] });
   const [pathname, setPathname] = useState(initialPathname);
   const [previewVehicle] = useState(() => { if (initialPathname !== "/preview") return null; try { return JSON.parse(sessionStorage.getItem("authentiq_vehicle_preview") || "null"); } catch { return null; } });
-  const [brand, setBrand] = useState("all");
-  const [category, setCategory] = useState("all");
-  const [search, setSearch] = useState("");
-  const [sort, setSort] = useState("newest");
+  const [brand, setBrand] = useState(initialCatalogFilters.brand);
+  const [category, setCategory] = useState(initialCatalogFilters.category);
+  const [search, setSearch] = useState(initialCatalogFilters.search);
+  const [sort, setSort] = useState(initialCatalogFilters.sort);
   const [catalogView, setCatalogView] = useState(() => localStorage.getItem("authentiq_catalog_view") || "grid");
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [condition, setCondition] = useState("all");
-  const [fuelType, setFuelType] = useState("all");
-  const [transmission, setTransmission] = useState("all");
-  const [minPrice, setMinPrice] = useState("");
-  const [maxPrice, setMaxPrice] = useState("");
+  const [condition, setCondition] = useState(initialCatalogFilters.condition);
+  const [fuelType, setFuelType] = useState(initialCatalogFilters.fuelType);
+  const [transmission, setTransmission] = useState(initialCatalogFilters.transmission);
+  const [minPrice, setMinPrice] = useState(initialCatalogFilters.minPrice);
+  const [maxPrice, setMaxPrice] = useState(initialCatalogFilters.maxPrice);
   const [maxMonthlyPayment, setMaxMonthlyPayment] = useState("");
   const [budgetDownPayment, setBudgetDownPayment] = useState(20);
   const [budgetMonths, setBudgetMonths] = useState(60);
-  const [minYear, setMinYear] = useState("");
+  const [minYear, setMinYear] = useState(initialCatalogFilters.minYear);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [tenantNotFound, setTenantNotFound] = useState(false);
@@ -3006,7 +3054,7 @@ function App() {
   const [showDemoCatalog, setShowDemoCatalog] = useState(false);
   const [adminInitialMode, setAdminInitialMode] = useState("login");
   const [posts, setPosts] = useState([]);
-  const [businessSettings, setBusinessSettings] = useState({ businessName: "ZEVROA", logoUrl: "", primaryColor: "#c8a24b", accentColor: "#b28b37", faviconUrl: "", phone: "", whatsapp: "", email: "", address: "", hours: "", instagramUrl: "", facebookUrl: "", privacyText: "", termsText: "", heroHeadline: "", heroSubheadline: "", heroImageUrl: "" });
+  const [businessSettings, setBusinessSettings] = useState({ businessName: "ZEVROA", logoUrl: "", primaryColor: "#c8a24b", accentColor: "#b28b37", faviconUrl: "", phone: "", whatsapp: "", email: "", address: "", hours: "", currency: "USD", privacyText: "", termsText: "", heroHeadline: "", heroSubheadline: "", heroImageUrl: "" });
   // Evita el destello de contenido incorrecto en "/": hasta que /api/settings confirme si
   // este host es la landing de la plataforma o el showroom de un dealer, no hay forma de
   // saber qué renderizar. Sin esta bandera se veía brevemente el catálogo por defecto.
@@ -3078,6 +3126,16 @@ function App() {
   useEffect(() => { localStorage.setItem("authentiq_favorite_vehicles", JSON.stringify(favoriteIds)); }, [favoriteIds]);
   useEffect(() => { localStorage.setItem("authentiq_recent_vehicles", JSON.stringify(recentVehicleIds)); }, [recentVehicleIds]);
   useEffect(() => { localStorage.setItem("authentiq_catalog_view", catalogView); }, [catalogView]);
+  useEffect(() => {
+    if (pathname !== "/") return;
+    const params = new URLSearchParams(window.location.search);
+    const values = { q: search, brand, category, condition, fuel: fuelType, transmission, minPrice, maxPrice, minYear, sort };
+    Object.entries(values).forEach(([key, value]) => { if (!value || (key !== "sort" && value === "all")) params.delete(key); else params.set(key, value); });
+    const nextSearch = params.toString();
+    const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ""}${window.location.hash}`;
+    const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    if (nextUrl !== currentUrl) window.history.replaceState({}, "", nextUrl);
+  }, [pathname, search, brand, category, condition, fuelType, transmission, minPrice, maxPrice, minYear, sort]);
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -3159,7 +3217,7 @@ function App() {
     return () => window.removeEventListener("focus", handleFocus);
   }, []);
   useEffect(() => { fetch(`${apiUrl}/api/blog`).then((response) => response.ok ? response.json() : { data: [] }).then((payload) => setPosts(payload.data || [])).catch(() => setPosts([])); }, []);
-  useEffect(() => { fetch(`${apiUrl}/api/settings`).then((response) => { if (response.status === 404 && requestedDealerSlug) { setTenantNotFound(true); return { data: null }; } return response.ok ? response.json() : { data: null }; }).then((payload) => payload.data && setBusinessSettings((current) => ({ ...current, ...payload.data }))).catch(() => {}).finally(() => setSettingsLoaded(true)); }, []);
+  useEffect(() => { fetch(`${apiUrl}/api/settings`).then((response) => { if (response.status === 404 && requestedDealerSlug) { setTenantNotFound(true); return { data: null }; } return response.ok ? response.json() : { data: null }; }).then((payload) => { if (!payload.data) return; publicCurrency = String(payload.data.currency || "USD").trim().toUpperCase(); localStorage.setItem("authentiq_currency", publicCurrency); setBusinessSettings((current) => ({ ...current, ...payload.data })); }).catch(() => {}).finally(() => setSettingsLoaded(true)); }, []);
   const routeVehicle = useMemo(() => findVehicleByPath(vehicles, pathname), [pathname, vehicles]);
   const activeVehicle = selected || routeVehicle;
   useEffect(() => {
@@ -3179,7 +3237,7 @@ function App() {
         ? replaceDefaultBrand(activeVehicle.seoTitle || `${activeVehicle.brand} ${activeVehicle.model} · ${brandName}`)
         : `${brandName} · Vehículos premium`;
     document.title = title;
-    const description = activeVehicle?.seoDescription || activeVehicle?.description || `Una selección precisa de vehículos premium de ${brandName}. Cada modelo, verificado.`;
+    const description = activeVehicle?.seoDescription || activeVehicle?.description || `Una selección precisa de vehículos premium de ${brandName}. Consulta disponibilidad y detalles de cada modelo.`;
     const image = activeVehicle?.images?.[0]?.url || "/assets/hero-highway.webp";
     setMeta('meta[name="description"]', "description", description);
     setMeta('meta[property="og:title"]', "og:title", title);
@@ -3193,7 +3251,8 @@ function App() {
     setMeta('meta[name="twitter:image"]', "twitter:image", new URL(image, window.location.origin).href);
     setCanonical(window.location.href.split("#")[0].split("?")[0]);
     // Los vehículos en borrador o la vista previa nunca deben indexarse.
-    setRobots(!privateRoute && pathname !== "/preview" && (!activeVehicle || ["published", "reserved"].includes(activeVehicle.status)));
+    const hasCatalogFilters = ["q", "brand", "category", "condition", "fuel", "transmission", "minPrice", "maxPrice", "minYear", "sort"].some((key) => new URLSearchParams(window.location.search).get(key));
+    setRobots(!privateRoute && pathname !== "/preview" && !hasCatalogFilters && (!activeVehicle || ["published", "reserved"].includes(activeVehicle.status)));
     if (!loading) trackEvent(activeVehicle ? "vehicle_view" : "catalog_view", { vehicleId: activeVehicle?.id || null });
   }, [activeVehicle?.id, businessSettings.businessName, pathname, loading]);
 
@@ -3258,7 +3317,8 @@ function App() {
     setSearch(vehicle.model);
     window.requestAnimationFrame(() => document.getElementById("catalog")?.scrollIntoView({ behavior: "smooth", block: "start" }));
   };
-  const toggleCompare = (vehicle) => setCompareVehicles((current) => current.some((item) => item.id === vehicle.id) ? current.filter((item) => item.id !== vehicle.id) : current.length < 3 ? [...current, vehicle] : current);
+  const changeSearch = (value) => { if (!search && String(value || "").trim()) trackEvent("search_started"); setSearch(value); };
+  const toggleCompare = (vehicle) => { const removing = compareVehicles.some((item) => item.id === vehicle.id); trackEvent("compare_used", { vehicleId: vehicle.id, action: removing ? "remove" : "add" }); setCompareVehicles((current) => removing ? current.filter((item) => item.id !== vehicle.id) : current.length < 3 ? [...current, vehicle] : current); };
   const changeAccountForm = (field, value) => setAccountForm((current) => ({ ...current, [field]: value }));
   const submitAccount = async (event) => {
     event.preventDefault();
@@ -3282,6 +3342,7 @@ function App() {
   const toggleFavorite = (vehicle) => {
     const wasFavorite = favoriteIds.includes(vehicle.id);
     const nextIds = wasFavorite ? favoriteIds.filter((id) => id !== vehicle.id) : [...favoriteIds, vehicle.id];
+    trackEvent("favorite_vehicle", { vehicleId: vehicle.id, action: wasFavorite ? "remove" : "add" });
     setFavoriteIds(nextIds);
     if (customerToken) customerRequest(`/api/customer/favorites/${vehicle.id}`, { method: wasFavorite ? "DELETE" : "PUT" }).catch((requestError) => { setFavoriteIds(favoriteIds); setAccountStatus({ loading: false, error: requestError.message }); setAccountOpen(true); });
   };
@@ -3366,7 +3427,7 @@ function App() {
          <BudgetSearchPanel vehicles={vehicles} activeBudget={Number(maxMonthlyPayment) || 0} activeDownPayment={budgetDownPayment} activeMonths={budgetMonths} onApply={applyBudget} onClear={clearFilters} />
          <div className="filters-heading"><div><span className="eyebrow">BÚSQUEDA AVANZADA</span><strong>Filtra por lo que importa.</strong></div><span>Marca, precio, año y especificaciones</span><button className="filters-toggle" type="button" onClick={() => setFiltersOpen((current) => !current)} aria-expanded={filtersOpen}>{filtersOpen ? "Ocultar filtros" : "Más filtros"} <span>{filtersOpen ? "↑" : "↓"}</span></button></div>
          <div className={`filters ${filtersOpen ? "filters-expanded" : ""}`}>
-          <SmartVehicleSearch vehicles={vehicles} value={search} onChange={setSearch} resultCount={filteredVehicles.length} onClear={() => setSearch("")} />
+          <SmartVehicleSearch vehicles={vehicles} value={search} onChange={changeSearch} resultCount={filteredVehicles.length} onClear={() => setSearch("")} />
           <select className="filter-secondary" value={brand} onChange={(event) => setBrand(event.target.value)} aria-label="Filtrar por marca"><option value="all">Todas las marcas</option>{brands.map((item) => <option key={item} value={item}>{item}</option>)}</select>
           <select value={category} onChange={(event) => setCategory(event.target.value)} aria-label="Filtrar por tipo"><option value="all">Todos los tipos</option>{categories.map((item) => <option key={item} value={item}>{item}</option>)}</select>
           <select className="filter-secondary" value={condition} onChange={(event) => setCondition(event.target.value)} aria-label="Filtrar por condición"><option value="all">Nuevo y certificado</option>{conditions.map((item) => <option key={item} value={item}>{item === "new" ? "Nuevo" : "Certificado"}</option>)}</select>
@@ -3398,7 +3459,7 @@ function App() {
         {businessSettings.showBlog !== false && <BlogSection posts={posts} />}
         <footer className="site-footer">
           {(businessSettings.phone || businessSettings.whatsapp || businessSettings.email || businessSettings.instagramUrl || businessSettings.facebookUrl) && <div className="site-footer-contact">{businessSettings.phone && <a href={`tel:${businessSettings.phone}`}>{businessSettings.phone}</a>}{businessSettings.whatsapp && <a href={`https://wa.me/${whatsappDigits(businessSettings.whatsapp)}`} target="_blank" rel="noreferrer" onClick={() => trackEvent("whatsapp_click")}>WhatsApp</a>}{businessSettings.email && <a href={`mailto:${businessSettings.email}`}>{businessSettings.email}</a>}{businessSettings.instagramUrl && <a href={businessSettings.instagramUrl} target="_blank" rel="noreferrer">Instagram ↗</a>}{businessSettings.facebookUrl && <a href={businessSettings.facebookUrl} target="_blank" rel="noreferrer">Facebook ↗</a>}</div>}
-          <div><span className="brand-mark">{businessSettings.businessName || "ZEVROA"}</span><p>Vehículos premium · inventario verificado.</p></div>
+          <div><span className="brand-mark">{businessSettings.businessName || "ZEVROA"}</span><p>Vehículos premium · información clara para decidir.</p></div>
           <nav aria-label="Enlaces institucionales">
             <button type="button" onClick={() => navigate("/contacto")}>Contacto</button>
             <button type="button" onClick={() => navigate("/ubicacion")}>Ubicación</button>
@@ -3428,5 +3489,5 @@ class AppErrorBoundary extends Component {
 }
 
 export default function AppRoot() {
-  return <AppErrorBoundary><UpdateBanner /><App /><CookieConsentBanner /><SpeedInsights /></AppErrorBoundary>;
+  return <AppErrorBoundary><UpdateBanner /><ConnectionStatusBanner /><App /><CookieConsentBanner /><SpeedInsights /></AppErrorBoundary>;
 }

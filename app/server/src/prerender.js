@@ -24,7 +24,9 @@ function safeJsonLd(data) {
 function formatPrice(value, currency = "USD") {
   const amount = Number(value || 0);
   if (!amount) return "Precio a consultar";
-  return `${amount.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })} ${currency}`;
+  const safeCurrency = /^[A-Z]{3,8}$/.test(String(currency || "")) ? String(currency).toUpperCase() : "USD";
+  const locale = safeCurrency === "DOP" ? "es-DO" : "en-US";
+  return amount.toLocaleString(locale, { style: "currency", currency: safeCurrency, maximumFractionDigits: 0 });
 }
 
 function vehicleName(vehicle) {
@@ -44,7 +46,7 @@ export function catalogPrerender({ businessName, vehicles, settings = {} }) {
     const name = vehicleName(vehicle);
     const specs = [vehicle.year, vehicle.category, vehicle.fuelType, vehicle.transmission, Number(vehicle.mileageKm) >= 0 && vehicle.mileageKm !== null ? `${Number(vehicle.mileageKm).toLocaleString("en-US")} km` : null]
       .filter(Boolean).map((spec) => escapeHtml(spec)).join(" · ");
-    return `<li><article><h2><a href="/vehiculos/${escapeHtml(vehicle.slug)}">${escapeHtml(name)}</a></h2><p>${escapeHtml(formatPrice(vehicle.priceUsd, settings.currency))}</p><p>${specs}</p></article></li>`;
+    return `<li><article><h2><a href="/vehiculos/${escapeHtml(vehicle.slug)}">${escapeHtml(name)}</a></h2><p>${escapeHtml(formatPrice(vehicle.price ?? vehicle.priceAmount ?? vehicle.priceUsd, vehicle.currency || vehicle.priceCurrency || settings.currency))}</p><p>${specs}</p></article></li>`;
   }).join("");
   const contact = [settings.phone && `Teléfono: ${settings.phone}`, settings.address, settings.hours].filter(Boolean).map((line) => `<p>${escapeHtml(line)}</p>`).join("");
   return `<main ${shellStyle}><h1>${escapeHtml(businessName)}</h1><p>${escapeHtml(`${vehicles.length} ${vehicles.length === 1 ? "vehículo disponible" : "vehículos disponibles"}.`)}</p>${contact}<ul ${listStyle}>${items}</ul></main>`;
@@ -60,7 +62,7 @@ export function vehiclePrerender({ businessName, vehicle, settings = {} }) {
   ].filter(([, value]) => value !== null && value !== undefined && String(value).trim() !== "")
     .map(([label, value]) => `<tr><th style="text-align:left;padding:6px 18px 6px 0;font-weight:500">${escapeHtml(label)}</th><td style="padding:6px 0">${escapeHtml(value)}</td></tr>`).join("");
   const description = vehicle.description ? `<p>${escapeHtml(vehicle.description)}</p>` : "";
-  return `<main ${shellStyle}><p><a href="/">← ${escapeHtml(businessName)}</a></p><h1>${escapeHtml(name)}</h1><p>${escapeHtml(formatPrice(vehicle.priceUsd, settings.currency))}</p>${description}<table>${rows}</table></main>`;
+  return `<main ${shellStyle}><p><a href="/">← ${escapeHtml(businessName)}</a></p><h1>${escapeHtml(name)}</h1><p>${escapeHtml(formatPrice(vehicle.price ?? vehicle.priceAmount ?? vehicle.priceUsd, vehicle.currency || vehicle.priceCurrency || settings.currency))}</p>${description}<table>${rows}</table></main>`;
 }
 
 // AutoDealer es el esquema que Google usa para mostrar un concesionario en la
@@ -99,8 +101,8 @@ export function vehicleJsonLd({ businessName, origin, settings = {}, logoUrl, ve
     // Google muestre como disponible algo que el concesionario ya comprometió.
     offers: {
       "@type": "Offer",
-      price: Number(vehicle.priceUsd || 0) || undefined,
-      priceCurrency: "USD",
+      price: Number(vehicle.price ?? vehicle.priceAmount ?? vehicle.priceUsd ?? 0) || undefined,
+      priceCurrency: vehicle.currency || vehicle.priceCurrency || settings.currency || "USD",
       availability: vehicle.status === "reserved" ? "https://schema.org/PreOrder" : "https://schema.org/InStock",
       url: canonical,
       seller: { "@id": `${origin}/#dealer` },

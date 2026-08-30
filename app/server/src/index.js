@@ -538,7 +538,9 @@ const vehicleSelect = `
     v.variant,
     v.year,
     v.condition,
-    v.price_usd AS "priceUsd",
+    v.price_amount AS price,
+    v.price_currency AS currency,
+    COALESCE(v.price_amount, v.price_usd) AS "priceUsd",
     v.engine,
     v.power,
     v.transmission,
@@ -909,7 +911,8 @@ function vehiclePayload(body) {
     variant: String(body.variant || "").trim() || null,
     year: Number(body.year),
     condition: body.condition === "new" ? "new" : "used",
-    priceUsd: Number(body.priceUsd),
+    priceAmount: Number(body.priceAmount ?? body.price ?? body.priceUsd),
+    priceCurrency: String(body.priceCurrency || body.currency || "").trim().toUpperCase().slice(0, 8),
     engine: String(body.engine || "").trim() || null,
     power: String(body.power || "").trim() || null,
     transmission: String(body.transmission || "").trim() || null,
@@ -946,12 +949,18 @@ async function replaceVehicleMedia(client, vehicleId, media) {
   }
 }
 
+async function organizationCurrency(organizationId) {
+  const result = await pool.query("SELECT COALESCE(NULLIF(currency, ''), 'USD') AS currency FROM organization_settings WHERE organization_id=$1", [organizationId]);
+  return String(result.rows[0]?.currency || "USD").trim().toUpperCase();
+}
+
 function validateVehicle(vehicle) {
   if (!vehicle.brand || !vehicle.model) return "Marca y modelo son obligatorios";
   if (vehicle.seoTitle && vehicle.seoTitle.length > 180) return "El título SEO es demasiado largo";
   if (vehicle.seoDescription && vehicle.seoDescription.length > 320) return "La descripción SEO es demasiado larga";
   if (!Number.isInteger(vehicle.year) || vehicle.year < 1900 || vehicle.year > 2200) return "El año no es válido";
-  if (!Number.isFinite(vehicle.priceUsd) || vehicle.priceUsd < 0) return "El precio no es válido";
+  if (!Number.isFinite(vehicle.priceAmount) || vehicle.priceAmount < 0) return "El precio no es válido";
+  if (!/^[A-Z]{3,8}$/.test(vehicle.priceCurrency || "")) return "La moneda no es válida";
   if (!Number.isInteger(vehicle.mileageKm) || vehicle.mileageKm < 0) return "El kilometraje no es válido";
   if (!Number.isInteger(vehicle.stock) || vehicle.stock < 0) return "El stock no es valido";
   if (vehicle.doors != null && (!Number.isInteger(vehicle.doors) || vehicle.doors < 1 || vehicle.doors > 8)) return "La cantidad de puertas no es valida";
@@ -1028,17 +1037,20 @@ function blogPayload(body) {
 }
 
 function quotePayload(body) {
-  const basePriceUsd = Number(body.basePriceUsd);
-  const discountUsd = Number(body.discountUsd || 0);
+  const baseAmount = Number(body.baseAmount ?? body.basePriceUsd);
+  const discountAmount = Number((body.discountAmount ?? body.discountUsd) || 0);
   return {
     leadId: String(body.leadId || "").trim() || null,
     vehicleId: String(body.vehicleId || "").trim() || null,
     customerName: String(body.customerName || "").trim(),
     customerEmail: String(body.customerEmail || "").trim() || null,
     customerPhone: String(body.customerPhone || "").trim() || null,
-    basePriceUsd,
-    discountUsd,
-    totalUsd: Number((basePriceUsd - discountUsd).toFixed(2)),
+    baseAmount,
+    discountAmount,
+    totalAmount: Number((baseAmount - discountAmount).toFixed(2)),
+    basePriceUsd: baseAmount,
+    discountUsd: discountAmount,
+    totalUsd: Number((baseAmount - discountAmount).toFixed(2)),
     currency: String(body.currency || "USD").trim().toUpperCase().slice(0, 8),
     validUntil: String(body.validUntil || "").trim() || null,
     notes: String(body.notes || "").trim() || null,
@@ -1047,8 +1059,8 @@ function quotePayload(body) {
 
 function validateQuote(quote) {
   if (!quote.customerName) return "El nombre del cliente es obligatorio";
-  if (!Number.isFinite(quote.basePriceUsd) || quote.basePriceUsd < 0) return "El precio base no es válido";
-  if (!Number.isFinite(quote.discountUsd) || quote.discountUsd < 0 || quote.discountUsd > quote.basePriceUsd) return "El descuento no es válido";
+  if (!Number.isFinite(quote.baseAmount) || quote.baseAmount < 0) return "El precio base no es válido";
+  if (!Number.isFinite(quote.discountAmount) || quote.discountAmount < 0 || quote.discountAmount > quote.baseAmount) return "El descuento no es válido";
   if (quote.validUntil && !/^\d{4}-\d{2}-\d{2}$/.test(quote.validUntil)) return "La vigencia no es válida";
   return null;
 }
@@ -1863,9 +1875,9 @@ app.get("/api/customer/activity", authenticateCustomer, async (req, res) => {
     // y el precio: datos de un competidor dentro de una página de marca ajena.
     const organization = await getOrganizationContext(req);
     const [offers, notifications, quotes] = await Promise.all([
-      pool.query(`SELECT o.id, o.status, o.amount_usd AS "amountUsd", o.message, o.created_at AS "createdAt", b.name AS brand, v.model, v.year FROM offers o JOIN vehicles v ON v.id=o.vehicle_id JOIN vehicle_brands b ON b.id=v.brand_id WHERE o.customer_id=$1 AND o.organization_id=$2 ORDER BY o.created_at DESC LIMIT 20`, [req.customer.id, organization.id]),
+      pool.query(`SELECT o.id, o.status, o.amount AS amount, o.currency, COALESCE(o.amount, o.amount_usd) AS "amountUsd", o.message, o.created_at AS "createdAt", b.name AS brand, v.model, v.year FROM offers o JOIN vehicles v ON v.id=o.vehicle_id JOIN vehicle_brands b ON b.id=v.brand_id WHERE o.customer_id=$1 AND o.organization_id=$2 ORDER BY o.created_at DESC LIMIT 20`, [req.customer.id, organization.id]),
       pool.query(`SELECT id, notification_type AS "type", title, body, entity_type AS "entityType", entity_id AS "entityId", read_at AS "readAt", created_at AS "createdAt" FROM customer_notifications WHERE customer_id=$1 AND organization_id=$2 ORDER BY created_at DESC LIMIT 20`, [req.customer.id, organization.id]),
-      pool.query(`SELECT q.id, q.quote_number AS "quoteNumber", q.status, q.total_usd AS "totalUsd", q.currency, q.valid_until AS "validUntil", q.created_at AS "createdAt", b.name AS brand, v.model, v.year FROM quotes q LEFT JOIN vehicles v ON v.id=q.vehicle_id LEFT JOIN vehicle_brands b ON b.id=v.brand_id WHERE q.customer_id=$1 AND q.organization_id=$2 ORDER BY q.created_at DESC LIMIT 20`, [req.customer.id, organization.id]),
+      pool.query(`SELECT q.id, q.quote_number AS "quoteNumber", q.status, q.total_amount AS "totalAmount", COALESCE(q.total_amount, q.total_usd) AS "totalUsd", q.currency, q.valid_until AS "validUntil", q.created_at AS "createdAt", b.name AS brand, v.model, v.year FROM quotes q LEFT JOIN vehicles v ON v.id=q.vehicle_id LEFT JOIN vehicle_brands b ON b.id=v.brand_id WHERE q.customer_id=$1 AND q.organization_id=$2 ORDER BY q.created_at DESC LIMIT 20`, [req.customer.id, organization.id]),
     ]);
     res.json({ data: { offers: offers.rows, notifications: notifications.rows, quotes: quotes.rows } });
   } catch (error) {
@@ -1933,22 +1945,25 @@ app.post("/api/offers", verifyPublicForm, publicRequestIdempotency, async (req, 
   const buyerName = String(req.body.buyerName || "").trim();
   const buyerEmail = String(req.body.buyerEmail || "").trim() || null;
   const buyerPhone = String(req.body.buyerPhone || "").trim() || null;
-  const amountUsd = Number(req.body.amountUsd);
+  const amount = Number(req.body.amount ?? req.body.amountUsd);
   const message = String(req.body.message || "").trim() || null;
   const privacyConsent = req.body.privacyConsent === true;
   const customerId = getOptionalCustomerId(req);
   if (!privacyConsent) return res.status(400).json({ error: "Debes aceptar la politica de privacidad para enviar la oferta" });
-  if (!vehicleId || !buyerName || buyerName.length > 120 || (!buyerEmail && !buyerPhone) || (buyerEmail && !isValidEmail(buyerEmail)) || buyerPhone?.length > 40 || !Number.isFinite(amountUsd) || amountUsd <= 0) return res.status(400).json({ error: "Nombre, un correo o teléfono válido, vehículo y monto son obligatorios" });
+  if (!vehicleId || !buyerName || buyerName.length > 120 || (!buyerEmail && !buyerPhone) || (buyerEmail && !isValidEmail(buyerEmail)) || buyerPhone?.length > 40 || !Number.isFinite(amount) || amount <= 0) return res.status(400).json({ error: "Nombre, un correo o teléfono válido, vehículo y monto son obligatorios" });
   try {
     const organization = await getOrganizationContext(req);
-    const vehicle = await pool.query("SELECT id, status FROM vehicles WHERE id=$1 AND organization_id=$2 AND status IN ('published','reserved')", [vehicleId, organization.id]);
+    const vehicle = await pool.query("SELECT id, status, price_currency AS currency FROM vehicles WHERE id=$1 AND organization_id=$2 AND status IN ('published','reserved')", [vehicleId, organization.id]);
     if (!vehicle.rowCount) return res.status(404).json({ error: "Este vehículo ya no está disponible en el catálogo" });
     if (vehicle.rows[0].status === "reserved") return res.status(409).json({ error: "Este vehículo está reservado y no admite ofertas nuevas. Escríbenos y te avisamos si vuelve a estar disponible." });
+    const currency = String(vehicle.rows[0].currency || "USD").toUpperCase();
+    const requestedCurrency = String(req.body.currency || currency).trim().toUpperCase();
+    if (requestedCurrency !== currency) return res.status(400).json({ error: "La moneda de la oferta debe coincidir con la del vehículo" });
     const result = await pool.query(
-      `INSERT INTO offers (organization_id, vehicle_id, buyer_name, buyer_email, buyer_phone, amount_usd, payment_method, message, privacy_consent, privacy_consent_at, privacy_policy_version, customer_id)
-       VALUES ($1,$2,$3,$4,$5,$6,'cash',$7,$8,NOW(),$9,$10)
-       RETURNING id, contact_id AS "contactId", status, created_at AS "createdAt"`,
-      [organization.id, vehicleId, buyerName, buyerEmail, buyerPhone, amountUsd, message, privacyConsent, privacyPolicyVersion, customerId],
+      `INSERT INTO offers (organization_id, vehicle_id, buyer_name, buyer_email, buyer_phone, amount, currency, payment_method, message, privacy_consent, privacy_consent_at, privacy_policy_version, customer_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'cash',$8,$9,NOW(),$10,$11)
+       RETURNING id, contact_id AS "contactId", status, amount, amount AS "amountUsd", currency, created_at AS "createdAt"`,
+      [organization.id, vehicleId, buyerName, buyerEmail, buyerPhone, amount, currency, message, privacyConsent, privacyPolicyVersion, customerId],
     );
     const lead = await createLead({ organizationId: organization.id, leadType: "offer", vehicleId, name: buyerName, email: buyerEmail, phone: buyerPhone, message, source: "vehicle-offer", privacyConsent });
     await pool.query("UPDATE offers SET lead_id=$1 WHERE id=$2", [lead.id, result.rows[0].id]);
@@ -2322,6 +2337,7 @@ app.get("/api/admin/vehicles", authenticate, requireRoles("admin", "editor", "se
 
 app.post("/api/admin/vehicles", authenticate, requireRoles("admin", "editor"), async (req, res) => {
   const vehicle = vehiclePayload(req.body);
+  vehicle.priceCurrency = await organizationCurrency(adminOrganizationId(req));
   if (vehicle.status === "published" && req.admin.role !== "admin") vehicle.status = "pending_review";
   const validationError = validateVehicle(vehicle);
   if (validationError) return res.status(400).json({ error: validationError });
@@ -2335,9 +2351,9 @@ app.post("/api/admin/vehicles", authenticate, requireRoles("admin", "editor"), a
     const brandId = await upsertTaxonomy(client, "vehicle_brands", vehicle.brand, vehicle.brandLogoUrl, adminOrganizationId(req));
     const categoryId = await upsertTaxonomy(client, "vehicle_categories", vehicle.category, null, adminOrganizationId(req));
     const inserted = await client.query(
-      `INSERT INTO vehicles (organization_id, brand_id, category_id, model, variant, year, condition, price_usd, engine, power, transmission, drive, fuel_type, exterior_color, interior_color, doors, seats, location, stock_number, warranty, features, mileage_km, description, seo_title, seo_description, stock, status, max_discount_percent)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28) RETURNING id`,
-      [adminOrganizationId(req), brandId, categoryId, vehicle.model, vehicle.variant, vehicle.year, vehicle.condition, vehicle.priceUsd, vehicle.engine, vehicle.power, vehicle.transmission, vehicle.drive, vehicle.fuelType, vehicle.exteriorColor, vehicle.interiorColor, vehicle.doors, vehicle.seats, vehicle.location, vehicle.stockNumber, vehicle.warranty, vehicle.features, vehicle.mileageKm, vehicle.description, vehicle.seoTitle, vehicle.seoDescription, vehicle.stock, vehicle.status, vehicle.maxDiscountPercent],
+      `INSERT INTO vehicles (organization_id, brand_id, category_id, model, variant, year, condition, price_amount, price_currency, engine, power, transmission, drive, fuel_type, exterior_color, interior_color, doors, seats, location, stock_number, warranty, features, mileage_km, description, seo_title, seo_description, stock, status, max_discount_percent)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29) RETURNING id`,
+      [adminOrganizationId(req), brandId, categoryId, vehicle.model, vehicle.variant, vehicle.year, vehicle.condition, vehicle.priceAmount, vehicle.priceCurrency, vehicle.engine, vehicle.power, vehicle.transmission, vehicle.drive, vehicle.fuelType, vehicle.exteriorColor, vehicle.interiorColor, vehicle.doors, vehicle.seats, vehicle.location, vehicle.stockNumber, vehicle.warranty, vehicle.features, vehicle.mileageKm, vehicle.description, vehicle.seoTitle, vehicle.seoDescription, vehicle.stock, vehicle.status, vehicle.maxDiscountPercent],
     );
     for (const [sortOrder, imageUrl] of vehicle.images.entries()) await client.query("INSERT INTO vehicle_images (vehicle_id, image_url, alt_text, sort_order) VALUES ($1,$2,$3,$4)", [inserted.rows[0].id, imageUrl, vehicle.imageAltTexts[sortOrder] || `${vehicle.brand} ${vehicle.model} - vista ${sortOrder + 1}`, sortOrder]);
     await replaceVehicleMedia(client, inserted.rows[0].id, vehicle.media);
@@ -2362,9 +2378,9 @@ app.post("/api/admin/vehicles/:id/duplicate", authenticate, requireRoles("admin"
     if (!source.rowCount) { await client.query("ROLLBACK"); return res.status(404).json({ error: "Vehículo no encontrado" }); }
     const vehicle = source.rows[0];
     const copied = await client.query(
-      `INSERT INTO vehicles (organization_id, brand_id, category_id, model, variant, year, condition, price_usd, engine, power, transmission, drive, fuel_type, exterior_color, interior_color, doors, seats, location, stock_number, warranty, features, mileage_km, description, seo_title, seo_description, stock, status, max_discount_percent)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,NULL,$19,$20,$21,$22,$23,$24,$25,'draft',$26) RETURNING id`,
-      [adminOrganizationId(req), vehicle.brand_id, vehicle.category_id, `${vehicle.model} · copia`, vehicle.variant, vehicle.year, vehicle.condition, vehicle.price_usd, vehicle.engine, vehicle.power, vehicle.transmission, vehicle.drive, vehicle.fuel_type, vehicle.exterior_color, vehicle.interior_color, vehicle.doors, vehicle.seats, vehicle.location, vehicle.warranty, vehicle.features, vehicle.mileage_km, vehicle.description, vehicle.seo_title, vehicle.seo_description, vehicle.stock, vehicle.max_discount_percent],
+      `INSERT INTO vehicles (organization_id, brand_id, category_id, model, variant, year, condition, price_amount, price_currency, engine, power, transmission, drive, fuel_type, exterior_color, interior_color, doors, seats, location, stock_number, warranty, features, mileage_km, description, seo_title, seo_description, stock, status, max_discount_percent)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,NULL,$20,$21,$22,$23,$24,$25,$26,'draft',$27) RETURNING id`,
+      [adminOrganizationId(req), vehicle.brand_id, vehicle.category_id, `${vehicle.model} · copia`, vehicle.variant, vehicle.year, vehicle.condition, vehicle.price_amount, vehicle.price_currency, vehicle.engine, vehicle.power, vehicle.transmission, vehicle.drive, vehicle.fuel_type, vehicle.exterior_color, vehicle.interior_color, vehicle.doors, vehicle.seats, vehicle.location, vehicle.warranty, vehicle.features, vehicle.mileage_km, vehicle.description, vehicle.seo_title, vehicle.seo_description, vehicle.stock, vehicle.max_discount_percent],
     );
     await client.query("INSERT INTO vehicle_images (vehicle_id, image_url, alt_text, sort_order) SELECT $1, image_url, alt_text, sort_order FROM vehicle_images WHERE vehicle_id=$2", [copied.rows[0].id, req.params.id]);
     await client.query("INSERT INTO vehicle_media (vehicle_id, media_type, url, poster_url, alt_text, sort_order, is_active, metadata) SELECT $1, media_type, url, poster_url, alt_text, sort_order, is_active, metadata FROM vehicle_media WHERE vehicle_id=$2", [copied.rows[0].id, req.params.id]);
@@ -2380,6 +2396,7 @@ app.post("/api/admin/vehicles/:id/duplicate", authenticate, requireRoles("admin"
 
 app.put("/api/admin/vehicles/:id", authenticate, requireRoles("admin", "editor"), async (req, res) => {
   const vehicle = vehiclePayload(req.body);
+  vehicle.priceCurrency = await organizationCurrency(adminOrganizationId(req));
   if (vehicle.status === "published" && req.admin.role !== "admin") vehicle.status = "pending_review";
   const validationError = validateVehicle(vehicle);
   if (validationError) return res.status(400).json({ error: validationError });
@@ -2391,8 +2408,8 @@ app.put("/api/admin/vehicles/:id", authenticate, requireRoles("admin", "editor")
     const brandId = await upsertTaxonomy(client, "vehicle_brands", vehicle.brand, vehicle.brandLogoUrl, adminOrganizationId(req));
     const categoryId = await upsertTaxonomy(client, "vehicle_categories", vehicle.category, null, adminOrganizationId(req));
     const updated = await client.query(
-       `UPDATE vehicles SET brand_id=$1, category_id=$2, model=$3, variant=$4, year=$5, condition=$6, price_usd=$7, engine=$8, power=$9, transmission=$10, drive=$11, fuel_type=$12, exterior_color=$13, interior_color=$14, doors=$15, seats=$16, location=$17, stock_number=$18, warranty=$19, features=$20, mileage_km=$21, description=$22, seo_title=$23, seo_description=$24, stock=$25, status=$26, max_discount_percent=$27, updated_at=NOW() WHERE id=$28 AND organization_id=$29 RETURNING id`,
-      [brandId, categoryId, vehicle.model, vehicle.variant, vehicle.year, vehicle.condition, vehicle.priceUsd, vehicle.engine, vehicle.power, vehicle.transmission, vehicle.drive, vehicle.fuelType, vehicle.exteriorColor, vehicle.interiorColor, vehicle.doors, vehicle.seats, vehicle.location, vehicle.stockNumber, vehicle.warranty, vehicle.features, vehicle.mileageKm, vehicle.description, vehicle.seoTitle, vehicle.seoDescription, vehicle.stock, vehicle.status, vehicle.maxDiscountPercent, req.params.id, adminOrganizationId(req)],
+       `UPDATE vehicles SET brand_id=$1, category_id=$2, model=$3, variant=$4, year=$5, condition=$6, price_amount=$7, price_currency=$8, engine=$9, power=$10, transmission=$11, drive=$12, fuel_type=$13, exterior_color=$14, interior_color=$15, doors=$16, seats=$17, location=$18, stock_number=$19, warranty=$20, features=$21, mileage_km=$22, description=$23, seo_title=$24, seo_description=$25, stock=$26, status=$27, max_discount_percent=$28, updated_at=NOW() WHERE id=$29 AND organization_id=$30 RETURNING id`,
+      [brandId, categoryId, vehicle.model, vehicle.variant, vehicle.year, vehicle.condition, vehicle.priceAmount, vehicle.priceCurrency, vehicle.engine, vehicle.power, vehicle.transmission, vehicle.drive, vehicle.fuelType, vehicle.exteriorColor, vehicle.interiorColor, vehicle.doors, vehicle.seats, vehicle.location, vehicle.stockNumber, vehicle.warranty, vehicle.features, vehicle.mileageKm, vehicle.description, vehicle.seoTitle, vehicle.seoDescription, vehicle.stock, vehicle.status, vehicle.maxDiscountPercent, req.params.id, adminOrganizationId(req)],
     );
     if (!updated.rowCount) { await client.query("ROLLBACK"); return res.status(404).json({ error: "Vehículo no encontrado" }); }
     await client.query("DELETE FROM vehicle_images WHERE vehicle_id = $1", [req.params.id]);
@@ -2427,7 +2444,7 @@ app.patch("/api/admin/vehicles/:id/status", authenticate, requireRoles("admin", 
   if (status === "published" && req.admin.role !== "admin") return res.status(403).json({ error: "Solo un administrador puede publicar directamente" });
   try {
     if (status === "published") {
-      const ready = await pool.query("SELECT (SELECT COUNT(*) FROM vehicle_images WHERE vehicle_id=$1)::int AS images, description, price_usd AS price FROM vehicles WHERE id=$1 AND organization_id=$2", [req.params.id, adminOrganizationId(req)]);
+      const ready = await pool.query("SELECT (SELECT COUNT(*) FROM vehicle_images WHERE vehicle_id=$1)::int AS images, description, price_amount AS price FROM vehicles WHERE id=$1 AND organization_id=$2", [req.params.id, adminOrganizationId(req)]);
       if (!ready.rowCount) return res.status(404).json({ error: "Vehículo no encontrado" });
       const row = ready.rows[0];
       if (!row.images || !String(row.description || "").trim() || !(Number(row.price) > 0)) {
@@ -2796,6 +2813,7 @@ app.patch("/api/admin/settings", authenticate, requireRoles("admin", "editor"), 
     testimonials: normalizeContentList(req.body.testimonials, ["quote", "name", "detail"], 8, { quote: 500, name: 120, detail: 180 }, ["quote", "name"]),
   };
   if (!settings.businessName) return res.status(400).json({ error: "El nombre del negocio es obligatorio" });
+  if (!/^[A-Z]{3,8}$/.test(settings.currency)) return res.status(400).json({ error: "La moneda debe usar un código válido" });
   try {
     if (settings.appointmentDurationMinutes < 15 || settings.appointmentDurationMinutes > 240 || settings.appointmentMinNoticeHours < 0 || settings.appointmentMaxDaysAhead < 1 || settings.appointmentMaxDaysAhead > 365 || settings.appointmentCapacity < 1 || settings.appointmentCapacity > 20 || timeToMinutes(settings.appointmentStart) === null || timeToMinutes(settings.appointmentEnd) === null || timeToMinutes(settings.appointmentEnd) <= timeToMinutes(settings.appointmentStart)) return res.status(400).json({ error: "La configuración de citas no es válida" });
     const values = [settings.businessName, settings.logoUrl, settings.phone, settings.whatsapp, settings.email, settings.address, settings.hours, settings.instagramUrl, settings.facebookUrl, settings.currency, settings.privacyText, settings.termsText, settings.appointmentTimezone, settings.appointmentStart, settings.appointmentEnd, settings.appointmentDurationMinutes, settings.appointmentMinNoticeHours, settings.appointmentMaxDaysAhead, settings.appointmentDays, settings.appointmentCapacity];
@@ -3177,7 +3195,7 @@ app.get("/api/admin/export/appointments.csv", authenticate, requireRoles("admin"
 
 app.get("/api/admin/export/quotes.csv", authenticate, requireRoles("admin", "editor", "seller"), async (req, res) => {
   try {
-    const result = await pool.query(`SELECT q.created_at AS "createdAt", q.quote_number AS "quoteNumber", q.status, q.customer_name AS "customerName", q.customer_email AS "customerEmail", q.customer_phone AS "customerPhone", q.base_price_usd AS "basePriceUsd", q.discount_usd AS "discountUsd", q.total_usd AS "totalUsd", q.currency, q.valid_until AS "validUntil", b.name AS brand, v.model, v.year FROM quotes q LEFT JOIN vehicles v ON v.id=q.vehicle_id AND v.organization_id=$1 LEFT JOIN vehicle_brands b ON b.id=v.brand_id WHERE q.organization_id=$1 ORDER BY q.created_at DESC`, [adminOrganizationId(req)]);
+    const result = await pool.query(`SELECT q.created_at AS "createdAt", q.quote_number AS "quoteNumber", q.status, q.customer_name AS "customerName", q.customer_email AS "customerEmail", q.customer_phone AS "customerPhone", q.base_amount AS "baseAmount", q.discount_amount AS "discountAmount", q.total_amount AS "totalAmount", COALESCE(q.base_amount, q.base_price_usd) AS "basePriceUsd", COALESCE(q.discount_amount, q.discount_usd) AS "discountUsd", COALESCE(q.total_amount, q.total_usd) AS "totalUsd", q.currency, q.valid_until AS "validUntil", b.name AS brand, v.model, v.year FROM quotes q LEFT JOIN vehicles v ON v.id=q.vehicle_id AND v.organization_id=$1 LEFT JOIN vehicle_brands b ON b.id=v.brand_id WHERE q.organization_id=$1 ORDER BY q.created_at DESC`, [adminOrganizationId(req)]);
     sendCsv(res, "cotizaciones.csv", [
       { key: "createdAt", label: "Creada" }, { key: "quoteNumber", label: "Cotización" }, { key: "status", label: "Estado" }, { key: "customerName", label: "Cliente" }, { key: "customerEmail", label: "Correo" }, { key: "customerPhone", label: "Teléfono" }, { key: "basePriceUsd", label: "Precio base USD" }, { key: "discountUsd", label: "Descuento USD" }, { key: "totalUsd", label: "Total USD" }, { key: "currency", label: "Moneda" }, { key: "validUntil", label: "Válida hasta" }, { key: "brand", label: "Marca" }, { key: "model", label: "Modelo" }, { key: "year", label: "Año" },
     ], result.rows);
@@ -3401,7 +3419,7 @@ app.get("/api/admin/dashboard", authenticate, requireRoles("admin", "editor", "s
           COUNT(*)::int AS "totalVehicles",
           COUNT(*) FILTER (WHERE status = 'published')::int AS "publishedVehicles",
           COALESCE(SUM(stock) FILTER (WHERE status = 'published'), 0)::int AS "availableStock",
-          COALESCE(SUM(price_usd) FILTER (WHERE status = 'published'), 0)::numeric AS "inventoryValue",
+          COALESCE(SUM(price_amount) FILTER (WHERE status = 'published'), 0)::numeric AS "inventoryValue",
            (SELECT COUNT(*)::int FROM leads WHERE organization_id=$1 AND status IN ('new', 'contacted', 'qualified')) AS "pendingLeads",
            (SELECT COUNT(*)::int FROM offers WHERE organization_id=$1 AND status = 'pending') AS "pendingOffers",
            (SELECT COUNT(*)::int FROM vehicles WHERE organization_id=$1 AND status = 'pending_review') AS "pendingReview"
@@ -3421,7 +3439,7 @@ app.get("/api/admin/dashboard", authenticate, requireRoles("admin", "editor", "s
         ORDER BY status
        `, [adminOrganizationId(req)]),
       pool.query(`
-        SELECT o.id, o.buyer_name AS "buyerName", o.amount_usd AS "amountUsd", o.status, o.created_at AS "createdAt",
+        SELECT o.id, o.buyer_name AS "buyerName", o.amount AS amount, o.currency, COALESCE(o.amount, o.amount_usd) AS "amountUsd", o.status, o.created_at AS "createdAt",
                b.name AS brand, v.model, v.year
          FROM offers o
          JOIN vehicles v ON v.id = o.vehicle_id AND v.organization_id=$1
@@ -3452,9 +3470,9 @@ app.get("/api/admin/offers", authenticate, requireRoles("admin", "editor", "sell
   try {
     const result = await pool.query(`
       SELECT o.id, o.buyer_name AS "buyerName", o.buyer_email AS "buyerEmail", o.buyer_phone AS "buyerPhone",
-             o.amount_usd AS "amountUsd", o.payment_method AS "paymentMethod", o.message, o.status,
+             o.amount AS amount, o.currency, COALESCE(o.amount, o.amount_usd) AS "amountUsd", o.payment_method AS "paymentMethod", o.message, o.status,
              o.created_at AS "createdAt", o.reviewed_at AS "reviewedAt", b.name AS brand, v.model, v.year,
-             v.price_usd AS "vehiclePriceUsd"
+             COALESCE(v.price_amount, v.price_usd) AS "vehiclePriceUsd"
        FROM offers o
        JOIN vehicles v ON v.id = o.vehicle_id AND v.organization_id=$1
       JOIN vehicle_brands b ON b.id = v.brand_id
@@ -3496,7 +3514,7 @@ app.get("/api/admin/quotes", authenticate, requireRoles("admin", "editor", "sell
     const result = await pool.query(`
       SELECT q.id, q.quote_number AS "quoteNumber", q.lead_id AS "leadId", q.vehicle_id AS "vehicleId",
              q.customer_name AS "customerName", q.customer_email AS "customerEmail", q.customer_phone AS "customerPhone",
-             q.base_price_usd AS "basePriceUsd", q.discount_usd AS "discountUsd", q.total_usd AS "totalUsd",
+             q.base_amount AS "baseAmount", q.discount_amount AS "discountAmount", q.total_amount AS "totalAmount", COALESCE(q.base_amount, q.base_price_usd) AS "basePriceUsd", COALESCE(q.discount_amount, q.discount_usd) AS "discountUsd", COALESCE(q.total_amount, q.total_usd) AS "totalUsd",
              q.currency, q.valid_until AS "validUntil", q.notes, q.status, q.created_at AS "createdAt", q.updated_at AS "updatedAt",
              b.name AS brand, v.model, v.year, au.full_name AS "createdByName"
       FROM quotes q
@@ -3537,8 +3555,8 @@ app.get("/api/public/quotes/:token", async (req, res) => {
     const payload = jwt.verify(req.params.token, jwtSecret);
     if (payload.kind !== "public_quote" || !payload.quoteId || !payload.organizationId) return res.status(401).json({ error: "Enlace de cotización inválido" });
     const result = await pool.query(`
-      SELECT q.quote_number AS "quoteNumber", q.customer_name AS "customerName", q.base_price_usd AS "basePriceUsd",
-             q.discount_usd AS "discountUsd", q.total_usd AS "totalUsd", q.currency, q.valid_until AS "validUntil",
+      SELECT q.quote_number AS "quoteNumber", q.customer_name AS "customerName", q.base_amount AS "baseAmount", q.discount_amount AS "discountAmount", q.total_amount AS "totalAmount", COALESCE(q.base_amount, q.base_price_usd) AS "basePriceUsd",
+             COALESCE(q.discount_amount, q.discount_usd) AS "discountUsd", COALESCE(q.total_amount, q.total_usd) AS "totalUsd", q.currency, q.valid_until AS "validUntil",
              q.notes, q.status, q.created_at AS "createdAt", b.name AS brand, v.model, v.variant, v.year,
              v.engine, v.power, v.transmission,
              (SELECT image_url FROM vehicle_images WHERE vehicle_id=v.id ORDER BY sort_order ASC LIMIT 1) AS "imageUrl"
@@ -3594,12 +3612,15 @@ app.post("/api/public/quotes/:token/decision", async (req, res) => {
 
 app.post("/api/admin/quotes", authenticate, requireRoles("admin", "editor", "seller"), async (req, res) => {
   const quote = quotePayload(req.body);
+  const requestedCurrency = String(req.body.currency || "").trim().toUpperCase();
   const validationError = validateQuote(quote);
   if (validationError) return res.status(400).json({ error: validationError });
   try {
     if (quote.vehicleId) {
-       const vehicle = await pool.query("SELECT id FROM vehicles WHERE id=$1 AND organization_id=$2", [quote.vehicleId, adminOrganizationId(req)]);
+       const vehicle = await pool.query("SELECT id, price_currency AS currency FROM vehicles WHERE id=$1 AND organization_id=$2", [quote.vehicleId, adminOrganizationId(req)]);
       if (!vehicle.rowCount) return res.status(404).json({ error: "Vehículo no encontrado" });
+      quote.currency = String(vehicle.rows[0].currency || "USD").toUpperCase();
+      if (requestedCurrency && requestedCurrency !== quote.currency) return res.status(400).json({ error: "La moneda de la cotización debe coincidir con la del vehículo" });
     }
     let lead = null;
     if (quote.leadId) {
@@ -3610,12 +3631,12 @@ app.post("/api/admin/quotes", authenticate, requireRoles("admin", "editor", "sel
     const customer = quote.customerEmail ? await pool.query("SELECT id FROM customer_accounts WHERE LOWER(email)=LOWER($1) AND is_active=TRUE", [quote.customerEmail]) : { rows: [] };
     const customerId = customer.rows[0]?.id || null;
     const result = await pool.query(`
-       INSERT INTO quotes (organization_id, quote_number, lead_id, vehicle_id, customer_name, customer_email, customer_phone, base_price_usd, discount_usd, total_usd, currency, valid_until, notes, contact_id, customer_id, created_by)
+       INSERT INTO quotes (organization_id, quote_number, lead_id, vehicle_id, customer_name, customer_email, customer_phone, base_amount, discount_amount, total_amount, currency, valid_until, notes, contact_id, customer_id, created_by)
        VALUES ($1, $2, $3::uuid, $4::uuid, $5, $6, $7, $8::numeric, $9::numeric, $10::numeric, $11, $12::date, $13, $14::uuid, $15::uuid, $16::uuid)
-       RETURNING id, contact_id AS "contactId", quote_number AS "quoteNumber", status, total_usd AS "totalUsd", created_at AS "createdAt"
-    `, [adminOrganizationId(req), createQuoteNumber(), quote.leadId, quote.vehicleId, quote.customerName, quote.customerEmail, quote.customerPhone, quote.basePriceUsd, quote.discountUsd, quote.totalUsd, quote.currency || "USD", quote.validUntil, quote.notes, lead?.contactId || null, customerId, req.admin.id]);
-    await writeAudit(req, "quote.create", "quote", result.rows[0].id, { leadId: quote.leadId, vehicleId: quote.vehicleId, totalUsd: quote.totalUsd });
-    if (customerId) await notifyCustomer({ organizationId: adminOrganizationId(req), customerId, type: "quote_created", title: "Nueva cotización disponible", body: `ZEVROA preparó una cotización por $${Number(quote.totalUsd).toLocaleString("en-US")} USD.`, entityType: "quote", entityId: result.rows[0].id });
+       RETURNING id, contact_id AS "contactId", quote_number AS "quoteNumber", status, total_amount AS "totalAmount", total_amount AS "totalUsd", currency, created_at AS "createdAt"
+    `, [adminOrganizationId(req), createQuoteNumber(), quote.leadId, quote.vehicleId, quote.customerName, quote.customerEmail, quote.customerPhone, quote.baseAmount, quote.discountAmount, quote.totalAmount, quote.currency || "USD", quote.validUntil, quote.notes, lead?.contactId || null, customerId, req.admin.id]);
+    await writeAudit(req, "quote.create", "quote", result.rows[0].id, { leadId: quote.leadId, vehicleId: quote.vehicleId, totalAmount: quote.totalAmount, currency: quote.currency });
+    if (customerId) await notifyCustomer({ organizationId: adminOrganizationId(req), customerId, type: "quote_created", title: "Nueva cotización disponible", body: `ZEVROA preparó una cotización por ${Number(quote.totalAmount).toLocaleString("en-US")} ${quote.currency || "USD"}.`, entityType: "quote", entityId: result.rows[0].id });
     res.status(201).json({ data: result.rows[0] });
   } catch (error) {
     console.error("Quote creation failed", error);
@@ -3668,15 +3689,26 @@ app.get("/api/admin/audit-logs", authenticate, requireRoles("admin"), async (req
 });
 
 app.post("/api/events", async (req, res) => {
-  const allowedEvents = new Set(["page_view", "catalog_view", "vehicle_view", "vehicle_share", "filter_used", "compare_used", "whatsapp_click", "offer_submitted", "contact_submitted", "appointment_submitted", "trade_in_submitted", "search_alert_submitted", "price_alert_submitted"]);
-  const eventName = String(req.body.eventName || "").trim();
+  const eventAliases = { page_view: "view_home", catalog_view: "view_search_results", vehicle_view: "view_vehicle", vehicle_share: "share_vehicle", filter_used: "filter_applied", whatsapp_click: "lead_whatsapp_click", offer_submitted: "lead_form_submitted", contact_submitted: "lead_form_submitted", appointment_submitted: "test_drive_requested", trade_in_submitted: "lead_form_submitted", search_alert_submitted: "search_submitted" };
+  const allowedEvents = new Set(["view_home", "search_started", "search_submitted", "filter_applied", "view_search_results", "view_vehicle", "vehicle_gallery_interaction", "favorite_vehicle", "share_vehicle", "compare_used", "lead_whatsapp_click", "lead_form_started", "lead_form_submitted", "test_drive_requested", "finance_started", "finance_submitted", "price_alert_submitted", "dealer_landing_view", "dealer_signup_started", "dealer_signup_completed", "dealer_verified", "inventory_import_completed", "vehicle_created", "vehicle_published", "first_5_vehicles_published", "dealer_lead_received", "dealer_lead_opened", "dealer_lead_responded", "lead_status_changed", "subscription_started", "subscription_canceled"]);
+  const requestedEventName = String(req.body.eventName || "").trim();
+  const eventName = eventAliases[requestedEventName] || requestedEventName;
   const eventPath = String(req.body.path || "/").slice(0, 240);
   const vehicleId = String(req.body.vehicleId || "").trim() || null;
   const source = String(req.body.source || "website").slice(0, 80);
   const sessionId = String(req.body.sessionId || "").slice(0, 80) || null;
-  const metadata = req.body.metadata && typeof req.body.metadata === "object" && !Array.isArray(req.body.metadata) ? req.body.metadata : {};
+  const metadataInput = req.body.metadata && typeof req.body.metadata === "object" && !Array.isArray(req.body.metadata) ? req.body.metadata : {};
+  const metadata = Object.fromEntries(Object.entries(metadataInput).filter(([key]) => !/(email|phone|name|token|password)/i.test(key)).slice(0, 30));
   if (!allowedEvents.has(eventName)) return res.status(400).json({ error: "Evento no permitido" });
-  try { const organization = await getOrganizationContext(req); await pool.query("INSERT INTO analytics_events (organization_id, event_name, path, vehicle_id, source, session_id, metadata) VALUES ($1,$2,$3,$4::uuid,$5,$6,$7::jsonb)", [organization.id, eventName, eventPath, vehicleId, source, sessionId, JSON.stringify(metadata)]); } catch (error) { console.error("Analytics event failed", error); }
+  try {
+    const organization = await getOrganizationContext(req);
+    let ownedVehicleId = null;
+    if (vehicleId) {
+      const vehicle = await pool.query("SELECT id FROM vehicles WHERE id=$1 AND organization_id=$2", [vehicleId, organization.id]);
+      ownedVehicleId = vehicle.rows[0]?.id || null;
+    }
+    await pool.query("INSERT INTO analytics_events (organization_id, event_name, path, vehicle_id, source, session_id, metadata) VALUES ($1,$2,$3,$4::uuid,$5,$6,$7::jsonb)", [organization.id, eventName, eventPath, ownedVehicleId, source, sessionId, JSON.stringify(metadata)]);
+  } catch (error) { console.error("Analytics event failed", error); }
   res.status(204).end();
 });
 
@@ -3694,7 +3726,7 @@ app.get("/api/admin/analytics/funnel", authenticate, requireRoles("admin", "edit
     const [funnel, sources, responseTime] = await Promise.all([
       pool.query(`
         SELECT
-          COUNT(DISTINCT ae.session_id) FILTER (WHERE ae.event_name IN ('page_view','catalog_view'))::int AS visits,
+          COUNT(DISTINCT ae.session_id) FILTER (WHERE ae.event_name IN ('view_home','view_search_results','page_view','catalog_view'))::int AS visits,
           COUNT(DISTINCT l.id)::int AS leads,
           COUNT(DISTINCT l.id) FILTER (WHERE l.status IN ('contacted','qualified','closed'))::int AS contacted,
           COUNT(DISTINCT t.id)::int AS appointments,
@@ -3705,7 +3737,7 @@ app.get("/api/admin/analytics/funnel", authenticate, requireRoles("admin", "edit
         LEFT JOIN test_drive_requests t ON t.organization_id=ae.organization_id AND t.created_at >= NOW() - ($2::int * INTERVAL '1 day')
         LEFT JOIN offers o ON o.organization_id=ae.organization_id AND o.created_at >= NOW() - ($2::int * INTERVAL '1 day')
         WHERE ae.organization_id=$1 AND ae.created_at >= NOW() - ($2::int * INTERVAL '1 day')`, [adminOrganizationId(req), days]),
-      pool.query(`SELECT COALESCE(NULLIF(source,''),'direct') AS source, COUNT(*)::int AS events, COUNT(DISTINCT session_id)::int AS sessions, COUNT(*) FILTER (WHERE event_name IN ('contact_submitted','offer_submitted','appointment_submitted','trade_in_submitted'))::int AS conversions FROM analytics_events WHERE organization_id=$1 AND created_at >= NOW() - ($2::int * INTERVAL '1 day') GROUP BY 1 ORDER BY conversions DESC, events DESC LIMIT 30`, [adminOrganizationId(req), days]),
+      pool.query(`SELECT COALESCE(NULLIF(source,''),'direct') AS source, COUNT(*)::int AS events, COUNT(DISTINCT session_id)::int AS sessions, COUNT(*) FILTER (WHERE event_name IN ('lead_form_submitted','test_drive_requested','lead_whatsapp_click'))::int AS conversions FROM analytics_events WHERE organization_id=$1 AND created_at >= NOW() - ($2::int * INTERVAL '1 day') GROUP BY 1 ORDER BY conversions DESC, events DESC LIMIT 30`, [adminOrganizationId(req), days]),
       pool.query(`SELECT ROUND(AVG(EXTRACT(EPOCH FROM (l.last_contacted_at-l.created_at))/60)::numeric, 1) AS "averageMinutes" FROM leads l WHERE l.organization_id=$1 AND l.last_contacted_at IS NOT NULL AND l.created_at >= NOW() - ($2::int * INTERVAL '1 day')`, [adminOrganizationId(req), days]),
     ]);
     res.json({ data: { days, funnel: funnel.rows[0] || {}, sources: sources.rows, responseTime: responseTime.rows[0] || { averageMinutes: null } } });
@@ -3715,7 +3747,7 @@ app.get("/api/admin/analytics/funnel", authenticate, requireRoles("admin", "edit
 app.get("/api/admin/analytics/sources", authenticate, requireRoles("admin", "editor", "seller"), async (req, res) => {
   const days = Math.min(Math.max(Number(req.query.days || 30), 1), 365);
   try {
-    const result = await pool.query(`SELECT COALESCE(NULLIF(source,''),'direct') AS source, COUNT(*)::int AS events, COUNT(DISTINCT session_id)::int AS sessions, COUNT(*) FILTER (WHERE event_name IN ('contact_submitted','offer_submitted','appointment_submitted','trade_in_submitted'))::int AS conversions FROM analytics_events WHERE organization_id=$1 AND created_at >= NOW() - ($2::int * INTERVAL '1 day') GROUP BY 1 ORDER BY conversions DESC, events DESC LIMIT 100`, [adminOrganizationId(req), days]);
+    const result = await pool.query(`SELECT COALESCE(NULLIF(source,''),'direct') AS source, COUNT(*)::int AS events, COUNT(DISTINCT session_id)::int AS sessions, COUNT(*) FILTER (WHERE event_name IN ('lead_form_submitted','test_drive_requested','lead_whatsapp_click'))::int AS conversions FROM analytics_events WHERE organization_id=$1 AND created_at >= NOW() - ($2::int * INTERVAL '1 day') GROUP BY 1 ORDER BY conversions DESC, events DESC LIMIT 100`, [adminOrganizationId(req), days]);
     res.json({ data: result.rows, days });
   } catch (error) { console.error("Analytics sources query failed", error); res.status(500).json({ error: "No se pudieron cargar las fuentes" }); }
 });
@@ -3792,6 +3824,8 @@ function isKnownPublicRoute(pathname) {
 async function publicRouteMetadata(req, organization, { businessName, origin, defaultImage, pathname = publicPathForRequest(req) }) {
   const match = pathname.match(/^\/(vehiculos|blog)\/([^/]+)\/?$/i);
   const base = { title: `${businessName} · Vehículos seleccionados`, description: `Inventario de vehículos, atención comercial y citas de ${businessName}.`, image: defaultImage, ogType: "website", robots: "index, follow" };
+  const catalogFilterKeys = ["q", "brand", "category", "condition", "fuel", "transmission", "minPrice", "maxPrice", "minYear", "sort"];
+  if (pathname === "/" && catalogFilterKeys.some((key) => String(req.query?.[key] || "").trim())) return { ...base, robots: "noindex, follow" };
   if (pathname === "/backoffice" || pathname.endsWith("/restablecer-contrasena")) {
     return { ...base, title: `${businessName} · Panel de control`, description: "Acceso seguro al panel de control.", robots: "noindex, nofollow" };
   }
@@ -3856,7 +3890,7 @@ async function publicRouteMetadata(req, organization, { businessName, origin, de
 // Consulta ligera a proposito: el catalogo para buscadores solo necesita nombre,
 // precio y cuatro datos, no el SELECT completo con agregados de imagenes y media.
 const prerenderCatalogQuery = `
-  SELECT v.id, v.model, v.variant, v.year, v.price_usd AS "priceUsd", v.fuel_type AS "fuelType",
+  SELECT v.id, v.model, v.variant, v.year, v.price_amount AS price, v.price_currency AS currency, v.price_usd AS "priceUsd", v.fuel_type AS "fuelType",
          v.transmission, v.mileage_km AS "mileageKm", b.name AS brand, c.name AS category
   FROM vehicles v
   JOIN vehicle_brands b ON b.id = v.brand_id

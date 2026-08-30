@@ -4,8 +4,13 @@
 // depende de React ni del estado: sacarlos permite reutilizarlos sin arrastrar
 // el archivo entero.
 
-export function formatPrice(value) {
-  return `$${Number(value || 0).toLocaleString("en-US")} USD`;
+function defaultCurrency() {
+  try { return localStorage.getItem("authentiq_currency") || "USD"; } catch { return "USD"; }
+}
+
+export function formatPrice(value, currency = defaultCurrency()) {
+  const safeCurrency = /^[A-Z]{3,8}$/.test(String(currency || "")) ? String(currency).toUpperCase() : "USD";
+  return new Intl.NumberFormat(safeCurrency === "DOP" ? "es-DO" : "en-US", { style: "currency", currency: safeCurrency, currencyDisplay: "symbol", maximumFractionDigits: 0 }).format(Number(value || 0));
 }
 
 export function formatDate(value) {

@@ -34,7 +34,7 @@ UPLOADS_DIR=/var/lib/zevroa/uploads
 4. Crear el administrador con `npm.cmd run create-admin -- --email=...`.
 5. Confirmar `GET /api/health` antes de abrir el catálogo.
 
-La base completa actual llega hasta `049_rebrand_zevroa.sql`. En una base nueva hay que aplicar las migraciones estructurales en el orden documentado por CI y excluir los cuatro archivos de demo. El comando `npm.cmd run migrate:production` aplica únicamente `045`–`049` porque está diseñado para una base de producción que ya tiene aplicado el baseline `001`–`044`; no sustituye la instalación inicial.
+La base completa actual llega hasta `056_currency_normalization.sql`. En una base nueva hay que aplicar las migraciones estructurales en el orden documentado por CI y excluir los cuatro archivos de demo. El comando `npm.cmd run migrate:production` aplica `045`–`056` porque está diseñado para una base de producción que ya tiene aplicado el baseline `001`–`044`; no sustituye la instalación inicial.
 
 ## Frontend
 

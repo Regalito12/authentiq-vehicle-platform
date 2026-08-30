@@ -80,6 +80,11 @@ await check("Portada entrega HTML real para buscadores", async () => {
   assert(html.includes("application/ld+json") && html.includes("AutoDealer"), "falta el dato estructurado del concesionario");
 });
 
+await check("Las combinaciones filtradas no se indexan", async () => {
+  const { response, body } = await request("/?brand=Marca%20de%20prueba&minPrice=1000");
+  assert(response.ok && String(body || "").includes('name="robots" content="noindex, follow"'), "la búsqueda filtrada sigue siendo indexable");
+});
+
 // Una URL inventada devolvia 200 con "index, follow": Google podia indexar
 // basura infinita de cada concesionario como si fuera su catalogo.
 await check("Una URL inexistente responde 404 y no se indexa", async () => {

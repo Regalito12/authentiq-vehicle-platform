@@ -37,6 +37,7 @@ const expectedFiles = [
   "053_invitations_and_mfa.sql",
   "054_reconcile_google_calendar_schema.sql",
   "055_crm_contact_relationships.sql",
+  "056_currency_normalization.sql",
 ];
 const expectedTables = ["appointment_blocks", "organizations", "organization_members", "organization_settings", "organization_integrations", "social_drafts", "billing_subscriptions", "platform_plans", "vehicle_3d_jobs", "password_reset_tokens", "billing_webhook_events", "email_delivery_log", "public_request_idempotency", "customer_notifications", "crm_contacts", "crm_contact_events", "admin_invitations"];
 const expectedColumns = [
