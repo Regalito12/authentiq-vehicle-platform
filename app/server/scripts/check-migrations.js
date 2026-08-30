@@ -36,6 +36,7 @@ const expectedFiles = [
   "052_crm_contacts_and_timeline.sql",
   "053_invitations_and_mfa.sql",
   "054_reconcile_google_calendar_schema.sql",
+  "055_crm_contact_relationships.sql",
 ];
 const expectedTables = ["appointment_blocks", "organizations", "organization_members", "organization_settings", "organization_integrations", "social_drafts", "billing_subscriptions", "platform_plans", "vehicle_3d_jobs", "password_reset_tokens", "billing_webhook_events", "email_delivery_log", "public_request_idempotency", "customer_notifications", "crm_contacts", "crm_contact_events", "admin_invitations"];
 const expectedColumns = [
@@ -79,6 +80,13 @@ const expectedColumns = [
   ["admin_users", "mfa_secret_encrypted"],
   ["admin_users", "mfa_recovery_codes"],
 ];
+const expectedRoutines = [
+  "zevroa_resolve_crm_contact",
+  "zevroa_sync_lead_contact",
+  "zevroa_sync_appointment_contact",
+  "zevroa_sync_offer_contact",
+  "zevroa_sync_quote_contact",
+];
 
 const missingFiles = [];
 for (const file of expectedFiles) {
@@ -108,14 +116,18 @@ try {
   );
   const foundColumns = new Set(columnResult.rows.map((row) => `${row.table_name}.${row.column_name}`));
   const missingColumns = expectedColumns.filter(([table, column]) => !foundColumns.has(`${table}.${column}`));
+  const routineResult = await pool.query("SELECT routine_name FROM information_schema.routines WHERE routine_schema = 'public' AND routine_name = ANY($1::text[])", [expectedRoutines]);
+  const foundRoutines = new Set(routineResult.rows.map((row) => row.routine_name));
+  const missingRoutines = expectedRoutines.filter((routine) => !foundRoutines.has(routine));
 
-  if (missingTables.length || missingColumns.length) {
+  if (missingTables.length || missingColumns.length || missingRoutines.length) {
     if (missingTables.length) console.error(`MIGRATIONS FAIL · faltan tablas: ${missingTables.join(", ")}`);
     if (missingColumns.length) console.error(`MIGRATIONS FAIL · faltan columnas: ${missingColumns.map(([table, column]) => `${table}.${column}`).join(", ")}`);
+    if (missingRoutines.length) console.error(`MIGRATIONS FAIL · faltan rutinas: ${missingRoutines.join(", ")}`);
     process.exitCode = 1;
   } else {
     console.log(`MIGRATIONS PASS · archivos ${expectedFiles.join(" → ")}`);
-    console.log(`tablas=${expectedTables.length} columnas=${expectedColumns.length} database=connected`);
+    console.log(`tablas=${expectedTables.length} columnas=${expectedColumns.length} rutinas=${expectedRoutines.length} database=connected`);
   }
 } finally {
   await pool.end();

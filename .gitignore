@@ -19,6 +19,12 @@ app/server/uploads/
 app/server/browser-check/
 app/browser-check/
 
+# Evidencia local y kits auxiliares: se conservan en el equipo, pero no son
+# parte del producto ni deben entrar por accidente en un release.
+browser-check/
+backups/
+animation-studio-kit/
+
 # Salida de la skill de diseño: material de trabajo, no del producto.
 .impeccable/
 

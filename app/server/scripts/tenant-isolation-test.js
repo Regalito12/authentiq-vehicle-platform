@@ -1,8 +1,12 @@
 import "dotenv/config";
 import assert from "node:assert/strict";
 import pg from "pg";
+import { assertSafeQaTarget, isLocalUrl, qaDatabaseUrl } from "./qa-safety.mjs";
 
-const baseUrl = process.env.LOCAL_TEST_URL || "http://localhost:3001";
+const baseUrl = process.env.QA_TEST_URL || process.env.LOCAL_TEST_URL || "http://localhost:3001";
+const remoteQa = !isLocalUrl(baseUrl);
+if (remoteQa) assertSafeQaTarget({ target: baseUrl, operation: "La prueba de aislamiento", databaseUrl: qaDatabaseUrl() });
+const databaseUrl = remoteQa ? qaDatabaseUrl() : process.env.DATABASE_URL;
 const demoPassword = process.env.LOCAL_DEMO_ADMIN_PASSWORD || "12345678";
 const tenants = [
   { host: "zevroa.localhost", businessName: "ZEVROA" },
@@ -100,7 +104,8 @@ async function assertCustomerScoping() {
     const favoritos = await request(a.host, "/api/customer/favorites", { headers: auth });
     assert.equal((favoritos.data || []).includes(vehicleB.id), false, `los favoritos de ${a.host} incluyen un vehículo de ${b.host}`);
   } finally {
-    const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+    if (!databaseUrl) throw new Error("DATABASE_URL es obligatorio para limpiar los datos de prueba locales.");
+    const pool = new pg.Pool({ connectionString: databaseUrl });
     try {
       await pool.query("DELETE FROM vehicle_favorites WHERE customer_id IN (SELECT id FROM customer_accounts WHERE email = $1)", [email]);
       await pool.query("DELETE FROM customer_accounts WHERE email = $1", [email]);

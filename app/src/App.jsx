@@ -29,7 +29,11 @@ class SectionBoundary extends Component {
 // El panel es una aplicación distinta del catálogo. Se carga al abrirlo o cuando la
 // persona demuestra intención de entrar, no durante la visita inicial al landing.
 const loadBackoffice = () => import("./admin/Backoffice.jsx");
-const Backoffice = lazy(loadBackoffice);
+// En la entrada administrativa empezamos la descarga mientras React monta la
+// shell. En el landing seguimos sin pagar el bundle del panel; esto evita que
+// el primer acceso muestre el fallback durante varios segundos en dev/móvil.
+const backofficePreload = window.location.pathname === "/backoffice" ? loadBackoffice() : null;
+const Backoffice = lazy(() => backofficePreload || loadBackoffice());
 
 // Conserva el subdominio local del dealer (p. ej. dealer-demo.localhost). Así la
 // API puede resolver la organización por host también durante una demostración.
@@ -3065,6 +3069,12 @@ function App() {
         // consultas privadas adicionales que siempre acabarían en 401.
         const profile = await customerRequest("/api/customer/me");
         if (cancelled) return;
+        if (!profile?.data) {
+          setCustomerToken("");
+          setCustomer(null);
+          setCustomerActivity({ offers: [], quotes: [], notifications: [] });
+          return;
+        }
         const [favorites, activity] = await Promise.all([customerRequest("/api/customer/favorites"), customerRequest("/api/customer/activity")]);
         if (cancelled) return;
         setCustomer(profile.data);
@@ -3083,14 +3093,18 @@ function App() {
 
   useEffect(() => {
     const handlePopState = () => {
-      const nextPath = window.location.pathname;
-      setPathname(nextPath);
-      setScreen(nextPath === "/backoffice" ? "admin" : (institutionalRoutes[nextPath] || "catalog"));
-      setSelected(null);
+      const applyHistoryRoute = () => {
+        const nextPath = window.location.pathname;
+        setPathname(nextPath);
+        setScreen(nextPath === "/backoffice" ? "admin" : (institutionalRoutes[nextPath] || "catalog"));
+        setSelected(null);
+      };
+      if (typeof document.startViewTransition !== "function" || prefersReducedMotion) return applyHistoryRoute();
+      try { document.startViewTransition(() => { flushSync(applyHistoryRoute); }); } catch { applyHistoryRoute(); }
     };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, []);
+  }, [prefersReducedMotion]);
 
   const navigate = (path) => {
     const demoSearch = requestedDealerSlug ? `?dealer=${encodeURIComponent(requestedDealerSlug)}` : "";
@@ -3105,7 +3119,7 @@ function App() {
     // en vez de cortar de golpe. Sin librería y sin cambiar la navegación: donde
     // no existe la API, o si el comprador pidió menos movimiento, se navega igual.
     if (typeof document.startViewTransition !== "function" || prefersReducedMotion) return applyRoute();
-    document.startViewTransition(() => { flushSync(applyRoute); });
+    try { document.startViewTransition(() => { flushSync(applyRoute); }); } catch { applyRoute(); }
   };
 
   const refreshVehicles = async () => {

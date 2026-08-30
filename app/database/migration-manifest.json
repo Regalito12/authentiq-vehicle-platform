@@ -17,6 +17,7 @@
     ,{ "file": "052_crm_contacts_and_timeline.sql", "sha256": "bbb8740d68761814f45d4727f72907008ae45d7dd27d5f759597718dfda143d3", "reversible": false, "notes": "Contactos comerciales únicos, timeline y enlace de leads por concesionario." }
     ,{ "file": "053_invitations_and_mfa.sql", "sha256": "331192b3bc3dd4ca5108f95ab98ab692f0df32aef71480af28e98623f84d8f81", "reversible": false, "notes": "Invitaciones seguras de equipo y MFA TOTP con secretos cifrados." }
     ,{ "file": "054_reconcile_google_calendar_schema.sql", "sha256": "a4923fa777f2f01ac9c0c6ef5de2c4fc958a7aa12111d7867067f5c996ceb3d7", "reversible": true, "notes": "Reconciliación idempotente de la columna de sincronización de Google Calendar." }
+    ,{ "file": "055_crm_contact_relationships.sql", "sha256": "9cd9f6f2a130909d5f1ab3a04cd468cfc58d2a200a1d5fb920a4d6fbb1123bf1", "reversible": false, "notes": "Enlaces seguros de CRM para citas, ofertas y cotizaciones." }
   ],
   "rules": {
     "newMigrationPrefixMustBeUnique": true,

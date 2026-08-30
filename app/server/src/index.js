@@ -1057,6 +1057,23 @@ function createQuoteNumber() {
   return `ZEV-${new Date().getFullYear()}-${crypto.randomBytes(5).toString("hex").toUpperCase()}`;
 }
 
+// La pantalla de acceso consulta este endpoint al montar. Un visitante no tiene
+// sesión todavía; devolver un estado vacío evita ensuciar consola/telemetría sin
+// relajar ninguno de los endpoints administrativos protegidos.
+function optionalAuthenticate(req, res, next) {
+  const header = req.headers.authorization || "";
+  const token = header.startsWith("Bearer ") ? header.slice(7) : readCookie(req, ADMIN_SESSION_COOKIE);
+  if (!token) return res.json({ user: null });
+  return authenticate(req, res, next);
+}
+
+function optionalAuthenticateCustomer(req, res, next) {
+  const header = req.headers.authorization || "";
+  const token = header.startsWith("Bearer ") ? header.slice(7) : readCookie(req, CUSTOMER_SESSION_COOKIE);
+  if (!token) return res.json({ data: null });
+  return authenticateCustomer(req, res, next);
+}
+
 function sessionResponse(user, token) {
   // En producción la cookie HttpOnly es el canal normal. Solo los entornos no
   // productivos exponen el token para que las suites locales reutilicen sesión
@@ -1144,7 +1161,7 @@ async function createLead({ organizationId, leadType, vehicleId = null, name, em
   const result = await pool.query(
     `INSERT INTO leads (organization_id, lead_type, vehicle_id, name, email, phone, message, source, privacy_consent, privacy_consent_at, privacy_policy_version, consent_source)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,CASE WHEN $9 THEN NOW() ELSE NULL END,$10,$8)
-     RETURNING id, status, created_at AS "createdAt"`,
+     RETURNING id, contact_id AS "contactId", status, created_at AS "createdAt"`,
     [organizationId, leadType, vehicleId, name, email, phone, message, source, privacyConsent, privacyPolicyVersion],
   );
   return result.rows[0];
@@ -1512,7 +1529,7 @@ app.post("/api/auth/login", async (req, res) => {
   }
 });
 
-app.get("/api/auth/me", authenticate, async (req, res) => {
+app.get("/api/auth/me", optionalAuthenticate, async (req, res) => {
   try {
     const result = await pool.query(
       'SELECT id, full_name AS "name", email, role, organization_id AS "organizationId", must_change_password AS "mustChangePassword" FROM admin_users WHERE id=$1 AND is_active=TRUE LIMIT 1',
@@ -1779,7 +1796,7 @@ app.post("/api/customer/auth/password-reset/confirm", async (req, res) => {
   } catch (error) { await client.query("ROLLBACK").catch(() => {}); console.error("Customer password reset confirmation failed", error); res.status(500).json({ error: "No se pudo restablecer la contraseña" }); } finally { client.release(); }
 });
 
-app.get("/api/customer/me", authenticateCustomer, async (req, res) => {
+app.get("/api/customer/me", optionalAuthenticateCustomer, async (req, res) => {
   try {
     const result = await pool.query("SELECT id, full_name AS name, email, phone FROM customer_accounts WHERE id=$1 AND is_active=TRUE", [req.customer.id]);
     if (!result.rowCount) return res.status(401).json({ error: "La cuenta ya no está disponible" });
@@ -1926,7 +1943,7 @@ app.post("/api/offers", verifyPublicForm, publicRequestIdempotency, async (req, 
     const result = await pool.query(
       `INSERT INTO offers (organization_id, vehicle_id, buyer_name, buyer_email, buyer_phone, amount_usd, payment_method, message, privacy_consent, privacy_consent_at, privacy_policy_version, customer_id)
        VALUES ($1,$2,$3,$4,$5,$6,'cash',$7,$8,NOW(),$9,$10)
-       RETURNING id, status, created_at AS "createdAt"`,
+       RETURNING id, contact_id AS "contactId", status, created_at AS "createdAt"`,
       [organization.id, vehicleId, buyerName, buyerEmail, buyerPhone, amountUsd, message, privacyConsent, privacyPolicyVersion, customerId],
     );
     const lead = await createLead({ organizationId: organization.id, leadType: "offer", vehicleId, name: buyerName, email: buyerEmail, phone: buyerPhone, message, source: "vehicle-offer", privacyConsent });
@@ -2002,15 +2019,15 @@ app.post("/api/appointments", publicRateLimit({ windowMs: 10 * 60 * 1000, limit:
       const leadResult = await client.query(
         `INSERT INTO leads (organization_id, lead_type, vehicle_id, name, email, phone, message, source, privacy_consent, privacy_consent_at, privacy_policy_version, consent_source)
          VALUES ($1,'test_drive',$2,$3,$4,$5,$6,'appointment',$7,CASE WHEN $7 THEN NOW() ELSE NULL END,$8,'appointment')
-         RETURNING id, status, created_at AS "createdAt"`,
+         RETURNING id, contact_id AS "contactId", status, created_at AS "createdAt"`,
         [organization.id, vehicleId, name, email, phone, notes, privacyConsent, privacyPolicyVersion],
       );
       lead = leadResult.rows[0];
       const appointmentResult = await client.query(
-        `INSERT INTO test_drive_requests (organization_id, vehicle_id, lead_id, customer_name, customer_email, customer_phone, requested_date, requested_time, status, notes)
-         VALUES ($1,$2,$3,$4,$5,$6,$7::date,$8::time,'pending',$9)
-         RETURNING id, vehicle_id AS "vehicleId", requested_date AS "date", requested_time AS "time", status, created_at AS "createdAt"`,
-        [organization.id, vehicleId, lead.id, name, email, phone, date, time, notes],
+        `INSERT INTO test_drive_requests (organization_id, vehicle_id, lead_id, customer_name, customer_email, customer_phone, requested_date, requested_time, status, notes, contact_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7::date,$8::time,'pending',$9,$10::uuid)
+         RETURNING id, contact_id AS "contactId", vehicle_id AS "vehicleId", requested_date AS "date", requested_time AS "time", status, created_at AS "createdAt"`,
+        [organization.id, vehicleId, lead.id, name, email, phone, date, time, notes, lead.contactId || null],
       );
       appointment = appointmentResult.rows[0];
       await client.query("COMMIT");
@@ -2483,7 +2500,7 @@ app.post("/api/admin/appointments", authenticate, requireRoles("admin", "editor"
     try {
       await client.query("BEGIN");
       const leadResult = await client.query(
-        `SELECT l.id, l.vehicle_id AS "vehicleId", l.name, l.email, l.phone, l.assigned_to AS "assignedTo"
+        `SELECT l.id, l.contact_id AS "contactId", l.vehicle_id AS "vehicleId", l.name, l.email, l.phone, l.assigned_to AS "assignedTo"
          FROM leads l WHERE l.id=$1 AND l.organization_id=$2 FOR UPDATE`,
         [leadId, adminOrganizationId(req)],
       );
@@ -2495,10 +2512,10 @@ app.post("/api/admin/appointments", authenticate, requireRoles("admin", "editor"
       const booked = await client.query("SELECT COUNT(*)::int AS count FROM test_drive_requests WHERE organization_id=$1 AND requested_date=$2::date AND requested_time=$3::time AND status IN ('pending','confirmed')", [adminOrganizationId(req), date, time]);
       if (Number(booked.rows[0].count) >= capacity) { await client.query("ROLLBACK"); return res.status(409).json({ error: "Ese horario acaba de completarse. Selecciona otro." }); }
       const result = await client.query(
-         `INSERT INTO test_drive_requests (organization_id, vehicle_id, lead_id, customer_name, customer_email, customer_phone, requested_date, requested_time, status, notes, assigned_to)
-          VALUES ($1,$2,$3,$4,$5,$6,$7::date,$8::time,'confirmed',$9,$10)
-          RETURNING id, vehicle_id AS "vehicleId", lead_id AS "leadId", requested_date AS "date", requested_time AS "time", status, notes, created_at AS "createdAt"`,
-         [adminOrganizationId(req), lead.vehicleId, lead.id, lead.name, lead.email, lead.phone, date, time, notes, lead.assignedTo || req.admin.id],
+         `INSERT INTO test_drive_requests (organization_id, vehicle_id, lead_id, customer_name, customer_email, customer_phone, requested_date, requested_time, status, notes, assigned_to, contact_id)
+          VALUES ($1,$2,$3,$4,$5,$6,$7::date,$8::time,'confirmed',$9,$10,$11::uuid)
+          RETURNING id, contact_id AS "contactId", vehicle_id AS "vehicleId", lead_id AS "leadId", requested_date AS "date", requested_time AS "time", status, notes, created_at AS "createdAt"`,
+         [adminOrganizationId(req), lead.vehicleId, lead.id, lead.name, lead.email, lead.phone, date, time, notes, lead.assignedTo || req.admin.id, lead.contactId || null],
       );
       appointment = result.rows[0];
       await client.query("INSERT INTO lead_events (lead_id, actor_id, event_type, note) VALUES ($1,$2,'appointment_created',$3)", [lead.id, req.admin.id, `Cita confirmada para ${date} a las ${time}`]);
@@ -3580,17 +3597,19 @@ app.post("/api/admin/quotes", authenticate, requireRoles("admin", "editor", "sel
        const vehicle = await pool.query("SELECT id FROM vehicles WHERE id=$1 AND organization_id=$2", [quote.vehicleId, adminOrganizationId(req)]);
       if (!vehicle.rowCount) return res.status(404).json({ error: "Vehículo no encontrado" });
     }
+    let lead = null;
     if (quote.leadId) {
-       const lead = await pool.query("SELECT id FROM leads WHERE id=$1 AND organization_id=$2", [quote.leadId, adminOrganizationId(req)]);
-      if (!lead.rowCount) return res.status(404).json({ error: "Lead no encontrado" });
+       const leadResult = await pool.query("SELECT id, contact_id AS \"contactId\" FROM leads WHERE id=$1 AND organization_id=$2", [quote.leadId, adminOrganizationId(req)]);
+      if (!leadResult.rowCount) return res.status(404).json({ error: "Lead no encontrado" });
+      lead = leadResult.rows[0];
     }
     const customer = quote.customerEmail ? await pool.query("SELECT id FROM customer_accounts WHERE LOWER(email)=LOWER($1) AND is_active=TRUE", [quote.customerEmail]) : { rows: [] };
     const customerId = customer.rows[0]?.id || null;
     const result = await pool.query(`
-       INSERT INTO quotes (organization_id, quote_number, lead_id, vehicle_id, customer_name, customer_email, customer_phone, base_price_usd, discount_usd, total_usd, currency, valid_until, notes, customer_id, created_by)
-       VALUES ($1, $2, $3::uuid, $4::uuid, $5, $6, $7, $8::numeric, $9::numeric, $10::numeric, $11, $12::date, $13, $14::uuid, $15::uuid)
-      RETURNING id, quote_number AS "quoteNumber", status, total_usd AS "totalUsd", created_at AS "createdAt"
-    `, [adminOrganizationId(req), createQuoteNumber(), quote.leadId, quote.vehicleId, quote.customerName, quote.customerEmail, quote.customerPhone, quote.basePriceUsd, quote.discountUsd, quote.totalUsd, quote.currency || "USD", quote.validUntil, quote.notes, customerId, req.admin.id]);
+       INSERT INTO quotes (organization_id, quote_number, lead_id, vehicle_id, customer_name, customer_email, customer_phone, base_price_usd, discount_usd, total_usd, currency, valid_until, notes, contact_id, customer_id, created_by)
+       VALUES ($1, $2, $3::uuid, $4::uuid, $5, $6, $7, $8::numeric, $9::numeric, $10::numeric, $11, $12::date, $13, $14::uuid, $15::uuid, $16::uuid)
+       RETURNING id, contact_id AS "contactId", quote_number AS "quoteNumber", status, total_usd AS "totalUsd", created_at AS "createdAt"
+    `, [adminOrganizationId(req), createQuoteNumber(), quote.leadId, quote.vehicleId, quote.customerName, quote.customerEmail, quote.customerPhone, quote.basePriceUsd, quote.discountUsd, quote.totalUsd, quote.currency || "USD", quote.validUntil, quote.notes, lead?.contactId || null, customerId, req.admin.id]);
     await writeAudit(req, "quote.create", "quote", result.rows[0].id, { leadId: quote.leadId, vehicleId: quote.vehicleId, totalUsd: quote.totalUsd });
     if (customerId) await notifyCustomer({ organizationId: adminOrganizationId(req), customerId, type: "quote_created", title: "Nueva cotización disponible", body: `ZEVROA preparó una cotización por $${Number(quote.totalUsd).toLocaleString("en-US")} USD.`, entityType: "quote", entityId: result.rows[0].id });
     res.status(201).json({ data: result.rows[0] });

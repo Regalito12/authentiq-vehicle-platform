@@ -1,6 +1,8 @@
 import "dotenv/config";
+import { assertSafeQaTarget, isLocalUrl, qaDatabaseUrl } from "./qa-safety.mjs";
 
-const apiUrl = process.env.SMOKE_API_URL || process.env.API_URL || "http://localhost:3001";
+const apiUrl = process.env.QA_TEST_URL || process.env.SMOKE_API_URL || process.env.API_URL || "http://localhost:3001";
+if (!isLocalUrl(apiUrl)) assertSafeQaTarget({ target: apiUrl, operation: "La matriz de roles", databaseUrl: qaDatabaseUrl() });
 const adminEmail = process.env.SMOKE_EMAIL || "admin@authentiq.local";
 const adminPassword = process.env.SMOKE_PASSWORD || "12345678";
 const qaPassword = "QA-Authentiq-2026!";

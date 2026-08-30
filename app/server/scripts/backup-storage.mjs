@@ -2,13 +2,16 @@ import "dotenv/config";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { assertSafeQaTarget } from "./qa-safety.mjs";
 
-const supabaseUrl = String(process.env.SUPABASE_URL || "").replace(/\/+$/, "");
-const serviceKey = String(process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
-const bucket = String(process.env.SUPABASE_STORAGE_BUCKET || "vehicle-media").trim();
+const isQa = String(process.env.QA_ENVIRONMENT || "").toLowerCase() === "qa";
+const supabaseUrl = String(isQa ? process.env.QA_SUPABASE_URL : process.env.SUPABASE_URL || "").replace(/\/+$/, "");
+const serviceKey = String(isQa ? process.env.QA_SUPABASE_SERVICE_ROLE_KEY : process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
+const bucket = String(isQa ? process.env.QA_SUPABASE_STORAGE_BUCKET || process.env.SUPABASE_STORAGE_BUCKET || "vehicle-media" : process.env.SUPABASE_STORAGE_BUCKET || "vehicle-media").trim();
 const outputRoot = path.resolve(process.env.STORAGE_BACKUP_DIR || path.join(process.cwd(), "backups", `storage-${new Date().toISOString().replace(/[:.]/g, "-")}`));
 
 if (!supabaseUrl || !serviceKey) throw new Error("SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY son obligatorios para respaldar Storage");
+if (isQa) assertSafeQaTarget({ target: supabaseUrl, operation: "El backup de Storage QA" });
 if (process.env.NODE_ENV === "production" && String(process.env.ALLOW_PRODUCTION_BACKUP || "false") !== "true") {
   throw new Error("El backup de Storage en producción requiere ALLOW_PRODUCTION_BACKUP=true explícito");
 }
@@ -103,4 +106,6 @@ for (const object of objects) {
 }
 manifest.totalBytes = totalBytes;
 await fs.writeFile(path.join(outputRoot, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+const manifestHash = crypto.createHash("sha256").update(JSON.stringify(manifest, null, 2) + "\n").digest("hex");
+await fs.writeFile(path.join(outputRoot, "manifest.sha256"), `${manifestHash}  manifest.json\n`, "utf8");
 console.log(`STORAGE BACKUP PASS · bucket=${bucket} objects=${objects.length} bytes=${totalBytes} output=${outputRoot}`);
