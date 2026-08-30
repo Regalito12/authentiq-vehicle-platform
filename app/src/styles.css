@@ -568,14 +568,15 @@ html[data-theme="dark"] .admin-empty-state strong { color: #f2efe9; }
 .impersonation-banner strong { color: var(--tenant-primary-ink, var(--tenant-primary)); }
 .impersonation-banner .text-button { color: #faf8f5; }
 .admin-login-page { max-width: 720px; }
-.admin-login { max-width: 520px; margin: 120px auto 0; display: grid; gap: 18px; }
+.admin-login { box-sizing: border-box; width: min(100%, 620px); margin: 96px auto 0; padding: 42px; display: grid; gap: 18px; border: 1px solid #d9d3c8; background: rgba(255,255,255,.86); overflow: hidden; }
 .admin-login-copy { margin: 0 0 16px; color: var(--auth-muted); font-size: 14px; line-height: 1.5; }
 .dealer-login-switch { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--auth-line, #ddd); text-align: center; }
 .dealer-login-switch p { margin: 0 0 10px; color: var(--auth-muted, #777); font-size: 14px; }
 .dealer-login-switch .secondary-action { width: 100%; }
-.admin-login h1, .admin-header h1 { margin: 14px 0 24px; font-size: clamp(52px, 8vw, 100px); font-weight: 400; line-height: .9; letter-spacing: -.06em; }
+.admin-login h1, .admin-header h1 { max-width: 100%; margin: 14px 0 24px; font-size: clamp(48px, 7vw, 88px); font-weight: 400; line-height: .92; letter-spacing: -.045em; overflow-wrap: anywhere; text-wrap: balance; }
+.admin-login h1 em { display: block; color: var(--auth-gold, #8d6d25); }
 .admin-login label, .admin-form label { display: grid; gap: 8px; color: #6b6660; font: 500 14px "IBM Plex Mono", monospace; letter-spacing: .08em; text-transform: uppercase; }
-.admin-login input, .admin-form input, .admin-form select, .admin-form textarea { width: 100%; border: 1px solid #d9d3c8; background: #fff; padding: 12px; color: #0a0a0a; font: 14px "Inter Tight", sans-serif; letter-spacing: normal; text-transform: none; }
+.admin-login input, .admin-form input, .admin-form select, .admin-form textarea { box-sizing: border-box; width: 100%; border: 1px solid #d9d3c8; background: #fff; padding: 12px; color: #0a0a0a; font: 14px "Inter Tight", sans-serif; letter-spacing: normal; text-transform: none; }
 .admin-form textarea { min-height: 88px; resize: vertical; }
 .admin-header { display: flex; justify-content: space-between; gap: 20px; align-items: end; border-bottom: 1px solid #d9d3c8; padding-bottom: 24px; }
 .admin-header h1 { margin-bottom: 0; }
@@ -603,7 +604,7 @@ html[data-theme="dark"] .admin-empty-state strong { color: #f2efe9; }
 .admin-vehicle-info strong { font-size: 17px; font-weight: 500; }
 .admin-vehicle-info span { color: #6b6660; font: 14px "IBM Plex Mono", monospace; text-transform: uppercase; letter-spacing: .04em; }
 @media (max-width: 900px) { .admin-page { padding-left: 22px; padding-right: 22px; } .admin-layout { grid-template-columns: 1fr; } }
-@media (max-width: 560px) { .admin-header { display: block; } .admin-header-actions { margin-top: 20px; } .admin-header-actions > button, .admin-header-actions .notification-button { flex: 1 1 calc(50% - 8px); } .admin-presentation-launch { align-items: flex-start; flex-direction: column; } .form-grid { grid-template-columns: 1fr; } .admin-nav { position: sticky; top: 0; z-index: 12; padding-top: 8px; background: #faf8f5; } }
+@media (max-width: 560px) { .admin-header { display: block; } .admin-header-actions { margin-top: 20px; } .admin-header-actions > button, .admin-header-actions .notification-button { flex: 1 1 calc(50% - 8px); } .admin-presentation-launch { align-items: flex-start; flex-direction: column; } .form-grid { grid-template-columns: 1fr; } .admin-nav { position: sticky; top: 0; z-index: 12; padding-top: 8px; background: #faf8f5; } .admin-login { width: 100%; margin-top: 48px; padding: 28px 22px; } .admin-login h1 { font-size: clamp(46px, 15vw, 70px); letter-spacing: -.04em; } }
 html[data-theme="dark"] .admin-nav { background: #111315; }
 
 .admin-nav { display: flex; gap: 6px; overflow-x: auto; padding: 18px 0 0; border-bottom: 1px solid #d9d3c8; }
