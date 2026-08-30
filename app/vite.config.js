@@ -15,6 +15,18 @@ export default defineConfig({
       // Sin esto, la precaché de un release anterior sobrevive al despliegue y el
       // navegador sigue pidiendo chunks con hash que ya no existen.
       cleanupOutdatedCaches: true,
+      // Backoffice, reportes, estudio gráfico y 3D son rutas de intención. La
+      // lista explícita evita que el plugin vuelva a incluirlos en la
+      // precaché por defecto, aunque sigan disponibles por red al abrirlos.
+      globPatterns: [
+        "index.html",
+        "assets/index-*.js",
+        "assets/index-*.css",
+        "assets/motion-vendor-*.js",
+        "assets/browser-*.js",
+        "assets/rolldown-runtime-*.js",
+        "assets/workbox-window.prod.es5-*.js",
+      ],
       // Los assets con hash nunca deben resolverse con el HTML del SPA: si el
       // archivo no está, tiene que fallar como archivo, no llegar como página.
       navigateFallbackDenylist: [/^\/api/, /^\/uploads/, /^\/assets\//, /^\/(?:robots\.txt|sitemap\.xml)$/i],
