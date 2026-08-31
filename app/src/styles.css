@@ -5145,6 +5145,24 @@ html.lenis, html.lenis body { height: auto; }
 /* Campos del alta: dirección en vivo, reglas de contraseña y aviso legal. */
 .slug-preview { display: block; margin-top: 2px; color: var(--text-muted); font: 14px "IBM Plex Mono", monospace; letter-spacing: normal; text-transform: none; word-break: break-all; }
 .slug-preview b { color: var(--auth-gold, var(--brand-gold-ink)); font-weight: 500; }
+.dealer-plan-picker { display: grid; gap: 10px; margin: 0 0 22px; padding: 0; border: 0; }
+.dealer-plan-picker legend { padding: 0; color: var(--auth-ink); font: 500 14px "IBM Plex Mono", monospace; letter-spacing: .08em; text-transform: uppercase; }
+.dealer-plan-picker > p { margin: 0 0 4px; color: var(--auth-muted); font-size: 14px; line-height: 1.45; }
+.dealer-plan-options { display: grid; gap: 8px; }
+.dealer-plan-option { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: 10px; align-items: center; min-height: 72px; padding: 12px 13px; border: 1px solid var(--auth-line); background: var(--auth-surface); cursor: pointer; transition: border-color 160ms ease-out, background-color 160ms ease-out, transform 160ms ease-out; }
+.dealer-plan-option:hover { border-color: var(--auth-gold); transform: translateY(-1px); }
+.dealer-plan-option:has(input:focus-visible) { outline: 2px solid var(--auth-gold); outline-offset: 2px; }
+.dealer-plan-option.is-selected { border-color: var(--auth-gold); background: color-mix(in srgb, var(--auth-gold) 9%, var(--auth-surface)); }
+.dealer-plan-option input { width: 16px; height: 16px; margin: 0; accent-color: var(--auth-gold); }
+.dealer-plan-option-copy { display: grid; gap: 2px; min-width: 0; }
+.dealer-plan-option-copy strong { color: var(--auth-ink); font-size: 15px; font-weight: 600; }
+.dealer-plan-option-copy small, .dealer-plan-option-copy > span { color: var(--auth-muted); font-size: 14px; line-height: 1.35; }
+.dealer-plan-option > b { color: var(--auth-ink); font-size: 16px; font-weight: 500; white-space: nowrap; }
+.dealer-plan-option > b small { color: var(--auth-muted); font-size: 14px; font-weight: 400; }
+html[data-theme="dark"] .dealer-plan-option { background: #171b1b; border-color: var(--rule-dark); }
+html[data-theme="dark"] .dealer-plan-option.is-selected { background: color-mix(in srgb, #e5c36d 11%, #171b1b); border-color: #e5c36d; }
+html[data-theme="dark"] .dealer-plan-option-copy strong, html[data-theme="dark"] .dealer-plan-option > b, html[data-theme="dark"] .dealer-plan-picker legend { color: var(--text-invert); }
+@media (max-width: 480px) { .dealer-plan-option { grid-template-columns: 18px minmax(0, 1fr); } .dealer-plan-option > b { grid-column: 2; justify-self: start; } }
 .password-field { position: relative; display: block; }
 .password-field input { padding-right: 92px; }
 .password-field button { position: absolute; top: 50%; right: 8px; transform: translateY(-50%); min-height: 32px; border: 1px solid var(--rule-warm); background: #fff; padding: 0 12px; color: var(--text-muted); font: 500 14px "IBM Plex Mono", monospace; letter-spacing: .04em; text-transform: uppercase; cursor: pointer; transition: color .18s ease, border-color .18s ease; }
@@ -5153,8 +5171,13 @@ html.lenis, html.lenis body { height: auto; }
 .password-rule.is-ok { color: #3f6b3b; }
 .password-rule.is-bad { color: #9a3b2f; }
 .register-legal-note { margin: 0; max-width: 52ch; color: var(--text-muted); font-size: 14px; line-height: 1.55; }
+.demo-mode-banner { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 42px; padding: 9px clamp(18px, 4vw, 52px); background: #111516; color: #f7f4ed; font: 14px "IBM Plex Mono", monospace; letter-spacing: .02em; }
+.demo-mode-banner strong { color: var(--auth-gold, #e2b95f); font-weight: 500; }
+.demo-mode-banner a { color: #f7f4ed; font-weight: 500; text-decoration: none; white-space: nowrap; }
+.demo-mode-banner a:hover, .demo-mode-banner a:focus-visible { color: var(--auth-gold, #e2b95f); }
 html[data-theme="dark"] .password-field button { background: #171b1b; border-color: var(--rule-dark); color: #b8b4ac; }
 html[data-theme="dark"] .slug-preview, html[data-theme="dark"] .password-rule, html[data-theme="dark"] .register-legal-note { color: #b8b4ac; }
+@media (max-width: 620px) { .demo-mode-banner { align-items: flex-start; flex-direction: column; gap: 5px; padding: 10px 16px; font-size: 14px; line-height: 1.45; } }
 
 /* Precios y preguntas del landing. Fondo oscuro para que no rompa el ritmo del
    capítulo anterior y el cierre claro siga siendo el final del recorrido. */

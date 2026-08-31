@@ -6,6 +6,12 @@ import { apiFetch as fetch } from "./apiClient.js";
 // porque es un flujo cerrado: se usa una sola vez por dealer, antes de que
 // exista sesión, y no comparte estado con ningún módulo de operación.
 
+const FALLBACK_PLANS = [
+  { code: "starter", name: "Starter", description: "Para comenzar tu vitrina digital.", monthlyAmount: 99, vehicleLimit: 40, features: ["Showroom con tu marca", "Inventario y leads"] },
+  { code: "growth", name: "Growth", description: "Para equipos comerciales que ya reciben leads.", monthlyAmount: 249, vehicleLimit: 150, features: ["Todo Starter", "Cotizaciones y reportes"] },
+  { code: "scale", name: "Scale", description: "Para operaciones amplias y varias sucursales.", monthlyAmount: 499, vehicleLimit: null, features: ["Todo Growth", "Inventario ilimitado"] },
+];
+
 export default function DealerRegistrationWizard({ onRegisterSuccess, onCancel, apiUrl }) {
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -14,6 +20,21 @@ export default function DealerRegistrationWizard({ onRegisterSuccess, onCancel, 
   const [turnstileToken, setTurnstileToken] = useState("");
   const [copyStatus, setCopyStatus] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [plans, setPlans] = useState(FALLBACK_PLANS);
+  const [planCode, setPlanCode] = useState("growth");
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${apiUrl}/api/public/plans`)
+      .then((response) => response.ok ? response.json() : { data: [] })
+      .then((payload) => {
+        if (cancelled || !Array.isArray(payload?.data) || !payload.data.length) return;
+        setPlans(payload.data);
+        setPlanCode((current) => payload.data.some((plan) => plan.code === current) ? current : payload.data[0].code);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [apiUrl]);
 
   // Al pasar de paso el formulario cambia por completo pero el navegador conserva
   // el scroll: el dealer se queda mirando el pie de una pantalla que ya no existe.
@@ -129,6 +150,7 @@ export default function DealerRegistrationWizard({ onRegisterSuccess, onCancel, 
           adminName: form.adminName.trim(),
           adminEmail: form.adminEmail.trim().toLowerCase(),
           adminPassword: form.adminPassword,
+          planCode,
           turnstileToken,
         }),
       });
@@ -161,7 +183,7 @@ export default function DealerRegistrationWizard({ onRegisterSuccess, onCancel, 
         <span className="eyebrow">¡ENHORABUENA! · TU SHOWROOM ESTÁ EN REVISIÓN</span>
         <h1>¡Bienvenido a <em>{registeredData.organization?.name || form.dealershipName}!</em></h1>
         <p className="account-welcome">
-          Tu showroom fue creado con tu cuenta de administrador y tiene un periodo de prueba activo de 14 días. Todavía no es público: personalízalo con calma y se publicará cuando el equipo de ZEVROA lo apruebe.
+          Tu showroom fue creado con tu cuenta de administrador y tiene un periodo de prueba activo de 14 días. Elegiste el plan <strong>{registeredData.plan?.name || plans.find((plan) => plan.code === planCode)?.name || "Growth"}</strong>. Todavía no es público: personalízalo con calma y se publicará cuando el equipo de ZEVROA lo apruebe.
         </p>
 
         <div className="dealer-url-box" style={{ margin: "16px 0" }}>
@@ -216,7 +238,7 @@ export default function DealerRegistrationWizard({ onRegisterSuccess, onCancel, 
       <h1>Crea el espacio de tu <em>concesionario.</em></h1>
       <p className="account-welcome">
         {step === 1
-          ? "Paso 1 de 2 · Nombre y dirección pública."
+          ? "Paso 1 de 2 · Elige tu plan y define tu dirección pública."
           : "Paso 2 de 2 · Tu acceso de administrador. Después entrarás al panel."}
       </p>
 
@@ -227,6 +249,19 @@ export default function DealerRegistrationWizard({ onRegisterSuccess, onCancel, 
 
       {step === 1 && (
         <>
+          <fieldset className="dealer-plan-picker">
+            <legend>Elige cómo quieres empezar</legend>
+            <p>Es una selección inicial para preparar tu showroom. No se cobra nada ni se pide tarjeta.</p>
+            <div className="dealer-plan-options">
+              {plans.map((plan) => (
+                <label className={`dealer-plan-option${plan.code === planCode ? " is-selected" : ""}`} key={plan.code}>
+                  <input type="radio" name="planCode" value={plan.code} checked={plan.code === planCode} onChange={() => setPlanCode(plan.code)} />
+                  <span className="dealer-plan-option-copy"><strong>{plan.name}</strong><small>{plan.vehicleLimit ? `Hasta ${plan.vehicleLimit} vehículos` : "Inventario ilimitado"}</small><span>{plan.description}</span></span>
+                  <b>${Number(plan.monthlyAmount || 0).toLocaleString("en-US")}<small>/mes</small></b>
+                </label>
+              ))}
+            </div>
+          </fieldset>
           <label>
             ¿Cómo se llama tu concesionario?
             <input

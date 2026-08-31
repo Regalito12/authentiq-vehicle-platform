@@ -49,7 +49,12 @@ const Backoffice = lazy(() => backofficePreload || loadBackoffice());
 // API puede resolver la organización por host también durante una demostración.
 const localApiOrigin = `${window.location.protocol}//${window.location.hostname}:3001`;
 const apiUrl = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? localApiOrigin : window.location.origin);
-const requestedDealerSlug = new URLSearchParams(window.location.search).get("dealer")?.trim().toLowerCase() || "";
+const initialQuery = new URLSearchParams(window.location.search);
+const requestedDealerSlug = initialQuery.get("dealer")?.trim().toLowerCase() || "";
+// El demo público tiene una entrada explícita. Mientras exista el showroom demo
+// dedicado, el servidor lo resolverá por `demo=1`; si todavía no se ha provisionado,
+// conserva el inventario de la plataforma pero aplica una presentación segura de demo.
+const requestedDemoMode = initialQuery.get("demo") === "1";
 const previewPlatformLanding = import.meta.env.DEV && new URLSearchParams(window.location.search).get("studio") === "1";
 const localDemoTenant = import.meta.env.DEV ? requestedDealerSlug : "";
 // Vista previa privada: un dealer logueado puede abrir "/?preview=1" (mismo origen,
@@ -78,6 +83,12 @@ function fetch(input, options = {}) {
     try {
       const url = new URL(input, window.location.href);
       if (url.pathname.startsWith("/api/") && !url.searchParams.has("dealer")) { url.searchParams.set("dealer", requestedDealerSlug); target = url.href; }
+    } catch { /* El navegador resolverá el destino original si no es una URL válida. */ }
+  }
+  if (requestedDemoMode && typeof target === "string") {
+    try {
+      const url = new URL(target, window.location.href);
+      if (url.pathname.startsWith("/api/") && !url.searchParams.has("demo")) { url.searchParams.set("demo", "1"); target = url.href; }
     } catch { /* El navegador resolverá el destino original si no es una URL válida. */ }
   }
   const requestOptions = { ...options, credentials: options.credentials || "include", headers };
@@ -3216,10 +3227,12 @@ function App() {
   }, [prefersReducedMotion]);
 
   const navigate = (path) => {
-    const routePath = normalizePathname(path);
-    const demoSearch = requestedDealerSlug ? `?dealer=${encodeURIComponent(requestedDealerSlug)}` : "";
+    const targetUrl = new URL(path, window.location.origin);
+    const routePath = normalizePathname(targetUrl.pathname);
+    const explicitSearch = targetUrl.search || "";
+    const demoSearch = explicitSearch || (requestedDemoMode ? "?demo=1" : requestedDealerSlug ? `?dealer=${encodeURIComponent(requestedDealerSlug)}` : "");
     const applyRoute = () => {
-      window.history.pushState({}, "", `${routePath}${demoSearch}`);
+      window.history.pushState({}, "", `${routePath}${demoSearch}${targetUrl.hash || ""}`);
       setPathname(routePath);
       window.dispatchEvent(new Event("zevroa:navigation"));
       setSelected(null);
@@ -3250,7 +3263,7 @@ function App() {
     return () => window.removeEventListener("focus", handleFocus);
   }, []);
   useEffect(() => { fetch(`${apiUrl}/api/blog`).then((response) => response.ok ? response.json() : { data: [] }).then((payload) => setPosts(payload.data || [])).catch(() => setPosts([])); }, []);
-  useEffect(() => { fetch(`${apiUrl}/api/settings`).then((response) => { if (response.status === 404 && requestedDealerSlug) { setTenantNotFound(true); return { data: null }; } return response.ok ? response.json() : { data: null }; }).then((payload) => { if (!payload.data) return; publicCurrency = String(payload.data.currency || "USD").trim().toUpperCase(); localStorage.setItem("authentiq_currency", publicCurrency); setBusinessSettings((current) => ({ ...current, ...payload.data })); }).catch(() => {}).finally(() => setSettingsLoaded(true)); }, []);
+  useEffect(() => { fetch(`${apiUrl}/api/settings`).then((response) => { if (response.status === 404 && (requestedDealerSlug || requestedDemoMode)) { setTenantNotFound(true); return { data: null }; } return response.ok ? response.json() : { data: null }; }).then((payload) => { if (!payload.data) return; publicCurrency = String(payload.data.currency || "USD").trim().toUpperCase(); localStorage.setItem("authentiq_currency", publicCurrency); const demoFallback = requestedDemoMode && payload.data.isPlatformHome ? { heroHeadline: "", heroSubheadline: "", heroImageUrl: "/assets/zevroa-hero-v1.webp", address: "", hours: "" } : {}; setBusinessSettings((current) => ({ ...current, ...payload.data, ...demoFallback })); }).catch(() => {}).finally(() => setSettingsLoaded(true)); }, []);
   const routeVehicle = useMemo(() => findVehicleByPath(vehicles, pathname), [pathname, vehicles]);
   const activeVehicle = selected || routeVehicle;
   useEffect(() => {
@@ -3405,8 +3418,8 @@ function App() {
   if (institutionalRoutes[pathname]) return <InstitutionalPage type={institutionalRoutes[pathname]} settings={businessSettings} onBack={() => navigate("/")} />;
   if (["contact", "location", "privacy", "terms"].includes(screen)) return <InstitutionalPage type={screen} settings={businessSettings} onBack={() => navigate("/")} />;
   if (activeVehicle) return <VehicleDetail vehicle={activeVehicle} vehicles={vehicles} onBack={() => navigate("/")} isFavorite={favoriteIds.includes(activeVehicle.id)} onToggleFavorite={toggleFavorite} customerToken={customerToken} compareVehicles={compareVehicles} favoriteIds={favoriteIds} onOpenVehicle={(vehicle) => navigate(vehiclePath(vehicle))} onToggleCompare={toggleCompare} whatsapp={businessSettings.whatsapp} />;
-  if (pathname === "/" && !settingsLoaded && !showDemoCatalog && !requestedDealerSlug) return <main className="app-boot-shell" aria-hidden="true" />;
-  if (pathname === "/" && (businessSettings.isPlatformHome || previewPlatformLanding) && !showDemoCatalog && !requestedDealerSlug) return <LandingPage testimonials={businessSettings.testimonials} whatsapp={businessSettings.whatsapp} onCreateShowroom={() => { setAdminInitialMode("register"); setScreen("admin"); navigate("/backoffice"); }} onDealerLogin={() => { setAdminInitialMode("login"); setScreen("admin"); navigate("/backoffice"); }} onViewDemo={() => setShowDemoCatalog(true)} onOpenPrivacy={() => navigate("/privacidad")} onOpenTerms={() => navigate("/terminos")} />;
+  if (pathname === "/" && !settingsLoaded && !showDemoCatalog && !requestedDealerSlug && !requestedDemoMode) return <main className="app-boot-shell" aria-hidden="true" />;
+  if (pathname === "/" && (businessSettings.isPlatformHome || previewPlatformLanding) && !showDemoCatalog && !requestedDealerSlug && !requestedDemoMode) return <LandingPage testimonials={businessSettings.testimonials} whatsapp={businessSettings.whatsapp} onCreateShowroom={() => { setAdminInitialMode("register"); setScreen("admin"); navigate("/backoffice"); }} onDealerLogin={() => { setAdminInitialMode("login"); setScreen("admin"); navigate("/backoffice"); }} onViewDemo={() => window.location.assign("/?demo=1")} onOpenPrivacy={() => navigate("/privacidad")} onOpenTerms={() => navigate("/terminos")} />;
 
   const heroVideoUrl = String(import.meta.env.VITE_HERO_VIDEO_URL || "").trim();
   // El showroom de un concesionario no debe presumir de lo que no tiene ni pedir
@@ -3418,6 +3431,7 @@ function App() {
   const hasInventory = vehicles.length > 0;
   return (
     <><a className="skip-link" href="#top">Saltar al contenido</a><main id="top">
+      {requestedDemoMode && <div className="demo-mode-banner" role="status"><span><strong>DEMO ZEVROA</strong> · Explora un showroom completo con inventario, fichas y experiencias 3D.</span><a href="/">Volver a la plataforma →</a></div>}
       <ShowroomNav theme={theme} setTheme={setTheme} customer={customer} businessName={businessSettings.businessName} logoUrl={businessSettings.logoUrl} onAccount={() => { setAccountOpen(true); setAccountStatus({ loading: false, error: "" }); }} onBackoffice={() => { setAdminInitialMode("login"); setScreen("admin"); navigate("/backoffice"); }} onRegisterDealer={() => { setAdminInitialMode("register"); setScreen("admin"); navigate("/backoffice"); }} />
       <section className="hero">
         {heroVideoUrl

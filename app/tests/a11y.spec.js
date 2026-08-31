@@ -53,6 +53,19 @@ test("la búsqueda inteligente ofrece sugerencias y navegación por teclado", as
   }
 });
 
+test("el demo público conserva el showroom de ocho vehículos y el alta muestra planes", async ({ page }) => {
+  await page.goto("/?demo=1", { waitUntil: "networkidle" });
+  await expect(page.locator(".demo-mode-banner")).toContainText(/demo zevroa/i);
+  await expect(page.locator("body")).toContainText(/8 vehículos disponibles/i);
+  await expect(page.locator(".vehicle-card").first()).toBeVisible();
+  await expect(page.locator("body")).not.toContainText("mayor garantia");
+
+  await page.goto("/backoffice", { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: /crear nuevo showroom/i }).click();
+  await expect(page.locator(".dealer-plan-picker")).toBeVisible();
+  await expect(page.locator(".dealer-plan-option")).toHaveCount(3);
+});
+
 test("el banner de actualización espera confirmación y el teléfono conserva su código", async ({ page }) => {
   await page.goto("/?studio=1", { waitUntil: "networkidle" });
 

@@ -613,6 +613,8 @@ const PASSWORD_RESET_REQUEST_PATH = "/api/auth/password-reset/request";
 const ADMIN_SESSION_COOKIE = "authentiq_admin_session";
 const CUSTOMER_SESSION_COOKIE = "authentiq_customer_session";
 const DEFAULT_ORGANIZATION_SLUG = String(process.env.DEFAULT_ORGANIZATION_SLUG || "zevroa").trim().toLowerCase();
+const configuredDemoSlug = String(process.env.PUBLIC_DEMO_SLUG || "").trim().toLowerCase();
+const demoOrganizationSlug = /^[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?$/.test(configuredDemoSlug) ? configuredDemoSlug : "";
 
 function readCookie(req, name) {
   const cookies = String(req.headers.cookie || "").split(";").map((item) => item.trim().split("="));
@@ -741,11 +743,16 @@ async function getOrganizationContext(req) {
   let configuredPublicHostname = "";
   try { configuredPublicHostname = new URL(publicSiteUrl).hostname.toLowerCase(); } catch { configuredPublicHostname = ""; }
   const canSelectPublicDealer = Boolean(localHost || (configuredPublicHostname && hostname === configuredPublicHostname));
-  const requestedPublicTenant = canSelectPublicDealer && /^[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?$/.test(String(req.query?.dealer || "").trim().toLowerCase())
+  const requestedDemo = canSelectPublicDealer && String(req.query?.demo || "") === "1";
+  const requestedDealer = canSelectPublicDealer && /^[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?$/.test(String(req.query?.dealer || "").trim().toLowerCase())
     ? String(req.query.dealer).trim().toLowerCase()
     : null;
+  // `demo=1` es la entrada estable del CTA del landing. Si aún no se ha creado
+  // el tenant demo dedicado, cae temporalmente en la organización pública para
+  // que el enlace no muera; el frontend le aplica la presentación curada.
+  const requestedPublicTenant = requestedDemo ? (demoOrganizationSlug || DEFAULT_ORGANIZATION_SLUG) : requestedDealer;
   const resolvedSlug = localSlug || requestedPublicTenant;
-  const allowUnapprovedSlug = Boolean(localSlug || (requestedPublicTenant && requestedPublicTenant === DEFAULT_ORGANIZATION_SLUG));
+  const allowUnapprovedSlug = Boolean(localSlug || (requestedPublicTenant && requestedPublicTenant === DEFAULT_ORGANIZATION_SLUG && !requestedDemo));
   // Subdominio blanco-etiqueta automático: <slug>.<PLATFORM_BASE_DOMAIN>, sin dominio propio.
   // Igual que un dominio propio, exige approval_status='approved' — un dealer pendiente no
   // se ve ahí, solo por vista previa privada.
@@ -1636,6 +1643,24 @@ app.get("/api/auth/slug-available", async (req, res) => {
   }
 });
 
+// Los planes se muestran durante el alta como una decisión de configuración,
+// no como un checkout. El cobro continúa desactivado hasta que Stripe esté listo.
+app.get("/api/public/plans", async (_req, res) => {
+  try {
+    const result = await pool.query("SELECT code, name, description, monthly_amount AS \"monthlyAmount\", vehicle_limit AS \"vehicleLimit\", features FROM platform_plans WHERE is_active=TRUE ORDER BY monthly_amount, code");
+    return res.json({ data: result.rows });
+  } catch (error) {
+    // Permite que el registro siga siendo entendible si un entorno todavía no
+    // aplicó la migración de planes; el backend volverá a validar al registrar.
+    if (error.code !== "42P01") console.error("Public plans query failed", error);
+    return res.json({ data: [
+      { code: "starter", name: "Starter", description: "Para un dealer que está comenzando su vitrina digital.", monthlyAmount: 99, vehicleLimit: 40, features: ["Showroom white-label", "Inventario y leads", "Agenda de citas"] },
+      { code: "growth", name: "Growth", description: "Para equipos comerciales que necesitan más automatización.", monthlyAmount: 249, vehicleLimit: 150, features: ["Todo Starter", "Redes sociales", "Cotizaciones y analítica"] },
+      { code: "scale", name: "Scale", description: "Para operaciones con inventario amplio y varios usuarios.", monthlyAmount: 499, vehicleLimit: null, features: ["Todo Growth", "Inventario ilimitado", "Soporte prioritario"] },
+    ] });
+  }
+});
+
 app.post("/api/auth/register-dealer", verifyPublicForm, async (req, res) => {
   const dealershipName = String(req.body?.dealershipName || req.body?.name || "").trim();
   const rawSlug = String(req.body?.slug || "").trim().toLowerCase();
@@ -1644,6 +1669,7 @@ app.post("/api/auth/register-dealer", verifyPublicForm, async (req, res) => {
   const adminName = String(req.body?.adminName || "").trim();
   const adminEmail = String(req.body?.adminEmail || req.body?.email || "").trim().toLowerCase();
   const adminPassword = String(req.body?.adminPassword || req.body?.password || "");
+  const planCode = String(req.body?.planCode || "starter").trim().toLowerCase();
   const phone = String(req.body?.phone || "").trim() || null;
   const whatsapp = String(req.body?.whatsapp || "").trim() || phone;
   const address = String(req.body?.address || "").trim() || null;
@@ -1669,6 +1695,12 @@ app.post("/api/auth/register-dealer", verifyPublicForm, async (req, res) => {
     if (existingUser.rowCount) {
       await client.query("ROLLBACK");
       return res.status(409).json({ error: "Ya existe un usuario registrado con este correo electrónico." });
+    }
+
+    const plan = await client.query("SELECT code, name, monthly_amount AS \"monthlyAmount\", vehicle_limit AS \"vehicleLimit\" FROM platform_plans WHERE code=$1 AND is_active=TRUE", [planCode]);
+    if (!plan.rowCount) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: "El plan seleccionado ya no está disponible. Elige otro para continuar." });
     }
 
     const passwordHash = await bcrypt.hash(adminPassword, 12);
@@ -1703,8 +1735,8 @@ app.post("/api/auth/register-dealer", verifyPublicForm, async (req, res) => {
 
     await client.query(
       `INSERT INTO billing_subscriptions (organization_id, provider, mode, plan_code, status, monthly_amount, currency, current_period_end)
-       VALUES ($1, 'local', 'local_demo', 'starter', 'trialing', 99, 'USD', CURRENT_DATE + 14)`,
-      [organizationId]
+       VALUES ($1, 'local', 'local_demo', $2, 'trialing', $3, 'USD', CURRENT_DATE + 14)`,
+      [organizationId, plan.rows[0].code, plan.rows[0].monthlyAmount]
     );
 
     const adminResult = await client.query(
@@ -1747,6 +1779,7 @@ app.post("/api/auth/register-dealer", verifyPublicForm, async (req, res) => {
       token,
       user: { id: admin.id, name: admin.name, email: admin.email, role: "admin", organizationId, organizationSlug: slug, organizationName: dealershipName, mustChangePassword: false },
       organization: { id: organizationId, slug, name: dealershipName, approvalStatus: "pending" },
+      plan: { code: plan.rows[0].code, name: plan.rows[0].name, monthlyAmount: plan.rows[0].monthlyAmount, vehicleLimit: plan.rows[0].vehicleLimit },
       dealerUrl,
       futurePublicUrl: futureSubdomain ? `https://${futureSubdomain}` : null,
       message: "Concesionario registrado. Tu showroom queda en revisión y solo tú puedes verlo hasta que se apruebe.",
