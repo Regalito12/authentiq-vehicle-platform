@@ -12,6 +12,7 @@
     "backup:db": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/backup-db.ps1 -Verify",
     "build": "vite build",
     "check:production": "node scripts/check-production-env.mjs && npm --prefix server run check:migration-manifest",
+    "check:hygiene": "node scripts/check-repository-hygiene.mjs",
     "check:live": "node scripts/live-check.mjs",
     "test:e2e": "playwright test",
     "test:a11y": "playwright test tests/a11y.spec.js",
