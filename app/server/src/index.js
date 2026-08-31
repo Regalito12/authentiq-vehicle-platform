@@ -12,7 +12,7 @@ import path from "node:path";
 import pg from "pg";
 import helmet from "helmet";
 import { initMonitoring, reportServerError } from "./monitoring.js";
-import { catalogPrerender, vehiclePrerender, catalogJsonLd, vehicleJsonLd } from "./prerender.js";
+import { catalogPrerender, vehiclePrerender, catalogJsonLd, vehicleJsonLd, dealersPrerender, dealersJsonLd } from "./prerender.js";
 import sharp from "sharp";
 import Stripe from "stripe";
 import { fileURLToPath } from "node:url";
@@ -69,7 +69,7 @@ const reservedSlugs = new Set([
   "www", "api", "app", "admin", "mail", "smtp", "ftp", "ns", "cdn", "static", "media", "files",
   // Rutas y archivos que sirve el propio sitio.
   "assets", "uploads", "backoffice", "preview", "presentacion", "vehiculos", "blog", "cotizaciones",
-  "privacidad", "terminos", "sitemap", "robots", "favicon", "manifest", "health", "status",
+  "privacidad", "terminos", "para-dealers", "sitemap", "robots", "favicon", "manifest", "health", "status",
   // Palabras que confundirían a un comprador sobre quién le está hablando.
   "authentiq", "zevroa", "plataforma", "platform", "soporte", "support", "ayuda", "help", "login", "cuenta", "account",
 ]);
@@ -3789,6 +3789,7 @@ app.get("/sitemap.xml", async (req, res) => {
     const posts = await pool.query("SELECT slug, updated_at AS \"updatedAt\" FROM blog_posts WHERE organization_id=$1 AND status='published' ORDER BY updated_at DESC", [organization.id]);
     const urls = [
       { loc: "/" },
+      { loc: "/para-dealers" },
       ...vehicles.rows.map((vehicle) => ({ loc: `/vehiculos/${vehicleSlug(vehicle)}`, lastmod: vehicle.updatedAt })),
       ...posts.rows.map((post) => ({ loc: `/blog/${post.slug}`, lastmod: post.updatedAt })),
     ];
@@ -3846,7 +3847,7 @@ function publicPathForRequest(req) {
 }
 
 function isKnownPublicRoute(pathname) {
-  if (pathname === "/" || pathname === "/index.html" || pathname === "/presentacion" || pathname === "/preview" || pathname === "/contacto" || pathname === "/ubicacion" || pathname === "/privacidad" || pathname === "/terminos" || pathname === "/backoffice" || pathname === "/backoffice/restablecer-contrasena" || pathname === "/cuenta/restablecer-contrasena") return true;
+  if (pathname === "/" || pathname === "/index.html" || pathname === "/presentacion" || pathname === "/preview" || pathname === "/para-dealers" || pathname === "/contacto" || pathname === "/ubicacion" || pathname === "/privacidad" || pathname === "/terminos" || pathname === "/backoffice" || pathname === "/backoffice/restablecer-contrasena" || pathname === "/cuenta/restablecer-contrasena") return true;
   return /^\/(vehiculos|blog|cotizaciones)\/[^/]+\/?$/i.test(pathname);
 }
 
@@ -3854,15 +3855,17 @@ async function publicRouteMetadata(req, organization, { businessName, origin, de
   const match = pathname.match(/^\/(vehiculos|blog)\/([^/]+)\/?$/i);
   const base = { title: `${businessName} · Vehículos seleccionados`, description: `Inventario de vehículos, atención comercial y citas de ${businessName}.`, image: defaultImage, ogType: "website", robots: "index, follow" };
   const catalogFilterKeys = ["q", "brand", "category", "condition", "fuel", "transmission", "minPrice", "maxPrice", "minYear", "sort"];
-  if (pathname === "/" && catalogFilterKeys.some((key) => String(req.query?.[key] || "").trim())) return { ...base, robots: "noindex, follow" };
+  const hasCatalogFilters = catalogFilterKeys.filter((key) => key !== "sort").some((key) => String(req.query?.[key] || "").trim()) || (String(req.query?.sort || "").trim() && String(req.query?.sort).trim() !== "newest");
+  if (pathname === "/" && hasCatalogFilters) return { ...base, robots: "noindex, follow" };
   if (pathname === "/backoffice" || pathname.endsWith("/restablecer-contrasena")) {
     return { ...base, title: `${businessName} · Panel de control`, description: "Acceso seguro al panel de control.", robots: "noindex, nofollow" };
   }
   const institutionalMetadata = {
+    "/para-dealers": { title: "ZEVROA para dealers · Software para concesionarios", description: "Gestiona inventario, clientes, citas y cotizaciones con un showroom digital pensado para concesionarios." },
     "/contacto": { title: `${businessName} · Contacto`, description: `Contacta con ${businessName} para conocer disponibilidad, citas y próximos pasos.` },
     "/ubicacion": { title: `${businessName} · Ubicación`, description: `Encuentra la ubicación, horarios y canales de atención de ${businessName}.` },
-    "/privacidad": { title: `${businessName} · Privacidad`, description: `Consulta la política de privacidad de ${businessName}.`, robots: "noindex, nofollow" },
-    "/terminos": { title: `${businessName} · Términos`, description: `Consulta los términos de uso de ${businessName}.`, robots: "noindex, nofollow" },
+    "/privacidad": { title: `${businessName} · Privacidad`, description: `Consulta la política de privacidad y el uso de tus datos en ${businessName}.`, robots: "noindex, nofollow" },
+    "/terminos": { title: `${businessName} · Términos`, description: `Consulta los términos de uso y las condiciones de servicio de ${businessName}.`, robots: "noindex, nofollow" },
   };
   if (institutionalMetadata[pathname]) return { ...base, ...institutionalMetadata[pathname] };
   if (pathname === "/preview" || pathname === "/presentacion") return { ...base, title: `${businessName} · ZEVROA`, robots: "noindex, nofollow" };
@@ -3932,6 +3935,12 @@ async function buildPrerender({ req, organization, businessName, origin, canonic
   const empty = { prerender: "", jsonLd: "" };
   try {
     const logoUrl = absolutePublicAsset(origin, settings.logoUrl || organization.logoUrl);
+    if (pathname === "/para-dealers") {
+      return {
+        prerender: dealersPrerender({ businessName: "ZEVROA" }),
+        jsonLd: dealersJsonLd({ canonical }),
+      };
+    }
     if (metadata.vehicle) {
       return {
         prerender: vehiclePrerender({ businessName, vehicle: metadata.vehicle, settings }),
@@ -4014,7 +4023,7 @@ async function sendTenantIndex(req, res, next) {
 // directamente desde Gmail, WhatsApp o un navegador móvil sin estado previo.
 // Si dependen solo del fallback posterior al static handler, un release viejo
 // puede responder 404 antes de que React pueda leer el token.
-app.get(["/", "/index.html", "/presentacion", "/preview", "/contacto", "/ubicacion", "/privacidad", "/terminos", "/backoffice", "/backoffice/restablecer-contrasena", "/cuenta/restablecer-contrasena"], sendTenantIndex);
+app.get(["/", "/index.html", "/presentacion", "/preview", "/para-dealers", "/contacto", "/ubicacion", "/privacidad", "/terminos", "/backoffice", "/backoffice/restablecer-contrasena", "/cuenta/restablecer-contrasena"], sendTenantIndex);
 app.use(express.static(frontendDist, {
   maxAge: "1h",
   setHeaders: (response, filePath) => {

@@ -17,6 +17,7 @@ import { SpeedInsights } from "@vercel/speed-insights/react";
 import UpdateBanner from "./components/UpdateBanner.jsx";
 import ConnectionStatusBanner from "./components/ConnectionStatusBanner.jsx";
 import { mensajeDeError } from "./utils/errors.js";
+import DealersPage from "./landing/DealersPage.jsx";
 
 class SectionBoundary extends Component {
   constructor(props) { super(props); this.state = { failed: false }; }
@@ -869,7 +870,7 @@ function StudioLanding({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPriv
       <StudioReadingProgress reduceMotion={reduceMotion} />
       <nav className={`studio-nav${navCondensed ? " is-condensed" : ""}`} aria-label={t.navAria}>
         <a className="studio-brand" href="#landing-top">ZEVROA<span>°</span></a>
-        <div className="studio-nav-links"><a href="#landing-story">{t.nav.experience}</a><a href="#landing-platform">{t.nav.platform}</a><a href="#landing-product">{t.nav.how}</a><a href="#landing-pricing">{t.pricing.kicker}</a><button type="button" className="studio-navlink" onClick={onViewDemo}>{t.nav.demo}</button></div>
+        <div className="studio-nav-links"><a href="#landing-story">{t.nav.experience}</a><a href="#landing-platform">{t.nav.platform}</a><a href="#landing-product">{t.nav.how}</a><a href="#landing-pricing">{t.pricing.kicker}</a><a href="/para-dealers">Para dealers</a><button type="button" className="studio-navlink" onClick={onViewDemo}>{t.nav.demo}</button></div>
         <div className="studio-nav-actions">
           <StudioLangToggle lang={lang} onChange={setLang} label={t.langAria} />
           <button type="button" className="studio-login" onPointerEnter={loadBackoffice} onFocus={loadBackoffice} onClick={onDealerLogin}>{t.nav.login}</button>
@@ -966,6 +967,7 @@ function StudioLanding({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPriv
           <a href="#landing-platform">{t.nav.platform}</a>
           <a href="#landing-pricing">{t.pricing.kicker}</a>
           <a href="#landing-faq">{t.faq.kicker}</a>
+          <a href="/para-dealers">Para dealers</a>
           <button type="button" onClick={onViewDemo}>{t.nav.demo}</button>
           <button type="button" onClick={onDealerLogin}>{t.nav.login}</button>
         </nav>
@@ -2573,7 +2575,8 @@ function VehicleDetail({ vehicle, vehicles = [], onBack, isFavorite = false, onT
   const [appliedFinancing, setAppliedFinancing] = useState(null);
   const [quickVehicle, setQuickVehicle] = useState(null);
   const images = vehicle.images?.length ? vehicle.images : [{ url: "/assets/hero-highway.webp" }];
-  const structuredData = JSON.stringify({ "@context": "https://schema.org", "@type": "Vehicle", name: `${vehicle.brand} ${vehicle.model}`, model: vehicle.model, vehicleConfiguration: vehicle.variant || undefined, fuelType: vehicle.fuelType || undefined, color: vehicle.exteriorColor || undefined, brand: { "@type": "Brand", name: vehicle.brand }, vehicleModelDate: String(vehicle.year), image: images.map((item) => new URL(publicMediaUrl(item.url), window.location.origin).href), mileageFromOdometer: { "@type": "QuantitativeValue", value: Number(vehicle.mileageKm), unitCode: "KMT" }, offers: { "@type": "Offer", priceCurrency: vehicle.currency || vehicle.priceCurrency || publicCurrency, price: vehicleAmount(vehicle), availability: vehicle.status === "published" ? "https://schema.org/InStock" : "https://schema.org/LimitedAvailability" } }).replace(/</g, "\\u003c");
+  const vehicleStructuredNode = { "@type": ["Product", "Car"], name: `${vehicle.brand} ${vehicle.model}`, url: `${window.location.origin}${vehiclePath(vehicle)}`, model: vehicle.model, vehicleConfiguration: vehicle.variant || undefined, description: vehicle.description || undefined, fuelType: vehicle.fuelType || undefined, color: vehicle.exteriorColor || undefined, brand: { "@type": "Brand", name: vehicle.brand }, vehicleModelDate: String(vehicle.year), image: images.map((item) => new URL(publicMediaUrl(item.url), window.location.origin).href), sku: vehicle.stockNumber || vehicle.inventoryNumber || String(vehicle.id || "") || undefined, mileageFromOdometer: { "@type": "QuantitativeValue", value: Number(vehicle.mileageKm), unitCode: "KMT" }, itemCondition: /nuevo|new/i.test(String(vehicle.condition || "")) ? "https://schema.org/NewCondition" : "https://schema.org/UsedCondition", offers: { "@type": "Offer", priceCurrency: vehicle.currency || vehicle.priceCurrency || publicCurrency, price: vehicleAmount(vehicle), availability: vehicle.status === "published" ? "https://schema.org/InStock" : "https://schema.org/LimitedAvailability", url: `${window.location.origin}${vehiclePath(vehicle)}` } };
+  const structuredData = JSON.stringify({ "@context": "https://schema.org", "@graph": [vehicleStructuredNode, { "@type": "BreadcrumbList", itemListElement: [{ "@type": "ListItem", position: 1, name: "Inicio", item: `${window.location.origin}/` }, { "@type": "ListItem", position: 2, name: "Inventario", item: `${window.location.origin}/#catalog` }, { "@type": "ListItem", position: 3, name: `${vehicle.brand} ${vehicle.model}`, item: `${window.location.origin}${vehiclePath(vehicle)}` }] }] }).replace(/</g, "\\u003c");
   useEffect(() => {
     const model = vehicle.media?.find((item) => item.type === "model_3d");
     if (model?.posterUrl) ensurePreload(publicMediaUrl(model.posterUrl), "image");
@@ -2737,6 +2740,19 @@ function InstitutionalPage({ type, settings = {}, onBack }) {
   const content = institutionalContent[type] || institutionalContent.contact;
   const brand = settings.businessName || getBrandName();
   const configuredSections = type === "location" ? [["Showroom", settings.address || "La dirección del showroom será publicada cuando el negocio confirme esos datos."], ["Horario", settings.hours || "Horario pendiente de confirmación."]] : type === "privacy" ? [["Política vigente", settings.privacyText || content.sections[0][1]]] : type === "terms" ? [["Términos vigentes", settings.termsText || content.sections[0][1]]] : content.sections;
+  useEffect(() => {
+    const labels = { contact: "Contacto", location: "Ubicación", privacy: "Privacidad", terms: "Términos" };
+    const description = { contact: `Contacta con ${brand} para conocer disponibilidad, citas y próximos pasos.`, location: `Encuentra la ubicación, horarios y canales de atención de ${brand}.`, privacy: `Consulta la política de privacidad y el uso de tus datos en ${brand}.`, terms: `Consulta los términos de uso y las condiciones de servicio de ${brand}.` }[type] || `Información de ${brand}.`;
+    const title = `${brand} · ${labels[type] || "Información"}`;
+    document.title = title;
+    setMeta('meta[name="description"]', "description", description);
+    setMeta('meta[property="og:title"]', "og:title", title);
+    setMeta('meta[property="og:description"]', "og:description", description);
+    setMeta('meta[property="og:type"]', "og:type", "website");
+    setMeta('meta[property="og:url"]', "og:url", `${window.location.origin}${window.location.pathname}`);
+    setCanonical(`${window.location.origin}${window.location.pathname}`);
+    setRobots(!["privacy", "terms"].includes(type));
+  }, [brand, type]);
   return <motion.main className="institutional-page" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .24, ease: "easeOut" }}>
      <button className="back-button" type="button" onClick={onBack}>← Volver al catálogo</button>
     <section className="institutional-hero"><span className="eyebrow">{content.eyebrow.replace(/ZEVROA/g, brand)}</span><h1>{content.title}</h1><p>{content.intro.replace(/ZEVROA/g, brand)}</p></section>
@@ -3243,10 +3259,10 @@ function App() {
   useEffect(() => {
     // Los artículos del blog publican sus propios metadatos (BlogArticle). Los efectos del
     // hijo corren antes que los del padre, así que aquí hay que apartarse o los pisaríamos.
-    if (pathname.startsWith("/blog/")) return;
+    if (pathname.startsWith("/blog/") || pathname === "/para-dealers" || pathname.startsWith("/cotizaciones/") || pathname === "/contacto" || pathname === "/ubicacion" || pathname === "/privacidad" || pathname === "/terminos") return;
     const brandName = businessSettings.businessName || "ZEVROA";
     const replaceDefaultBrand = (value) => String(value || "").replace(/AUTHENTIQ/gi, brandName);
-    const privateRoute = pathname === "/backoffice" || pathname.endsWith("/restablecer-contrasena");
+    const privateRoute = pathname === "/backoffice" || pathname.endsWith("/restablecer-contrasena") || pathname === "/presentacion" || pathname === "/preview";
     const title = privateRoute
       ? `${brandName} · Panel de control`
       : activeVehicle
@@ -3267,7 +3283,8 @@ function App() {
     setMeta('meta[name="twitter:image"]', "twitter:image", new URL(image, window.location.origin).href);
     setCanonical(window.location.href.split("#")[0].split("?")[0]);
     // Los vehículos en borrador o la vista previa nunca deben indexarse.
-    const hasCatalogFilters = ["q", "brand", "category", "condition", "fuel", "transmission", "minPrice", "maxPrice", "minYear", "sort"].some((key) => new URLSearchParams(window.location.search).get(key));
+    const queryParams = new URLSearchParams(window.location.search);
+    const hasCatalogFilters = ["q", "brand", "category", "condition", "fuel", "transmission", "minPrice", "maxPrice", "minYear"].some((key) => queryParams.get(key)) || (queryParams.get("sort") && queryParams.get("sort") !== "newest");
     setRobots(!privateRoute && pathname !== "/preview" && !hasCatalogFilters && (!activeVehicle || ["published", "reserved"].includes(activeVehicle.status)));
     if (!loading) trackEvent(activeVehicle ? "vehicle_view" : "catalog_view", { vehicleId: activeVehicle?.id || null });
   }, [activeVehicle?.id, businessSettings.businessName, pathname, loading]);
@@ -3375,13 +3392,14 @@ function App() {
   if (pathname === "/cuenta/restablecer-contrasena") return <PasswordResetPage kind="customer" />;
   if (screen === "admin" || pathname === "/backoffice") return <Suspense fallback={<main className="admin-page"><p className="state-message">Cargando panel de control…</p></main>}><Backoffice initialMode={adminInitialMode} impersonation={impersonatePayload} onBack={() => { setScreen("catalog"); setAdminInitialMode("login"); navigate("/"); refreshVehicles(); }} onVehiclesChanged={syncCatalogVehicle} /></Suspense>;
   if (tenantNotFound) return <TenantNotFoundPage />;
+  if (pathname === "/para-dealers") return <DealersPage onBack={() => navigate("/")} onOpenLogin={() => { setAdminInitialMode("login"); setScreen("admin"); navigate("/backoffice"); }} onRegister={() => { setAdminInitialMode("register"); setScreen("admin"); navigate("/backoffice"); }} />;
   if (pathname === "/presentacion") return <PresentationMode vehicles={vehicles} loading={loading} businessName={businessSettings.businessName} logoUrl={businessSettings.logoUrl} onExit={() => { if (requestedDealerSlug) navigate(`/?dealer=${encodeURIComponent(requestedDealerSlug)}`); else { setShowDemoCatalog(true); navigate("/"); } }} onOpenVehicle={(vehicle) => navigate(vehiclePath(vehicle))} />;
   if (pathname.startsWith("/cotizaciones/") && pathname.slice("/cotizaciones/".length)) return <PublicQuotePage token={pathname.slice("/cotizaciones/".length)} />;
   if (pathname === "/preview") return previewVehicle ? <VehicleDetail vehicle={{ ...previewVehicle, status: "draft" }} onBack={() => navigate("/")} /> : <main className="article-page"><button className="back-button" type="button" onClick={() => navigate("/")}>← Volver al catálogo</button><section className="article-empty"><span className="eyebrow">ZEVROA · VISTA PREVIA</span><h1>No hay una ficha para previsualizar.</h1><p>Regresa al panel, completa el formulario y vuelve a abrir la vista previa.</p></section></main>;
   if (pathname.startsWith("/blog/")) return <BlogArticle slug={pathname.slice("/blog/".length)} onBack={() => navigate("/")} />;
   if (pathname.startsWith("/vehiculos/") && loading) return <main className="article-page"><p className="state-message">Cargando vehículo…</p></main>;
   if (pathname.startsWith("/vehiculos/") && !routeVehicle) return <main className="article-page"><button className="back-button" type="button" onClick={() => navigate("/")}>← Volver al catálogo</button><section className="article-empty"><span className="eyebrow">ZEVROA · INVENTARIO</span><h1>Este vehículo no está disponible.</h1><p>Puede haber sido vendido, archivado o la dirección puede haber cambiado.</p></section></main>;
-  const knownPath = pathname === "/" || pathname === "/backoffice" || pathname === "/presentacion" || pathname === "/preview" || pathname === "/backoffice/restablecer-contrasena" || pathname === "/cuenta/restablecer-contrasena" || Boolean(institutionalRoutes[pathname]) || pathname.startsWith("/cotizaciones/") || pathname.startsWith("/blog/") || pathname.startsWith("/vehiculos/");
+  const knownPath = pathname === "/" || pathname === "/backoffice" || pathname === "/para-dealers" || pathname === "/presentacion" || pathname === "/preview" || pathname === "/backoffice/restablecer-contrasena" || pathname === "/cuenta/restablecer-contrasena" || Boolean(institutionalRoutes[pathname]) || pathname.startsWith("/cotizaciones/") || pathname.startsWith("/blog/") || pathname.startsWith("/vehiculos/");
   if (!knownPath) return <NotFoundPage onBack={() => navigate("/")} />;
   if (institutionalRoutes[pathname]) return <InstitutionalPage type={institutionalRoutes[pathname]} settings={businessSettings} onBack={() => navigate("/")} />;
   if (["contact", "location", "privacy", "terms"].includes(screen)) return <InstitutionalPage type={screen} settings={businessSettings} onBack={() => navigate("/")} />;

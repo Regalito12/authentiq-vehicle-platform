@@ -108,6 +108,10 @@ jobs:
           done
           echo "El API no respondió a tiempo"; exit 1
 
+      - name: Verificar SEO y rutas públicas
+        working-directory: app
+        run: npm run check:seo -- --url=http://127.0.0.1:3001
+
       - name: Verificar (componentes + preflight + smoke + roles + E2E)
         working-directory: app/server
         run: npm run verify
