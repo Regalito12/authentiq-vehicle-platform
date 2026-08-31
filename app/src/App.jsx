@@ -13,6 +13,7 @@ import PhoneField from "./admin/PhoneField.jsx";
 import { AnimatedNumber, BlurFade, Disclosure, ProgressiveBlur, TextReveal } from "./ui/MotionPrimitives.jsx";
 import { AnimatedThemeTogglerStarDemo } from "./components/ui/animated-theme-toggler-star-demo.jsx";
 import { ArrowUpRightIcon, CalendarBlankIcon, CarSimpleIcon, ChartLineUpIcon, ChatsCircleIcon, FileTextIcon, GlobeHemisphereWestIcon, MagnifyingGlassIcon, SquaresFourIcon, UsersThreeIcon } from "@phosphor-icons/react";
+import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/react";
 import UpdateBanner from "./components/UpdateBanner.jsx";
 import ConnectionStatusBanner from "./components/ConnectionStatusBanner.jsx";
@@ -3523,5 +3524,5 @@ class AppErrorBoundary extends Component {
 }
 
 export default function AppRoot() {
-  return <AppErrorBoundary><UpdateBanner /><ConnectionStatusBanner /><App /><CookieConsentBanner /><SpeedInsights /></AppErrorBoundary>;
+  return <AppErrorBoundary><UpdateBanner /><ConnectionStatusBanner /><App /><CookieConsentBanner /><Analytics /><SpeedInsights /></AppErrorBoundary>;
 }
