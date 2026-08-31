@@ -120,12 +120,12 @@ await check("Un identificador libre se ofrece como disponible", async () => {
   assert(body?.available === true, "un slug nuevo aparece como ocupado");
 });
 
-await check("Un identificador ya usado se marca como ocupado", async () => {
-  // `dealer-demo` solo existe después del seed local; CI aplica únicamente el
-  // esquema estructural. La organización de plataforma sí forma parte del
-  // baseline y sirve como dato estable para este smoke test.
+await check("El identificador principal de plataforma no queda disponible", async () => {
+  // `dealer-demo` solo existe después del seed local y `zevroa` está reservado
+  // por la plataforma. El contrato público es que el identificador oficial no
+  // pueda elegirse para un segundo concesionario.
   const { body } = await request("/api/auth/slug-available?slug=zevroa");
-  assert(body?.available === false && body?.reason === "taken", "no detecta el slug en uso");
+  assert(body?.available === false && ["reserved", "taken"].includes(body?.reason), "el identificador principal aparece disponible");
 });
 
 console.log(checks.join("\n"));
