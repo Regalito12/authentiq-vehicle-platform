@@ -121,7 +121,10 @@ await check("Un identificador libre se ofrece como disponible", async () => {
 });
 
 await check("Un identificador ya usado se marca como ocupado", async () => {
-  const { body } = await request("/api/auth/slug-available?slug=dealer-demo");
+  // `dealer-demo` solo existe después del seed local; CI aplica únicamente el
+  // esquema estructural. La organización de plataforma sí forma parte del
+  // baseline y sirve como dato estable para este smoke test.
+  const { body } = await request("/api/auth/slug-available?slug=zevroa");
   assert(body?.available === false && body?.reason === "taken", "no detecta el slug en uso");
 });
 
