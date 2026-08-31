@@ -39,6 +39,7 @@ const expectedFiles = [
   "055_crm_contact_relationships.sql",
   "056_currency_normalization.sql",
   "057_deduplicate_vehicle_models.sql",
+  "058_provision_demo_showroom.sql",
 ];
 const expectedTables = ["appointment_blocks", "organizations", "organization_members", "organization_settings", "organization_integrations", "social_drafts", "billing_subscriptions", "platform_plans", "vehicle_3d_jobs", "password_reset_tokens", "billing_webhook_events", "email_delivery_log", "public_request_idempotency", "customer_notifications", "crm_contacts", "crm_contact_events", "admin_invitations"];
 const expectedColumns = [

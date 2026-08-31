@@ -20,6 +20,7 @@
     ,{ "file": "055_crm_contact_relationships.sql", "sha256": "9cd9f6f2a130909d5f1ab3a04cd468cfc58d2a200a1d5fb920a4d6fbb1123bf1", "reversible": false, "notes": "Enlaces seguros de CRM para citas, ofertas y cotizaciones." }
     ,{ "file": "056_currency_normalization.sql", "sha256": "547c53f48307298351301ed2ce79b5161dac899e2001a476cb8354e4e085990c", "reversible": true, "notes": "Importes genéricos y moneda explícita para vehículos, ofertas y cotizaciones." }
     ,{ "file": "057_deduplicate_vehicle_models.sql", "sha256": "113455f5783990857146f0db1eab29764b03cb48c3a8e92e706d3f2d8340b0ba", "reversible": true, "notes": "Limpieza segura de variantes repetidas dentro del modelo de vehículo." }
+    ,{ "file": "058_provision_demo_showroom.sql", "sha256": "a6c19a5fb77f6864402fc1375f7e9c0bfa4d35c96c728c6b785d149cbd93b33e", "reversible": false, "notes": "Provisiona un showroom demo curado e independiente con los vehículos publicados de ZEVROA." }
   ],
   "rules": {
     "newMigrationPrefixMustBeUnique": true,
