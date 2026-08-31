@@ -34,7 +34,11 @@ for (const entry of tracked) {
   if (!entry?.file || !entry?.sha256) { errors.push("entrada de manifiesto incompleta"); continue; }
   if (!files.includes(entry.file)) { errors.push(`no existe ${entry.file}`); continue; }
   const contents = await fs.readFile(path.join(databaseDir, entry.file));
-  const actualHash = createHash("sha256").update(contents).digest("hex");
+  // Git conserva estos SQL con LF, pero Windows puede materializarlos como
+  // CRLF por core.autocrlf. El manifiesto valida el contenido, no el sistema
+  // operativo, así que el hash debe ser idéntico en local, CI y Vercel.
+  const normalizedContents = contents.toString("utf8").replaceAll("\r\n", "\n");
+  const actualHash = createHash("sha256").update(normalizedContents, "utf8").digest("hex");
   if (actualHash !== String(entry.sha256).toLowerCase()) errors.push(`checksum cambió en ${entry.file}`);
 }
 
