@@ -5177,7 +5177,7 @@ html[data-theme="dark"] .dealer-plan-option-copy strong, html[data-theme="dark"]
 .register-legal-note { margin: 0; max-width: 52ch; color: var(--text-muted); font-size: 14px; line-height: 1.55; }
 .demo-mode-banner { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 42px; padding: 9px clamp(18px, 4vw, 52px); background: #111516; color: #f7f4ed; font: 14px "IBM Plex Mono", monospace; letter-spacing: .02em; }
 .demo-mode-banner strong { color: var(--auth-gold, #e2b95f); font-weight: 500; }
-.demo-mode-banner a { color: #f7f4ed; font-weight: 500; text-decoration: none; white-space: nowrap; }
+.demo-mode-banner a { display: inline-flex; align-items: center; min-height: 28px; color: #f7f4ed; font-weight: 500; text-decoration: none; white-space: nowrap; }
 .demo-mode-banner a:hover, .demo-mode-banner a:focus-visible { color: var(--auth-gold, #e2b95f); }
 html[data-theme="dark"] .password-field button { background: #171b1b; border-color: var(--rule-dark); color: #b8b4ac; }
 html[data-theme="dark"] .slug-preview, html[data-theme="dark"] .password-rule, html[data-theme="dark"] .register-legal-note { color: #b8b4ac; }
