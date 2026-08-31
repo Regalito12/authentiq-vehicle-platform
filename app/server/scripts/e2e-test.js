@@ -344,8 +344,16 @@ async function checkDealerSignup() {
 // restriccion de la base solo admite 'test_drive'), asi que TODA reserva moria
 // con un 500 y el comprador leia "No se pudo registrar la cita".
 async function checkAppointmentBooking() {
-  // Se toma un vehiculo del catalogo publico, no el de las pruebas anteriores:
-  // ese ya quedo desactivado por el ultimo paso del flujo principal.
+  // El flujo principal desactiva su unidad para probar que deja de publicarse.
+  // Se vuelve a publicar de forma explícita para que esta prueba sea autónoma
+  // y no dependa de datos demo que CI no instala.
+  const adminLogin = await api("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
+  const adminToken = adminLogin.body?.token || "";
+  const restored = created.vehicleId && adminToken
+    ? await api(`/api/admin/vehicles/${created.vehicleId}`, { token: adminToken, method: "PUT", body: JSON.stringify({ ...baseVehicle, status: "published" }) })
+    : { status: 0, ok: false };
+  check("La unidad E2E se vuelve a publicar para probar citas", restored.ok, `status ${restored.status}`);
+
   const catalog = await api("/api/vehicles");
   const vehicle = (catalog.body?.data || []).find((item) => item.status === "published");
   check("Hay un vehiculo publicado con el que reservar", Boolean(vehicle), `${(catalog.body?.data || []).length} en catalogo`);
