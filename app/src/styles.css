@@ -1612,6 +1612,10 @@ html[data-theme="dark"] .report-insight > p, html[data-theme="dark"] .insight-li
 .detail-description p { max-width: 58ch; margin: 12px 0 0; color: var(--text-warm); line-height: 1.55; }
 .detail-image-wrap[role="button"] { cursor: zoom-in; }
 .article-page { max-width: 1040px; min-height: 100vh; margin: 0 auto; padding: 30px 42px 100px; }
+.blog-index-intro { max-width: 720px; margin: clamp(72px, 12vw, 150px) auto 58px; }
+.blog-index-intro h1 { margin: 16px 0 14px; font-size: clamp(44px, 7vw, 86px); font-weight: 400; line-height: .94; letter-spacing: -.055em; }
+.blog-index-intro p { max-width: 52ch; margin: 0; color: var(--text-muted); font-size: 18px; line-height: 1.5; }
+.blog-index-page .blog-public { margin-top: 0; }
 .article-body { max-width: 820px; margin: 90px auto 0; }
 .article-body header { max-width: 700px; }
 .article-body h1 { margin: 18px 0 20px; font-size: clamp(48px, 8vw, 92px); font-weight: 400; line-height: .94; letter-spacing: -.045em; text-wrap: balance; }

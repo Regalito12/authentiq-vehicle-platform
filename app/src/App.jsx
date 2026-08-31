@@ -2405,7 +2405,7 @@ function CookieConsentBanner() {
       window.removeEventListener("zevroa:navigation", syncPath);
     };
   }, []);
-  const isPublicExperience = path === "/" || path.startsWith("/vehiculos/") || path.startsWith("/blog/");
+  const isPublicExperience = path === "/" || path === "/catalogo" || path === "/blog" || path.startsWith("/vehiculos/") || path.startsWith("/blog/");
   if (!visible || !isPublicExperience) return null;
   const accept = () => { localStorage.setItem("authentiq_cookie_consent", "accepted"); setVisible(false); };
   const reject = () => { localStorage.setItem("authentiq_cookie_consent", "rejected"); setVisible(false); };
@@ -3413,9 +3413,10 @@ function App() {
   if (pathname.startsWith("/blog/")) return <BlogArticle slug={pathname.slice("/blog/".length)} onBack={() => navigate("/")} />;
   if (pathname.startsWith("/vehiculos/") && loading) return <main className="article-page"><p className="state-message">Cargando vehículo…</p></main>;
   if (pathname.startsWith("/vehiculos/") && !routeVehicle) return <main className="article-page"><button className="back-button" type="button" onClick={() => navigate("/")}>← Volver al catálogo</button><section className="article-empty"><span className="eyebrow">ZEVROA · INVENTARIO</span><h1>Este vehículo no está disponible.</h1><p>Puede haber sido vendido, archivado o la dirección puede haber cambiado.</p></section></main>;
-  const knownPath = pathname === "/" || pathname === "/backoffice" || pathname === "/para-dealers" || pathname === "/presentacion" || pathname === "/preview" || pathname === "/backoffice/restablecer-contrasena" || pathname === "/cuenta/restablecer-contrasena" || Boolean(institutionalRoutes[pathname]) || pathname.startsWith("/cotizaciones/") || pathname.startsWith("/blog/") || pathname.startsWith("/vehiculos/");
+  const knownPath = pathname === "/" || pathname === "/catalogo" || pathname === "/blog" || pathname === "/backoffice" || pathname === "/para-dealers" || pathname === "/presentacion" || pathname === "/preview" || pathname === "/backoffice/restablecer-contrasena" || pathname === "/cuenta/restablecer-contrasena" || Boolean(institutionalRoutes[pathname]) || pathname.startsWith("/cotizaciones/") || pathname.startsWith("/blog/") || pathname.startsWith("/vehiculos/");
   if (!knownPath) return <NotFoundPage onBack={() => navigate("/")} />;
   if (institutionalRoutes[pathname]) return <InstitutionalPage type={institutionalRoutes[pathname]} settings={businessSettings} onBack={() => navigate("/")} />;
+  if (pathname === "/blog") return <BlogIndexPage posts={posts} onBack={() => navigate("/")} />;
   if (["contact", "location", "privacy", "terms"].includes(screen)) return <InstitutionalPage type={screen} settings={businessSettings} onBack={() => navigate("/")} />;
   if (activeVehicle) return <VehicleDetail vehicle={activeVehicle} vehicles={vehicles} onBack={() => navigate("/")} isFavorite={favoriteIds.includes(activeVehicle.id)} onToggleFavorite={toggleFavorite} customerToken={customerToken} compareVehicles={compareVehicles} favoriteIds={favoriteIds} onOpenVehicle={(vehicle) => navigate(vehiclePath(vehicle))} onToggleCompare={toggleCompare} whatsapp={businessSettings.whatsapp} />;
   if (pathname === "/" && !settingsLoaded && !showDemoCatalog && !requestedDealerSlug && !requestedDemoMode) return <main className="app-boot-shell" aria-hidden="true" />;
@@ -3539,4 +3540,14 @@ class AppErrorBoundary extends Component {
 
 export default function AppRoot() {
   return <AppErrorBoundary><UpdateBanner /><ConnectionStatusBanner /><App /><CookieConsentBanner /><Analytics /><SpeedInsights /></AppErrorBoundary>;
+}
+
+function BlogIndexPage({ posts, onBack }) {
+  useEffect(() => {
+    document.title = `${getBrandName()} · Journal`;
+    setMeta('meta[name="description"]', "description", `Guías, historias y cultura automotriz de ${getBrandName()}.`);
+    setCanonical(`${window.location.origin}/blog`);
+    setRobots(true);
+  }, []);
+  return <main className="article-page blog-index-page"><button className="back-button" type="button" onClick={onBack}>← Volver al showroom</button><section className="blog-index-intro"><span className="eyebrow">{getBrandName()} · JOURNAL</span><h1>Ideas para conducir mejor.</h1><p>Guías, historias y cultura automotriz para elegir con más contexto.</p></section>{posts.length ? <BlogSection posts={posts} /> : <section className="article-empty"><span className="eyebrow">JOURNAL</span><h2>Aún no hay artículos publicados.</h2><p>Vuelve pronto para descubrir nuevas historias del showroom.</p></section>}</main>;
 }

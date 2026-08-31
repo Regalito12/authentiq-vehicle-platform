@@ -103,6 +103,7 @@ const googleCalendarSettings = {
   tokenEncryptionKey: String(process.env.GOOGLE_CALENDAR_TOKEN_ENCRYPTION_KEY || "").trim(),
 };
 const googleCalendarConfigured = Object.values(googleCalendarSettings).every(Boolean);
+const googleCalendarRequired = String(process.env.GOOGLE_CALENDAR_REQUIRED || "false").trim().toLowerCase() === "true";
 const googleCalendarTokenKey = String(process.env.GOOGLE_CALENDAR_TOKEN_ENCRYPTION_KEY || "").trim();
 const googleCalendarRedirectUri = String(process.env.GOOGLE_CALENDAR_REDIRECT_URI || `${publicApiUrl || `http://localhost:${port}`}/api/integrations/google-calendar/callback`).trim();
 const googleCalendarScope = "https://www.googleapis.com/auth/calendar.events";
@@ -113,6 +114,7 @@ if (process.env.NODE_ENV === "production") {
   if (botProtectionRequired && !turnstileSecretKey) throw new Error("TURNSTILE_SECRET_KEY es obligatorio cuando BOT_PROTECTION_REQUIRED=true");
   if (turnstileSecretKey && !turnstileSiteKey) throw new Error("VITE_TURNSTILE_SITE_KEY es obligatorio cuando TURNSTILE_SECRET_KEY está configurado");
   if (googleCalendarConfigured && !googleCalendarTokenKey) throw new Error("GOOGLE_CALENDAR_TOKEN_ENCRYPTION_KEY es obligatorio cuando Google Calendar está configurado");
+  if (googleCalendarRequired && !googleCalendarConfigured) throw new Error("Google Calendar es obligatorio cuando GOOGLE_CALENDAR_REQUIRED=true; completa CLIENT_ID, CLIENT_SECRET, REDIRECT_URI y TOKEN_ENCRYPTION_KEY");
   const calendarPartiallyConfigured = Object.values(googleCalendarSettings).some(Boolean) && !googleCalendarConfigured;
   if (calendarPartiallyConfigured) console.warn("Google Calendar está parcialmente configurado; se mostrará como pendiente hasta completar OAuth.");
 }
@@ -3333,7 +3335,7 @@ app.get("/api/admin/integrations", authenticate, requireRoles("admin"), async (r
       localMode: true,
       health: {
         email: { provider: "resend", configured: emailDeliveryConfigured, status: emailDeliveryConfigured ? "ready" : "not_configured", detail: emailDeliveryConfigured ? "Emails transaccionales activos" : "Añade RESEND_API_KEY y RESEND_FROM_EMAIL" },
-        googleCalendar: { provider: "google_calendar", configured: googleCalendarConfigured, status: googleCalendarConfigured ? "oauth_ready" : "local_export_ready", detail: googleCalendarConfigured ? "OAuth listo para completar la autorización" : "Exportación .ics disponible; falta OAuth" },
+        googleCalendar: { provider: "google_calendar", configured: googleCalendarConfigured, required: googleCalendarRequired, status: googleCalendarConfigured ? "oauth_ready" : "local_export_ready", detail: googleCalendarConfigured ? "OAuth listo; cada dealer debe autorizar su propia cuenta" : "Exportación .ics disponible; falta OAuth" },
         metaSocial: { provider: "meta_social", configured: metaAppConfigured, status: metaAppConfigured ? "oauth_ready" : "drafts_ready", detail: metaAppConfigured ? "App Meta configurada; falta autorizar cada dealer" : "Borradores listos; falta App Meta y autorización" },
         billing: { provider: stripeClient ? "stripe" : billingProvider, configured: billingReady, status: billingReady ? "checkout_ready" : "local_demo", detail: billingReady ? (stripeWebhookSecret ? "Stripe listo; webhook firmado configurado" : "Stripe listo para checkout; falta el webhook firmado") : "Modo demo; añade credenciales de Stripe" },
         domain: { configured: Boolean(customDomain), status: !customDomain ? "not_configured" : requestHost === customDomain ? "verified" : "dns_pending", detail: !customDomain ? "Asigna un dominio desde Configuración" : requestHost === customDomain ? "La petición llegó por el dominio personalizado" : `Apunta DNS hacia el hosting y prueba ${customDomain}`, domain: customDomain || null },
@@ -3880,7 +3882,7 @@ function publicPathForRequest(req) {
 }
 
 function isKnownPublicRoute(pathname) {
-  if (pathname === "/" || pathname === "/index.html" || pathname === "/presentacion" || pathname === "/preview" || pathname === "/para-dealers" || pathname === "/contacto" || pathname === "/ubicacion" || pathname === "/privacidad" || pathname === "/terminos" || pathname === "/backoffice" || pathname === "/backoffice/restablecer-contrasena" || pathname === "/cuenta/restablecer-contrasena") return true;
+  if (pathname === "/" || pathname === "/index.html" || pathname === "/catalogo" || pathname === "/blog" || pathname === "/presentacion" || pathname === "/preview" || pathname === "/para-dealers" || pathname === "/contacto" || pathname === "/ubicacion" || pathname === "/privacidad" || pathname === "/terminos" || pathname === "/backoffice" || pathname === "/backoffice/restablecer-contrasena" || pathname === "/cuenta/restablecer-contrasena") return true;
   return /^\/(vehiculos|blog|cotizaciones)\/[^/]+\/?$/i.test(pathname);
 }
 
@@ -3894,6 +3896,8 @@ async function publicRouteMetadata(req, organization, { businessName, origin, de
     return { ...base, title: `${businessName} · Panel de control`, description: "Acceso seguro al panel de control.", robots: "noindex, nofollow" };
   }
   const institutionalMetadata = {
+    "/catalogo": { title: `${businessName} · Inventario`, description: `Explora el inventario disponible de ${businessName}, compara modelos y agenda una visita.` },
+    "/blog": { title: `${businessName} · Journal`, description: `Guías, historias y cultura automotriz de ${businessName}.` },
     "/para-dealers": { title: "ZEVROA para dealers · Software para concesionarios", description: "Gestiona inventario, clientes, citas y cotizaciones con un showroom digital pensado para concesionarios." },
     "/contacto": { title: `${businessName} · Contacto`, description: `Contacta con ${businessName} para conocer disponibilidad, citas y próximos pasos.` },
     "/ubicacion": { title: `${businessName} · Ubicación`, description: `Encuentra la ubicación, horarios y canales de atención de ${businessName}.` },
@@ -3982,7 +3986,7 @@ async function buildPrerender({ req, organization, businessName, origin, canonic
     }
     // Solo la portada: las rutas internas (blog, cuenta, preview) no ganan nada
     // con un catalogo incrustado y anadirian una consulta por visita.
-    if (pathname !== "/" && pathname !== "/index.html") return empty;
+    if (!["/", "/index.html", "/catalogo"].includes(pathname)) return empty;
     const result = await pool.query(prerenderCatalogQuery, [organization.id]);
     const vehicles = result.rows.map((vehicle) => ({ ...vehicle, slug: vehicleSlug(vehicle) }));
     return {
@@ -4056,7 +4060,7 @@ async function sendTenantIndex(req, res, next) {
 // directamente desde Gmail, WhatsApp o un navegador móvil sin estado previo.
 // Si dependen solo del fallback posterior al static handler, un release viejo
 // puede responder 404 antes de que React pueda leer el token.
-app.get(["/", "/index.html", "/presentacion", "/preview", "/para-dealers", "/contacto", "/ubicacion", "/privacidad", "/terminos", "/backoffice", "/backoffice/restablecer-contrasena", "/cuenta/restablecer-contrasena"], sendTenantIndex);
+app.get(["/", "/index.html", "/catalogo", "/blog", "/presentacion", "/preview", "/para-dealers", "/contacto", "/ubicacion", "/privacidad", "/terminos", "/backoffice", "/backoffice/restablecer-contrasena", "/cuenta/restablecer-contrasena"], sendTenantIndex);
 app.use(express.static(frontendDist, {
   maxAge: "1h",
   setHeaders: (response, filePath) => {

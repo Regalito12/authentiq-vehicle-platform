@@ -4,6 +4,8 @@ import AxeBuilder from "@axe-core/playwright";
 const routes = [
   { path: "/backoffice", heading: /acceso administrativo/i },
   { path: "/backoffice/", heading: /acceso administrativo/i },
+  { path: "/catalogo", heading: /inventario|vehículos/i },
+  { path: "/blog", heading: /journal|artículos/i },
   { path: "/privacidad", heading: /datos|privacidad/i },
   { path: "/terminos", heading: /experiencia|términos/i },
 ];
