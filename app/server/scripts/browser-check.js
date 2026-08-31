@@ -5,7 +5,7 @@ import path from "node:path";
 
 // Verificación en navegador real sin añadir dependencias: lanza el Chrome ya instalado
 // con el puerto de depuración abierto y lo conduce por Chrome DevTools Protocol
-// usando el WebSocket nativo de Node 22.
+// usando el WebSocket nativo de Node 24.
 //
 //   node scripts/browser-check.js [--url http://127.0.0.1:5173] [--headful]
 //
@@ -17,6 +17,8 @@ const siteUrl = (args.includes("--url") ? args[args.indexOf("--url") + 1] : proc
 const headful = args.includes("--headful");
 const skip3d = args.includes("--skip-3d");
 const siteOrigin = new URL(`${siteUrl}/`);
+const isLocalSite = siteOrigin.hostname === "localhost" || siteOrigin.hostname === "127.0.0.1";
+const isLocalOnlyTelemetry = (url) => isLocalSite && new URL(url).pathname === "/_vercel/speed-insights/script.js";
 const configuredDemoTenant = process.env.BROWSER_TENANT;
 const demoTenant = String(configuredDemoTenant !== undefined
   ? configuredDemoTenant
@@ -174,6 +176,10 @@ async function main() {
       }
       if (method === "Network.requestWillBeSent") requestUrls.set(params.requestId, params.request.url);
       if (method === "Network.responseReceived" && params.response.status >= 400) {
+        // Vercel injects this script only on its hosted runtime. A local
+        // Express/Vite run cannot serve it and should not look broken because
+        // an optional analytics asset is absent.
+        if (isLocalOnlyTelemetry(params.response.url)) return;
         // El showroom comprueba en segundo plano si existe una sesión de
         // comprador basada en cookie HttpOnly. Para un visitante anónimo, el
         // 401 de este endpoint privado es el resultado esperado, no un recurso

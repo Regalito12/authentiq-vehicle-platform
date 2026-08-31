@@ -60,7 +60,7 @@ const baseVehicle = {
 };
 
 async function main() {
-  console.log(`E2E AUTHENTIQ · ${baseUrl}\n`);
+  console.log(`E2E ZEVROA · ${baseUrl}\n`);
 
   // --- 1. Autenticación y protección de rutas -------------------------------
   const noToken = await api("/api/admin/vehicles");
@@ -110,10 +110,15 @@ async function main() {
   const listed = (publicAfter.body?.data || []).find((item) => item.id === created.vehicleId);
   check("Vehículo publicado aparece en el catálogo público", Boolean(listed));
   check("La ficha pública trae imágenes y ficha técnica", Boolean(listed?.images?.length && listed?.engine && listed?.fuelType));
+  check("El contrato público expone precio y moneda", Number.isFinite(Number(listed?.price)) && /^[A-Z]{3,8}$/.test(listed?.currency || ""), `price=${listed?.price} currency=${listed?.currency}`);
 
   // --- 6. Consentimiento y ofertas -----------------------------------------
   const offerNoConsent = await api("/api/offers", { method: "POST", body: JSON.stringify({ vehicleId: created.vehicleId, buyerName: `Comprador ${marker}`, amountUsd: 120000, privacyConsent: false }) });
   check("Oferta sin consentimiento se rechaza", offerNoConsent.status === 400, `status ${offerNoConsent.status}`);
+
+  const wrongOfferCurrency = listed?.currency === "USD" ? "EUR" : "USD";
+  const offerWrongCurrency = await api("/api/offers", { method: "POST", body: JSON.stringify({ vehicleId: created.vehicleId, buyerName: `Comprador ${marker}`, buyerEmail: `moneda-${stamp}@authentiq.test`, amount: 120000, currency: wrongOfferCurrency, message: marker, privacyConsent: true }) });
+  check("Oferta con moneda incorrecta se rechaza", offerWrongCurrency.status === 400, `status ${offerWrongCurrency.status}`);
 
   const offer = await api("/api/offers", { method: "POST", body: JSON.stringify({ vehicleId: created.vehicleId, buyerName: `Comprador ${marker}`, buyerEmail: `e2e-${stamp}@authentiq.test`, amountUsd: 120000, message: marker, privacyConsent: true }) });
   check("Comprador envía una oferta", offer.status === 201, `status ${offer.status}`);
@@ -136,6 +141,8 @@ async function main() {
   }
 
   // --- 7. Cotización --------------------------------------------------------
+  const quoteWrongCurrency = await api("/api/admin/quotes", { token, method: "POST", body: JSON.stringify({ vehicleId: created.vehicleId, customerName: `Comprador ${marker}`, baseAmount: 125000, discountAmount: 5000, currency: wrongOfferCurrency, validUntil: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10) }) });
+  check("Cotización con moneda incorrecta se rechaza", quoteWrongCurrency.status === 400, `status ${quoteWrongCurrency.status}`);
   const quote = await api("/api/admin/quotes", { token, method: "POST", body: JSON.stringify({ vehicleId: created.vehicleId, leadId: created.leadIds[0] || null, customerName: `Comprador ${marker}`, customerEmail: `e2e-${stamp}@authentiq.test`, basePriceUsd: 125000, discountUsd: 5000, validUntil: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10), notes: marker }) });
   check("Se crea una cotización", quote.status === 201, `status ${quote.status}`);
   if (quote.status === 201) {
@@ -337,8 +344,16 @@ async function checkDealerSignup() {
 // restriccion de la base solo admite 'test_drive'), asi que TODA reserva moria
 // con un 500 y el comprador leia "No se pudo registrar la cita".
 async function checkAppointmentBooking() {
-  // Se toma un vehiculo del catalogo publico, no el de las pruebas anteriores:
-  // ese ya quedo desactivado por el ultimo paso del flujo principal.
+  // El flujo principal desactiva su unidad para probar que deja de publicarse.
+  // Se vuelve a publicar de forma explícita para que esta prueba sea autónoma
+  // y no dependa de datos demo que CI no instala.
+  const adminLogin = await api("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
+  const adminToken = adminLogin.body?.token || "";
+  const restored = created.vehicleId && adminToken
+    ? await api(`/api/admin/vehicles/${created.vehicleId}`, { token: adminToken, method: "PUT", body: JSON.stringify({ ...baseVehicle, status: "published" }) })
+    : { status: 0, ok: false };
+  check("La unidad E2E se vuelve a publicar para probar citas", restored.ok, `status ${restored.status}`);
+
   const catalog = await api("/api/vehicles");
   const vehicle = (catalog.body?.data || []).find((item) => item.status === "published");
   check("Hay un vehiculo publicado con el que reservar", Boolean(vehicle), `${(catalog.body?.data || []).length} en catalogo`);

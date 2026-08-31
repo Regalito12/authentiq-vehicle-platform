@@ -3,11 +3,11 @@
 La aplicación está separada en dos servicios:
 
 - `app/`: frontend React/Vite. Se compila con `npm.cmd run build` y se sirve como archivos estáticos desde `app/dist`.
-- `app/server/`: API Express/PostgreSQL. Se inicia con `npm.cmd start` y necesita Node 22 LTS o compatible.
+- `app/server/`: API Express/PostgreSQL. Se inicia con `npm.cmd start` y requiere Node 24 (`app/.nvmrc`).
 
 ## Arquitectura recomendada para producción
 
-El proyecto ahora incluye entrypoints de Vercel para el API Express (`api/index.js` si la raíz del proyecto es el repositorio y `app/api/index.js` si Root Directory es `app`). Así puede funcionar en un solo proyecto Vercel con Supabase como PostgreSQL y Storage. En modo serverless los recordatorios de proceso largo no se ejecutan como un servidor persistente y los archivos temporales viven en `/tmp`; por eso Supabase Storage y un cron externo o Vercel Cron siguen siendo obligatorios para producción. Como alternativa, el `render.yaml` conserva la topología de un servicio Node persistente.
+El proyecto usa Vercel como hosting oficial, con `app/vercel.json` como configuración efectiva, y Supabase como PostgreSQL y Storage. En modo serverless los archivos temporales viven en `/tmp`, por eso Supabase Storage y Vercel Cron son obligatorios para producción. La configuración histórica de Render está archivada y no forma parte del release.
 
 ## Variables del API
 
@@ -34,7 +34,7 @@ UPLOADS_DIR=/var/lib/zevroa/uploads
 4. Crear el administrador con `npm.cmd run create-admin -- --email=...`.
 5. Confirmar `GET /api/health` antes de abrir el catálogo.
 
-La base completa actual llega hasta `049_rebrand_zevroa.sql`. En una base nueva hay que aplicar las migraciones estructurales en el orden documentado por CI y excluir los cuatro archivos de demo. El comando `npm.cmd run migrate:production` aplica únicamente `045`–`049` porque está diseñado para una base de producción que ya tiene aplicado el baseline `001`–`044`; no sustituye la instalación inicial.
+La base completa actual llega hasta `056_currency_normalization.sql`. En una base nueva hay que aplicar las migraciones estructurales en el orden documentado por CI y excluir los cuatro archivos de demo. El comando `npm.cmd run migrate:production` aplica `045`–`056` porque está diseñado para una base de producción que ya tiene aplicado el baseline `001`–`044`; no sustituye la instalación inicial.
 
 ## Frontend
 

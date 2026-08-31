@@ -90,8 +90,8 @@ function registerCoreSaasRoutes({ app, pool, authenticate, requireRoles, adminOr
       const [leads, appointments, quotes, offers] = await Promise.all([
         pool.query(`SELECT id, lead_type AS "leadType", name, email, phone, message, status, priority, next_action AS "nextAction", next_action_at AS "nextActionAt", created_at AS "createdAt" FROM leads WHERE contact_id=$1 AND organization_id=$2 ORDER BY created_at DESC`, [req.params.id, organizationId]),
         pool.query(`SELECT id, requested_date AS "date", requested_time AS "time", status, created_at AS "createdAt" FROM test_drive_requests WHERE contact_id=$1 AND organization_id=$2 ORDER BY created_at DESC`, [req.params.id, organizationId]),
-        pool.query(`SELECT id, quote_number AS "quoteNumber", total_usd AS "totalUsd", currency, status, created_at AS "createdAt" FROM quotes WHERE contact_id=$1 AND organization_id=$2 ORDER BY created_at DESC`, [req.params.id, organizationId]),
-        pool.query(`SELECT id, amount_usd AS "amountUsd", status, created_at AS "createdAt" FROM offers WHERE contact_id=$1 AND organization_id=$2 ORDER BY created_at DESC`, [req.params.id, organizationId]),
+        pool.query(`SELECT id, quote_number AS "quoteNumber", total_amount AS "totalAmount", COALESCE(total_amount, total_usd) AS "totalUsd", currency, status, created_at AS "createdAt" FROM quotes WHERE contact_id=$1 AND organization_id=$2 ORDER BY created_at DESC`, [req.params.id, organizationId]),
+        pool.query(`SELECT id, amount AS amount, COALESCE(amount, amount_usd) AS "amountUsd", currency, status, created_at AS "createdAt" FROM offers WHERE contact_id=$1 AND organization_id=$2 ORDER BY created_at DESC`, [req.params.id, organizationId]),
       ]);
       res.json({ data: { ...contact.rows[0], leads: leads.rows, appointments: appointments.rows, quotes: quotes.rows, offers: offers.rows } });
     } catch (error) {
@@ -118,10 +118,10 @@ function registerCoreSaasRoutes({ app, pool, authenticate, requireRoles, adminOr
           SELECT 'appointment_' || COALESCE(a.status, 'requested'), COALESCE(a.notes, 'Cita registrada'), jsonb_build_object('appointmentId', a.id, 'date', a.requested_date, 'time', a.requested_time), a.created_at, NULL, NULL
           FROM test_drive_requests a WHERE a.contact_id=$1 AND a.organization_id=$2
           UNION ALL
-          SELECT 'quote_' || q.status, 'Cotización ' || q.quote_number, jsonb_build_object('quoteId', q.id, 'quoteNumber', q.quote_number, 'totalUsd', q.total_usd), q.created_at, q.created_by, u.full_name
+          SELECT 'quote_' || q.status, 'Cotización ' || q.quote_number, jsonb_build_object('quoteId', q.id, 'quoteNumber', q.quote_number, 'totalAmount', q.total_amount, 'totalUsd', COALESCE(q.total_amount, q.total_usd), 'currency', q.currency), q.created_at, q.created_by, u.full_name
           FROM quotes q LEFT JOIN admin_users u ON u.id=q.created_by WHERE q.contact_id=$1 AND q.organization_id=$2
           UNION ALL
-          SELECT 'offer_' || o.status, 'Oferta recibida', jsonb_build_object('offerId', o.id, 'amountUsd', o.amount_usd), o.created_at, NULL, NULL
+          SELECT 'offer_' || o.status, 'Oferta recibida', jsonb_build_object('offerId', o.id, 'amount', o.amount, 'amountUsd', COALESCE(o.amount, o.amount_usd), 'currency', o.currency), o.created_at, NULL, NULL
           FROM offers o WHERE o.contact_id=$1 AND o.organization_id=$2
         ) timeline
         ORDER BY created_at DESC
@@ -198,8 +198,8 @@ function registerCoreSaasRoutes({ app, pool, authenticate, requireRoles, adminOr
     const organizationId = requireOrganization(req, res);
     if (!organizationId) return;
     try {
-      const result = await pool.query(`SELECT v.id, b.name AS brand, v.model, v.variant, v.year, v.status, v.stock_number AS "stockNumber", v.price_usd AS "priceUsd", v.mileage_km AS "mileageKm", v.location, v.created_at AS "createdAt", v.updated_at AS "updatedAt" FROM vehicles v LEFT JOIN vehicle_brands b ON b.id=v.brand_id WHERE v.organization_id=$1 ORDER BY v.created_at DESC`, [organizationId]);
-      sendCsv(res, "zevroa-inventario.csv", [{ key: "id", label: "ID" }, { key: "brand", label: "Marca" }, { key: "model", label: "Modelo" }, { key: "variant", label: "Versión" }, { key: "year", label: "Año" }, { key: "status", label: "Estado" }, { key: "stockNumber", label: "Stock" }, { key: "priceUsd", label: "Precio USD" }, { key: "mileageKm", label: "Kilómetros" }, { key: "location", label: "Ubicación" }, { key: "createdAt", label: "Creado" }, { key: "updatedAt", label: "Actualizado" }], result.rows);
+      const result = await pool.query(`SELECT v.id, b.name AS brand, v.model, v.variant, v.year, v.status, v.stock_number AS "stockNumber", COALESCE(v.price_amount, v.price_usd) AS price, v.price_currency AS currency, v.mileage_km AS "mileageKm", v.location, v.created_at AS "createdAt", v.updated_at AS "updatedAt" FROM vehicles v LEFT JOIN vehicle_brands b ON b.id=v.brand_id WHERE v.organization_id=$1 ORDER BY v.created_at DESC`, [organizationId]);
+      sendCsv(res, "zevroa-inventario.csv", [{ key: "id", label: "ID" }, { key: "brand", label: "Marca" }, { key: "model", label: "Modelo" }, { key: "variant", label: "Versión" }, { key: "year", label: "Año" }, { key: "status", label: "Estado" }, { key: "stockNumber", label: "Stock" }, { key: "price", label: "Precio" }, { key: "currency", label: "Moneda" }, { key: "mileageKm", label: "Kilómetros" }, { key: "location", label: "Ubicación" }, { key: "createdAt", label: "Creado" }, { key: "updatedAt", label: "Actualizado" }], result.rows);
     } catch (error) {
       console.error("Vehicle export failed", error);
       res.status(500).json({ error: "No se pudo exportar el inventario" });

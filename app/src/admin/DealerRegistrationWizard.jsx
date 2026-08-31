@@ -213,11 +213,11 @@ export default function DealerRegistrationWizard({ onRegisterSuccess, onCancel, 
   return (
     <form className="admin-login dealer-register-form" onSubmit={step === 1 ? handleNextStep : handleSubmit}>
       <span className="eyebrow">ZEVROA · NUEVO SHOWROOM</span>
-      <h1>Crea tu <em>Showroom Digital.</em></h1>
+      <h1>Crea el espacio de tu <em>concesionario.</em></h1>
       <p className="account-welcome">
         {step === 1
-          ? "Paso 1 de 2 · El nombre y la dirección pública de tu showroom."
-          : "Paso 2 de 2 · Tu cuenta de administrador. Después entrarás al panel para personalizar el showroom."}
+          ? "Paso 1 de 2 · Nombre y dirección pública."
+          : "Paso 2 de 2 · Tu acceso de administrador. Después entrarás al panel."}
       </p>
 
       <div className="wizard-step-indicator" style={{ display: "flex", gap: "8px", marginBottom: "8px" }}>
@@ -228,7 +228,7 @@ export default function DealerRegistrationWizard({ onRegisterSuccess, onCancel, 
       {step === 1 && (
         <>
           <label>
-            Nombre del concesionario
+            ¿Cómo se llama tu concesionario?
             <input
               type="text"
               placeholder="Ej. Bella Vista Motors, Luxury Cars RD"
@@ -239,7 +239,7 @@ export default function DealerRegistrationWizard({ onRegisterSuccess, onCancel, 
           </label>
 
           <label>
-            Nombre del enlace público
+            Elige su dirección pública
             <input
               type="text"
               placeholder="bellavista-motors"
@@ -254,7 +254,7 @@ export default function DealerRegistrationWizard({ onRegisterSuccess, onCancel, 
               {slugCheck?.state === "checking" && "Comprobando disponibilidad…"}
               {slugCheck?.state === "free" && "Esta dirección está libre y será tuya."}
               {slugCheck?.state === "taken" && slugCheck.message}
-              {!slugCheck && "Reserva la dirección de tu showroom. Usa minúsculas, números y guiones; podrás cambiarla antes de publicar."}
+              {!slugCheck && "Usa minúsculas, números y guiones. Podrás cambiarla antes de publicar."}
             </small>
           </label>
 
@@ -262,7 +262,7 @@ export default function DealerRegistrationWizard({ onRegisterSuccess, onCancel, 
 
           <div style={{ display: "flex", gap: "10px", marginTop: "8px" }}>
             <button className="primary-action" type="submit" style={{ flex: 1 }}>
-              Siguiente: Administrador →
+              Continuar →
             </button>
             <button className="text-button" type="button" onClick={onCancel}>
               Volver a Iniciar Sesión
@@ -274,7 +274,7 @@ export default function DealerRegistrationWizard({ onRegisterSuccess, onCancel, 
       {step === 2 && (
         <>
           <label>
-            Nombre Completo del Titular
+            Tu nombre completo
             <input
               type="text"
               placeholder="Ej. Carlos Mendoza"
@@ -285,7 +285,7 @@ export default function DealerRegistrationWizard({ onRegisterSuccess, onCancel, 
           </label>
 
           <label>
-            Correo electrónico (tu acceso al panel)
+            Correo para entrar al panel
             <input
               type="email"
               placeholder="carlos@concesionario.com"
@@ -296,7 +296,7 @@ export default function DealerRegistrationWizard({ onRegisterSuccess, onCancel, 
           </label>
 
           <label>
-            Contraseña
+            Crea una contraseña
             {/* Las reglas se enseñan mientras escribe: antes solo aparecían como error
                 después de pulsar "Crear mi showroom", ya con el formulario entero lleno. */}
             <span className="password-field">
@@ -319,7 +319,7 @@ export default function DealerRegistrationWizard({ onRegisterSuccess, onCancel, 
           </label>
 
           <label>
-            Confirmar Contraseña
+            Repite la contraseña
             <input
               type={showPassword ? "text" : "password"}
               placeholder="Repite tu contraseña"
@@ -347,7 +347,7 @@ export default function DealerRegistrationWizard({ onRegisterSuccess, onCancel, 
               ← Atrás
             </button>
             <button className="primary-action" type="submit" style={{ flex: 1 }} disabled={loading}>
-              {loading ? "Creando Showroom…" : "Crear mi Showroom y Entrar →"}
+              {loading ? "Creando espacio…" : "Crear y entrar →"}
             </button>
           </div>
           <button className="text-button" type="button" onClick={onCancel} disabled={loading}>

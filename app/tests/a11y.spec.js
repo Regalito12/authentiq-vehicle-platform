@@ -3,6 +3,7 @@ import AxeBuilder from "@axe-core/playwright";
 
 const routes = [
   { path: "/backoffice", heading: /acceso administrativo/i },
+  { path: "/backoffice/", heading: /acceso administrativo/i },
   { path: "/privacidad", heading: /datos|privacidad/i },
   { path: "/terminos", heading: /experiencia|términos/i },
 ];
@@ -50,4 +51,28 @@ test("la búsqueda inteligente ofrece sugerencias y navegación por teclado", as
     await page.keyboard.press("Enter");
     await expect(search).toHaveValue(new RegExp(firstWord.slice(0, 3), "i"));
   }
+});
+
+test("el banner de actualización espera confirmación y el teléfono conserva su código", async ({ page }) => {
+  await page.goto("/?studio=1", { waitUntil: "networkidle" });
+
+  await page.evaluate(() => {
+    window.__zevroaApplyUpdate = () => Promise.resolve();
+    window.dispatchEvent(new Event("zevroa:update-available"));
+  });
+  const updateBanner = page.locator(".app-update-banner");
+  await expect(updateBanner).toBeVisible();
+  await expect(updateBanner).toContainText(/nueva versión/i);
+  await updateBanner.getByRole("button", { name: "Ahora no" }).click();
+  await expect(updateBanner).toHaveCount(0);
+
+  const phoneField = page.locator(".studio-demo-form .phone-field").first();
+  await phoneField.scrollIntoViewIfNeeded();
+  const phoneInput = phoneField.locator("input[type=tel]");
+  const countrySelect = phoneField.locator("select");
+  await expect(countrySelect).toHaveValue("DO");
+  await expect(phoneInput).toHaveAttribute("aria-describedby", /.+/);
+  await phoneInput.fill("8299440111");
+  await phoneInput.blur();
+  await expect(phoneField.locator(".phone-field-preview")).toContainText("+1");
 });

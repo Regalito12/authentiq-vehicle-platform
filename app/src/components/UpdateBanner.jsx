@@ -26,7 +26,7 @@ export default function UpdateBanner() {
   };
 
   return (
-    <aside className="app-update-banner" role="status" aria-live="polite">
+    <aside className="app-update-banner" role="status" aria-live="polite" aria-atomic="true">
       <div className="app-update-banner-copy">
         <span className="app-update-banner-mark" aria-hidden="true">↻</span>
         <div>

@@ -1,11 +1,12 @@
+# LEGACY ONLY — producción de ZEVROA usa Vercel (`app/vercel.json`).
+# Este Blueprint se conserva únicamente para referencia histórica y no debe
+# conectarse a un entorno nuevo sin una decisión explícita de migración.
 services:
   - type: web
     name: authentiq-app
     runtime: node
     rootDir: app
     buildCommand: npm ci && npm run check:production && npm run build && npm --prefix server ci
-    # Render Free no ejecuta preDeployCommand; esta migración es idempotente y
-    # debe correr antes de levantar la API para habilitar el contenido editable.
     startCommand: npm --prefix server run migrate:production && npm --prefix server start
     healthCheckPath: /api/health
     autoDeployTrigger: commit
@@ -40,9 +41,6 @@ services:
         sync: false
       - key: SUPABASE_STORAGE_BUCKET
         value: vehicle-media
-      # Opcional: activa el subdominio automático por dealer (automotor.tudominio.com).
-      # Déjala vacía/sin agregar hasta comprar el dominio, apuntar el DNS comodín (*)
-      # a este servicio, y agregar ese dominio comodín en Render → Custom Domains.
       - key: PLATFORM_BASE_DOMAIN
         sync: false
       - key: PRIVACY_POLICY_VERSION
@@ -65,8 +63,6 @@ services:
         sync: false
       - key: VITE_HERO_VIDEO_URL
         sync: false
-      - key: GOOGLE_CALENDAR_REQUIRED
-        value: "true"
       - key: GOOGLE_CALENDAR_CLIENT_ID
         sync: false
       - key: GOOGLE_CALENDAR_CLIENT_SECRET

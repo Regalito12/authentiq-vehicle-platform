@@ -18,6 +18,8 @@
     ,{ "file": "053_invitations_and_mfa.sql", "sha256": "331192b3bc3dd4ca5108f95ab98ab692f0df32aef71480af28e98623f84d8f81", "reversible": false, "notes": "Invitaciones seguras de equipo y MFA TOTP con secretos cifrados." }
     ,{ "file": "054_reconcile_google_calendar_schema.sql", "sha256": "a4923fa777f2f01ac9c0c6ef5de2c4fc958a7aa12111d7867067f5c996ceb3d7", "reversible": true, "notes": "Reconciliación idempotente de la columna de sincronización de Google Calendar." }
     ,{ "file": "055_crm_contact_relationships.sql", "sha256": "9cd9f6f2a130909d5f1ab3a04cd468cfc58d2a200a1d5fb920a4d6fbb1123bf1", "reversible": false, "notes": "Enlaces seguros de CRM para citas, ofertas y cotizaciones." }
+    ,{ "file": "056_currency_normalization.sql", "sha256": "547c53f48307298351301ed2ce79b5161dac899e2001a476cb8354e4e085990c", "reversible": true, "notes": "Importes genéricos y moneda explícita para vehículos, ofertas y cotizaciones." }
+    ,{ "file": "057_deduplicate_vehicle_models.sql", "sha256": "113455f5783990857146f0db1eab29764b03cb48c3a8e92e706d3f2d8340b0ba", "reversible": true, "notes": "Limpieza segura de variantes repetidas dentro del modelo de vehículo." }
   ],
   "rules": {
     "newMigrationPrefixMustBeUnique": true,
