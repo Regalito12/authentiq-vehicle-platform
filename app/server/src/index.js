@@ -53,7 +53,7 @@ const publicSiteUrl = String(process.env.PUBLIC_SITE_URL || "").replace(/\/+$/, 
 const frontendOrigin = String(process.env.FRONTEND_ORIGIN || "").trim();
 // Dominio base blanco-etiqueta: cada dealer recibe automáticamente <slug>.<PLATFORM_BASE_DOMAIN>
 // sin comprar ni configurar nada. Requiere un registro DNS comodín (*.dominio) apuntando a este
-// servicio y el dominio comodín agregado en Render — eso es manual, fuera de este código.
+// servicio y el dominio comodín agregado en Vercel — eso es manual, fuera de este código.
 const platformBaseDomain = String(process.env.PLATFORM_BASE_DOMAIN || "").trim().toLowerCase().replace(/^\.+/, "");
 function subdomainForSlug(slug) {
   return platformBaseDomain ? `${slug}.${platformBaseDomain}` : null;
@@ -96,7 +96,13 @@ const stripeWebhookSecret = String(process.env.STRIPE_WEBHOOK_SECRET || "").trim
 const stripeClient = stripeSecretKey ? new Stripe(stripeSecretKey) : null;
 const billingReady = Boolean(billingCheckoutUrl || stripeClient);
 const metaAppConfigured = Boolean(String(process.env.META_APP_ID || "").trim() && String(process.env.META_APP_SECRET || "").trim());
-const googleCalendarConfigured = Boolean(String(process.env.GOOGLE_CALENDAR_CLIENT_ID || "").trim() && String(process.env.GOOGLE_CALENDAR_CLIENT_SECRET || "").trim());
+const googleCalendarSettings = {
+  clientId: String(process.env.GOOGLE_CALENDAR_CLIENT_ID || "").trim(),
+  clientSecret: String(process.env.GOOGLE_CALENDAR_CLIENT_SECRET || "").trim(),
+  redirectUri: String(process.env.GOOGLE_CALENDAR_REDIRECT_URI || "").trim(),
+  tokenEncryptionKey: String(process.env.GOOGLE_CALENDAR_TOKEN_ENCRYPTION_KEY || "").trim(),
+};
+const googleCalendarConfigured = Object.values(googleCalendarSettings).every(Boolean);
 const googleCalendarTokenKey = String(process.env.GOOGLE_CALENDAR_TOKEN_ENCRYPTION_KEY || "").trim();
 const googleCalendarRedirectUri = String(process.env.GOOGLE_CALENDAR_REDIRECT_URI || `${publicApiUrl || `http://localhost:${port}`}/api/integrations/google-calendar/callback`).trim();
 const googleCalendarScope = "https://www.googleapis.com/auth/calendar.events";
@@ -107,6 +113,8 @@ if (process.env.NODE_ENV === "production") {
   if (botProtectionRequired && !turnstileSecretKey) throw new Error("TURNSTILE_SECRET_KEY es obligatorio cuando BOT_PROTECTION_REQUIRED=true");
   if (turnstileSecretKey && !turnstileSiteKey) throw new Error("VITE_TURNSTILE_SITE_KEY es obligatorio cuando TURNSTILE_SECRET_KEY está configurado");
   if (googleCalendarConfigured && !googleCalendarTokenKey) throw new Error("GOOGLE_CALENDAR_TOKEN_ENCRYPTION_KEY es obligatorio cuando Google Calendar está configurado");
+  const calendarPartiallyConfigured = Object.values(googleCalendarSettings).some(Boolean) && !googleCalendarConfigured;
+  if (calendarPartiallyConfigured) console.warn("Google Calendar está parcialmente configurado; se mostrará como pendiente hasta completar OAuth.");
 }
 app.set("trust proxy", 1);
 await fs.mkdir(uploadsDir, { recursive: true });
@@ -1932,7 +1940,7 @@ app.get("/api/settings", async (req, res) => {
       result = await pool.query('SELECT business_name AS "businessName", logo_url AS "logoUrl", primary_color AS "primaryColor", accent_color AS "accentColor", favicon_url AS "faviconUrl", phone, whatsapp, email, address, hours, instagram_url AS "instagramUrl", facebook_url AS "facebookUrl", currency, privacy_text AS "privacyText", terms_text AS "termsText", custom_css AS "customCss", hero_headline AS "heroHeadline", hero_subheadline AS "heroSubheadline", hero_image_url AS "heroImageUrl", show_financing AS "showFinancing", show_brand_rail AS "showBrandRail", show_model_line_rail AS "showModelLineRail", show_blog AS "showBlog", faq_items AS "faqItems", testimonials FROM organization_settings WHERE organization_id=$1', [organization.id]);
     } catch (error) {
       if (error.code !== "42703") throw error;
-      // Render puede arrancar el código nuevo antes de que el dueño aplique la
+      // Un entorno puede arrancar el código nuevo antes de que el dueño aplique la
       // migración. Mantener la vitrina funcional evita convertir una migración
       // pendiente en una pantalla 500; el contenido editable se activa al estar
       // presentes las columnas nuevas.

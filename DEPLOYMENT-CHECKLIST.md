@@ -3,11 +3,11 @@
 La aplicación está separada en dos servicios:
 
 - `app/`: frontend React/Vite. Se compila con `npm.cmd run build` y se sirve como archivos estáticos desde `app/dist`.
-- `app/server/`: API Express/PostgreSQL. Se inicia con `npm.cmd start` y necesita Node 22 LTS o compatible.
+- `app/server/`: API Express/PostgreSQL. Se inicia con `npm.cmd start` y requiere Node 24 (`app/.nvmrc`).
 
 ## Arquitectura recomendada para producción
 
-El proyecto ahora incluye entrypoints de Vercel para el API Express (`api/index.js` si la raíz del proyecto es el repositorio y `app/api/index.js` si Root Directory es `app`). Así puede funcionar en un solo proyecto Vercel con Supabase como PostgreSQL y Storage. En modo serverless los recordatorios de proceso largo no se ejecutan como un servidor persistente y los archivos temporales viven en `/tmp`; por eso Supabase Storage y un cron externo o Vercel Cron siguen siendo obligatorios para producción. Como alternativa, el `render.yaml` conserva la topología de un servicio Node persistente.
+El proyecto usa Vercel como hosting oficial, con `app/vercel.json` como configuración efectiva, y Supabase como PostgreSQL y Storage. En modo serverless los archivos temporales viven en `/tmp`, por eso Supabase Storage y Vercel Cron son obligatorios para producción. La configuración histórica de Render está archivada y no forma parte del release.
 
 ## Variables del API
 

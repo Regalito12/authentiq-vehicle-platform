@@ -60,7 +60,7 @@ const baseVehicle = {
 };
 
 async function main() {
-  console.log(`E2E AUTHENTIQ · ${baseUrl}\n`);
+  console.log(`E2E ZEVROA · ${baseUrl}\n`);
 
   // --- 1. Autenticación y protección de rutas -------------------------------
   const noToken = await api("/api/admin/vehicles");

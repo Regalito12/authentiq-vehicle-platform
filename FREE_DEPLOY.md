@@ -1,4 +1,6 @@
-# Despliegue gratuito: Render + Supabase
+# Despliegue legado: Render + Supabase
+
+> Este documento se conserva como referencia histórica. La producción actual de ZEVROA usa Vercel; no conectes un nuevo servicio Render con este repositorio.
 
 ## Arquitectura
 
@@ -37,13 +39,13 @@ Antes de iniciar en produccion, el servidor rechazara automaticamente un entorno
 
 ## Render
 
-1. Conectar el repositorio y seleccionar el Blueprint `render.yaml`.
+1. Conectar el repositorio y seleccionar el Blueprint histórico `docs/legacy/render.yaml` únicamente si se está ejecutando una migración aprobada a Render.
 2. Mantener el servicio en plan `free`.
 3. Completar `DATABASE_URL`, `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` como variables secretas.
 4. Mantener `PUBLIC_API_URL`, `PUBLIC_SITE_URL` y `FRONTEND_ORIGIN` con la URL `onrender.com` que Render genere. En esta arquitectura deja `VITE_API_URL` vacío: frontend y API comparten el mismo dominio.
 5. No agregar Persistent Disk.
 6. En Cloudflare Turnstile, crear un widget para el dominio de cada entorno. Agregar su clave pública como `VITE_TURNSTILE_SITE_KEY` y la secreta como `TURNSTILE_SECRET_KEY`. Render debe reconstruir el frontend después de guardar la clave pública.
-7. Para Google Calendar, crear un cliente OAuth de tipo aplicación web y registrar exactamente `https://TU-SERVICIO.onrender.com/api/integrations/google-calendar/callback`. En Render completar `GOOGLE_CALENDAR_CLIENT_ID`, `GOOGLE_CALENDAR_CLIENT_SECRET`, `GOOGLE_CALENDAR_REDIRECT_URI` y `GOOGLE_CALENDAR_TOKEN_ENCRYPTION_KEY`. El Blueprint deja `GOOGLE_CALENDAR_REQUIRED=true`, por lo que el servicio no arrancará con una configuración incompleta.
+7. Para Google Calendar, crear un cliente OAuth de tipo aplicación web y registrar exactamente `https://TU-SERVICIO.onrender.com/api/integrations/google-calendar/callback`. En Render completar `GOOGLE_CALENDAR_CLIENT_ID`, `GOOGLE_CALENDAR_CLIENT_SECRET`, `GOOGLE_CALENDAR_REDIRECT_URI` y `GOOGLE_CALENDAR_TOKEN_ENCRYPTION_KEY`. Calendar es opcional y una configuración incompleta se muestra como pendiente.
 
 El `startCommand` del Blueprint ejecuta `npm --prefix server run migrate:storefront-content` antes de iniciar la API. Esa migración es idempotente y habilita el contenido editable de confianza (FAQ y testimonios) sin requerir una acción manual adicional en el plan Free.
 

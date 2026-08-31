@@ -5,7 +5,7 @@ import path from "node:path";
 
 // Verificación en navegador real sin añadir dependencias: lanza el Chrome ya instalado
 // con el puerto de depuración abierto y lo conduce por Chrome DevTools Protocol
-// usando el WebSocket nativo de Node 22.
+// usando el WebSocket nativo de Node 24.
 //
 //   node scripts/browser-check.js [--url http://127.0.0.1:5173] [--headful]
 //

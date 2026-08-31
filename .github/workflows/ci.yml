@@ -1,4 +1,4 @@
-# CI de AUTHENTIQ.
+# CI de ZEVROA.
 #
 # Este workflow valida cada push a main y cada Pull Request contra main.
 #
@@ -41,7 +41,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
 
       - name: Instalar dependencias del frontend
         working-directory: app
