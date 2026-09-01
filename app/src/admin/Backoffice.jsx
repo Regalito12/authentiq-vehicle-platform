@@ -14,6 +14,7 @@ import PhoneField from "./PhoneField.jsx";
 import { formatDate, formatDateTime, formatLeadSource, formatPlatform, formatPrice, formatPriority, formatRole, formatStatus, publicVehiclePath } from "./format.js";
 import { contrastSafeShade, contrastSafeTint, lighten, readableInkOn } from "../utils/color.js";
 import { normalizePhone } from "../utils/phone.js";
+import { getStoredValue, removeStoredValue, setStoredValue } from "../utils/storage.js";
 import { SlidingNumber } from "../components/animate-ui/primitives/texts/sliding-number.jsx";
 import { AnimatedList } from "../ui/MotionPrimitives.jsx";
 import VirtualizedList from "../ui/VirtualizedList.jsx";
@@ -623,7 +624,7 @@ function DashboardView({ data, vehicles = [], leads, offers, appointments, loadi
         <StatCard label="Clientes activos" numericValue={snapshot.pendingLeads} note={`${snapshot.pendingOffers} ofertas pendientes`} />
       </div>
       <DashboardWorkflowRail vehicles={vehicles} leads={safeLeads} appointments={appointments} offers={safeOffers} onNavigate={onNavigate} />
-      <WorkCenter items={workQueue} loading={workQueueLoading} error={workQueueError} currentUser={currentUser} onRefresh={onRefreshWorkQueue} onNavigate={onNavigate} onOpenContact={onOpenContact} />
+      <WorkCenter items={workQueue} loading={workQueueLoading} error={workQueueError} currentUser={currentUser} businessName={organization?.name || settings?.businessName || "ZEVROA"} onRefresh={onRefreshWorkQueue} onNavigate={onNavigate} onOpenContact={onOpenContact} />
       <DashboardPulse data={data} leads={leads} offers={offers} appointments={appointments} onNavigate={onNavigate} onOpenLead={onOpenLead} currentUser={currentUser} />
       <Suspense fallback={<div className="charts-grid"><div className="chart-panel chart-loading-state" role="status">Preparando gráficos…</div></div>}><ReportsCharts byBrand={data.byBrand || []} statusData={statusData} /></Suspense>
       <div className="dashboard-lower"><article className="activity-panel"><div className="panel-heading"><div><span className="eyebrow">OFERTAS</span><h3>Actividad reciente</h3></div><button className="text-button" type="button" onClick={() => onNavigate("offers")}>Ver todas →</button></div>{data.recentOffers?.length ? <AnimatedList items={data.recentOffers} className="activity-list-motion" itemClassName="activity-row" renderItem={(offer) => <><div><strong>{offer.buyerName}</strong><span>{offer.brand} {offer.model} · {formatPrice(offer.amountUsd)}</span></div><span className={`status-pill ${offer.status}`}>{formatStatus(offer.status)}</span></>} /> : <AdminEmptyState eyebrow="OFERTAS" title="Todavía no hay ofertas." text="Cuando llegue la primera, aparecerá aquí para que puedas responderla." actionLabel="Ver clientes" onAction={() => onNavigate("leads")} />}</article><article className="activity-panel"><div className="panel-heading"><div><span className="eyebrow">AGENDA</span><h3>Próximas citas</h3></div><button className="text-button" type="button" onClick={() => onNavigate("appointments")}>Abrir agenda →</button></div>{data.upcomingAppointments?.length ? <AnimatedList items={data.upcomingAppointments} className="activity-list-motion" itemClassName="activity-row" renderItem={(appointment) => <><div><strong>{appointment.customerName}</strong><span>{formatDate(appointment.date)} · {String(appointment.time || "").slice(0, 5)} · {appointment.brand} {appointment.model}</span></div><span className={`status-pill ${appointment.status}`}>{formatStatus(appointment.status)}</span></>} /> : <AdminEmptyState eyebrow="AGENDA" title="No hay citas próximas." text="Cuando un comprador solicite una visita, aparecerá aquí para preparar la atención." actionLabel="Configurar agenda" onAction={() => onNavigate("appointments")} />}</article></div>
@@ -1867,7 +1868,7 @@ function BackofficeWorkspace({ onBack, onVehiclesChanged, initialMode = "login",
   const [toastAction, setToastAction] = useState(null);
   const [loading, setLoading] = useState(false);
   const [moduleLoading, setModuleLoading] = useState(false);
-  const [theme, setTheme] = useState(() => localStorage.getItem("authentiq_theme") || "light");
+  const [theme, setTheme] = useState(() => getStoredValue("authentiq_theme", "light") || "light");
   const { confirm, prompt } = useAdminConfirm();
   useEffect(() => {
     const syncLeadDraft = (event) => setLeadDraftDirty(Boolean(event.detail));
@@ -1969,7 +1970,7 @@ function BackofficeWorkspace({ onBack, onVehiclesChanged, initialMode = "login",
   const loadLeadHistory = async (id) => { try { return (await request(`/api/admin/leads/${id}/events`)).data || []; } catch (error) { setMessage(mensajeDeError(error)); return []; } };
   const loadUsers = async () => { try { setUsers((await request("/api/admin/users")).data || []); } catch (error) { setMessage(mensajeDeError(error)); } };
   const loadManagedUsers = async () => { setModuleLoading(true); try { setManagedUsers((await request("/api/admin/users/manage")).data || []); } catch (error) { setMessage(mensajeDeError(error)); } finally { setModuleLoading(false); } };
-  const loadSettings = async () => { setModuleLoading(true); try { const nextSettings = (await request("/api/admin/settings")).data || emptySettings; setSettings(nextSettings); if (nextSettings.currency) localStorage.setItem("authentiq_currency", String(nextSettings.currency).trim().toUpperCase()); } catch (error) { setMessage(mensajeDeError(error)); } finally { setModuleLoading(false); } };
+  const loadSettings = async () => { setModuleLoading(true); try { const nextSettings = (await request("/api/admin/settings")).data || emptySettings; setSettings(nextSettings); if (nextSettings.currency) setStoredValue("authentiq_currency", String(nextSettings.currency).trim().toUpperCase()); } catch (error) { setMessage(mensajeDeError(error)); } finally { setModuleLoading(false); } };
   const loadOrganization = async () => { try { setOrganization((await request("/api/admin/organization")).data || emptyOrganization); } catch (error) { setOrganizationMessage(mensajeDeError(error)); } };
   const loadOnboarding = async () => { try { setOnboarding((await request("/api/admin/onboarding")).data || null); } catch (error) { setMessage(mensajeDeError(error)); } };
   const loadIntegrations = async () => { if (currentUser?.role !== "admin") return; try { const [payload, billingPayload] = await Promise.all([request("/api/admin/integrations"), request("/api/admin/billing")]); setIntegrations(payload.data?.integrations || []); setBilling(billingPayload.data || payload.data?.billing || null); setBillingPlans(billingPayload.data?.plans || []); setIntegrationHealth(payload.data?.health || null); } catch (error) { setMessage(mensajeDeError(error)); } };
@@ -1978,7 +1979,7 @@ function BackofficeWorkspace({ onBack, onVehiclesChanged, initialMode = "login",
   const loadAudit = async () => { setModuleLoading(true); try { setAuditLogs((await request("/api/admin/audit-logs")).data || []); } catch (error) { setMessage(mensajeDeError(error)); } finally { setModuleLoading(false); } };
   const loadNotifications = async () => { try { const payload = await request("/api/admin/notifications"); setNotifications(payload.data || []); setUnreadNotifications(payload.unread || 0); } catch (error) { setMessage(mensajeDeError(error)); } };
   const markNotificationsRead = async () => { try { await request("/api/admin/notifications/read", { method: "PATCH" }); setNotifications((current) => current.map((item) => ({ ...item, readAt: new Date().toISOString() }))); setUnreadNotifications(0); } catch (error) { setMessage(mensajeDeError(error)); } };
-  useEffect(() => { document.documentElement.dataset.theme = theme; localStorage.setItem("authentiq_theme", theme); }, [theme]);
+  useEffect(() => { document.documentElement.dataset.theme = theme; setStoredValue("authentiq_theme", theme); }, [theme]);
   useEffect(() => {
     if (impersonation?.token || token || currentUser) {
       setSessionResolved(true);
@@ -2020,7 +2021,7 @@ function BackofficeWorkspace({ onBack, onVehiclesChanged, initialMode = "login",
   const onboardingStorageKey = currentUser?.id ? `authentiq_onboarding_seen_${currentUser.id}` : "";
   useEffect(() => {
     if (!currentUser || currentUser?.role !== "admin" || !onboarding || onboarding.progress >= 100 || !onboardingStorageKey) { setWelcomeOnboardingOpen(false); return undefined; }
-    if (localStorage.getItem(onboardingStorageKey) === "1") return undefined;
+    if (getStoredValue(onboardingStorageKey) === "1") return undefined;
     const timer = window.setTimeout(() => {
       setActiveModule("settings");
       setWelcomeOnboardingOpen(true);
@@ -2069,7 +2070,7 @@ function BackofficeWorkspace({ onBack, onVehiclesChanged, initialMode = "login",
   const updateTaxonomy = async (kind, record) => { const name = await prompt({ title: `Editar ${kind === "brands" ? "marca" : "categoría"}`, message: "Actualiza el nombre que verá el equipo al crear vehículos.", label: "Nombre", defaultValue: record.name, required: true, confirmLabel: "Continuar" }); if (name === null) return; const isActive = record.isActive ? await confirm({ title: "Mantener registro activo", message: "Si lo mantienes activo, seguirá apareciendo en el asistente de inventario.", confirmLabel: "Mantener activa" }) : true; if (isActive === null) return; const logoUrl = kind === "brands" ? await prompt({ title: "Logo de la marca", message: "Puedes dejarlo vacío si no quieres cambiarlo.", label: "Logo URL", defaultValue: record.logoUrl || "", placeholder: "https://.../logo.svg", confirmLabel: "Guardar marca" }) : ""; if (logoUrl === null) return; try { await request(`/api/admin/taxonomy/${kind}/${record.id}`, { method: "PATCH", body: JSON.stringify({ name, logoUrl, isActive }) }); setMessage("Catálogo actualizado"); await loadTaxonomy(); } catch (error) { setMessage(mensajeDeError(error)); } };
   const changeSettings = (field, value) => setSettings((current) => ({ ...current, [field]: value }));
   const changeOrganization = (field, value) => setOrganization((current) => ({ ...current, [field]: value }));
-  const saveSettings = async (event) => { event.preventDefault(); setMessage(""); try { const normalizedSettings = { ...settings, phone: normalizePhone(settings.phone), whatsapp: normalizePhone(settings.whatsapp) }; const payload = await request("/api/admin/settings", { method: "PATCH", body: JSON.stringify(normalizedSettings) }); setSettings(payload.data); if (payload.data?.currency) localStorage.setItem("authentiq_currency", String(payload.data.currency).trim().toUpperCase()); setMessage("Configuración guardada correctamente"); await loadOnboarding(); } catch (error) { setMessage(mensajeDeError(error)); } };
+  const saveSettings = async (event) => { event.preventDefault(); setMessage(""); try { const normalizedSettings = { ...settings, phone: normalizePhone(settings.phone), whatsapp: normalizePhone(settings.whatsapp) }; const payload = await request("/api/admin/settings", { method: "PATCH", body: JSON.stringify(normalizedSettings) }); setSettings(payload.data); if (payload.data?.currency) setStoredValue("authentiq_currency", String(payload.data.currency).trim().toUpperCase()); setMessage("Configuración guardada correctamente"); await loadOnboarding(); } catch (error) { setMessage(mensajeDeError(error)); } };
   const saveOrganization = async (event) => { event.preventDefault(); setOrganizationMessage(""); try { const payload = await request("/api/admin/organization", { method: "PATCH", body: JSON.stringify(organization) }); setOrganization(payload.data); setOrganizationMessage("Perfil guardado correctamente"); await loadOnboarding(); } catch (error) { setOrganizationMessage(mensajeDeError(error)); } };
   const saveIntegration = async (provider, config) => { try { await request(`/api/admin/integrations/${provider}`, { method: "PATCH", body: JSON.stringify({ config }) }); setMessage("Integración local actualizada"); await loadIntegrations(); } catch (error) { setMessage(mensajeDeError(error)); } };
   const connectGoogleCalendar = async () => { if (currentUser?.role !== "admin") { setMessage("Esta conexión la configura el dueño del concesionario."); return; } try { const payload = await request("/api/admin/integrations/google-calendar/connect"); if (!payload?.data?.authorizationUrl) throw new Error("No se pudo preparar la autorización de Google"); window.location.assign(payload.data.authorizationUrl); } catch (error) { setMessage(mensajeDeError(error)); } };
@@ -2083,8 +2084,8 @@ function BackofficeWorkspace({ onBack, onVehiclesChanged, initialMode = "login",
   const archiveBlog = async (id) => { if (!(await confirm({ title: "Archivar artículo", message: "El artículo dejará de aparecer publicado, pero podrás conservarlo en el panel.", confirmLabel: "Archivar artículo", danger: true }))) return; try { await request(`/api/admin/blog/${id}`, { method: "DELETE" }); setMessage("Artículo archivado"); await loadBlog(); } catch (error) { setMessage(mensajeDeError(error)); } };
   const logout = async () => { if (!(await confirmDiscardAdminDraft())) return; await fetch(`${apiUrl}/api/auth/logout`, { method: "POST", credentials: "include" }).catch(() => {}); queryClient.removeQueries({ queryKey: ["admin", currentUser?.id || "session"] }); setCurrentUser(null); setToken(""); setSessionResolved(true); };
   const handleBack = async () => { if (await confirmDiscardAdminDraft()) onBack(); };
-  const openOnboarding = () => { if (onboardingStorageKey) localStorage.removeItem(onboardingStorageKey); setActiveModule("settings"); setWelcomeOnboardingOpen(true); };
-  const dismissOnboarding = () => { if (onboardingStorageKey) localStorage.setItem(onboardingStorageKey, "1"); setWelcomeOnboardingOpen(false); };
+  const openOnboarding = () => { if (onboardingStorageKey) removeStoredValue(onboardingStorageKey); setActiveModule("settings"); setWelcomeOnboardingOpen(true); };
+  const dismissOnboarding = () => { if (onboardingStorageKey) setStoredValue(onboardingStorageKey, "1"); setWelcomeOnboardingOpen(false); };
   const [passwordChangeError, setPasswordChangeError] = useState("");
   const [passwordChangeLoading, setPasswordChangeLoading] = useState(false);
   const submitPasswordChange = async (event) => {

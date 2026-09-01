@@ -3,6 +3,7 @@ import { AnimatePresence, motion, useInView, useMotionTemplate, useMotionValueEv
 import useEmblaCarousel from "embla-carousel-react";
 import { LANDING_COPY, LANDING_LANGUAGES } from "./landingCopy.js";
 import { useSmoothScroll } from "./utils/useSmoothScroll.js";
+import { getStoredValue, setStoredValue } from "./utils/storage.js";
 import { TurnstileField, turnstileSiteKey } from "./utils/turnstile.jsx";
 import { flushSync } from "react-dom";
 import { contrastSafeShade, contrastSafeTint, lighten, readableInkOn } from "./utils/color.js";
@@ -140,10 +141,10 @@ function publicMediaUrl(url) {
   return String(url).replace(/^https?:\/\/(?:localhost|127\.0\.0\.1):3001(?=\/uploads\/)/i, apiUrl);
 }
 
-const analyticsSessionId = (() => { const key = "authentiq_analytics_session"; const current = localStorage.getItem(key); if (current) return current; const next = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`; localStorage.setItem(key, next); return next; })();
+const analyticsSessionId = (() => { const key = "authentiq_analytics_session"; const current = getStoredValue(key); if (current) return current; const next = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`; setStoredValue(key, next); return next; })();
 function publicRequestKey(prefix) { return `${prefix}-${crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}`; }
 const analyticsEventAliases = { page_view: "view_home", catalog_view: "view_search_results", vehicle_view: "view_vehicle", vehicle_share: "share_vehicle", filter_used: "filter_applied", compare_used: "compare_used", whatsapp_click: "lead_whatsapp_click", offer_submitted: "lead_form_submitted", contact_submitted: "lead_form_submitted", appointment_submitted: "test_drive_requested", trade_in_submitted: "lead_form_submitted", search_alert_submitted: "search_submitted", price_alert_submitted: "price_alert_submitted" };
-function trackEvent(eventName, payload = {}) { if (localStorage.getItem("authentiq_cookie_consent") !== "accepted") return; const query = new URLSearchParams(window.location.search); const source = payload.source || query.get("utm_source") || query.get("source") || "direct"; const { source: _source, ...safePayload } = payload; fetch(`${apiUrl}/api/events`, { method: "POST", keepalive: true, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventName: analyticsEventAliases[eventName] || eventName, path: window.location.pathname, source, sessionId: analyticsSessionId, metadata: { utmMedium: query.get("utm_medium") || "", utmCampaign: query.get("utm_campaign") || "", utmContent: query.get("utm_content") || "", userType: "buyer" }, ...safePayload }) }).catch(() => {}); }
+function trackEvent(eventName, payload = {}) { if (getStoredValue("authentiq_cookie_consent") !== "accepted") return; const query = new URLSearchParams(window.location.search); const source = payload.source || query.get("utm_source") || query.get("source") || "direct"; const { source: _source, ...safePayload } = payload; fetch(`${apiUrl}/api/events`, { method: "POST", keepalive: true, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventName: analyticsEventAliases[eventName] || eventName, path: window.location.pathname, source, sessionId: analyticsSessionId, metadata: { utmMedium: query.get("utm_medium") || "", utmCampaign: query.get("utm_campaign") || "", utmContent: query.get("utm_content") || "", userType: "buyer" }, ...safePayload }) }).catch(() => {}); }
 
 let publicCurrency = "USD";
 
@@ -831,14 +832,14 @@ function StudioLanding({ onCreateShowroom, onDealerLogin, onViewDemo, onOpenPriv
   useSmoothScroll(!prefersReducedMotion);
   const [lang, setLang] = useState(() => {
     try {
-      const saved = localStorage.getItem("authentiq_landing_lang");
+      const saved = getStoredValue("authentiq_landing_lang");
       if (saved && LANDING_LANGUAGES.includes(saved)) return saved;
     } catch { /* almacenamiento bloqueado: seguimos con el idioma por defecto */ }
     return typeof navigator !== "undefined" && String(navigator.language || "").toLowerCase().startsWith("en") ? "en" : "es";
   });
   const t = LANDING_COPY[lang];
   useEffect(() => {
-    try { localStorage.setItem("authentiq_landing_lang", lang); } catch { /* sin persistencia: no bloquea la vista */ }
+    setStoredValue("authentiq_landing_lang", lang);
     const previous = document.documentElement.lang;
     document.documentElement.lang = lang;
     return () => { document.documentElement.lang = previous; };
@@ -2401,7 +2402,7 @@ function LocationSection({ settings = {} }) {
 }
 
 function CookieConsentBanner() {
-  const [visible, setVisible] = useState(() => localStorage.getItem("authentiq_cookie_consent") !== "accepted");
+  const [visible, setVisible] = useState(() => getStoredValue("authentiq_cookie_consent") !== "accepted");
   const [path, setPath] = useState(() => normalizePathname(window.location.pathname));
   useEffect(() => {
     const syncPath = () => setPath(normalizePathname(window.location.pathname));
@@ -2414,8 +2415,8 @@ function CookieConsentBanner() {
   }, []);
   const isPublicExperience = path === "/" || path === "/catalogo" || path === "/blog" || path.startsWith("/vehiculos/") || path.startsWith("/blog/");
   if (!visible || !isPublicExperience) return null;
-  const accept = () => { localStorage.setItem("authentiq_cookie_consent", "accepted"); setVisible(false); };
-  const reject = () => { localStorage.setItem("authentiq_cookie_consent", "rejected"); setVisible(false); };
+  const accept = () => { setStoredValue("authentiq_cookie_consent", "accepted"); setVisible(false); };
+  const reject = () => { setStoredValue("authentiq_cookie_consent", "rejected"); setVisible(false); };
   return <aside className="cookie-consent" role="dialog" aria-label="Preferencias de cookies"><div><strong>Tu privacidad importa.</strong><p>Usamos cookies esenciales para que el showroom funcione. La analítica solo se activa si la aceptas.</p></div><div className="cookie-consent-actions"><button type="button" className="secondary-action" onClick={reject}>Solo esenciales</button><button type="button" className="primary-action" onClick={accept}>Aceptar analítica</button></div></aside>;
 }
 
@@ -2957,7 +2958,7 @@ function NavIcon({ name }) {
   return <svg className="nav-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d={paths[name] || paths.inventory} /></svg>;
 }
 
-function ShowroomNav({ theme, setTheme, customer, onAccount, onBackoffice, onRegisterDealer, businessName = "ZEVROA", logoUrl = "" }) {
+function ShowroomNav({ theme, setTheme, customer, onAccount, onBackoffice, onRegisterDealer, businessName = "ZEVROA", logoUrl = "", demoMode = false }) {
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   useEffect(() => {
@@ -2972,7 +2973,7 @@ function ShowroomNav({ theme, setTheme, customer, onAccount, onBackoffice, onReg
   const links = [["inventory", "Inventario", "#catalog"], ["brands", "Marcas", "#brands"], ["explore", "Modelos", "#models"], ["compare", "Comparar", "#compare-table"]];
   const closeMenu = () => setMenuOpen(false);
   const resolvedLogo = publicMediaUrl(logoUrl);
-   return <nav className={`top-nav showroom-nav ${scrolled ? "is-scrolled" : ""}`} aria-label="Navegación principal"><a className="brand-mark showroom-nav-brand" href="#top" onClick={closeMenu}>{resolvedLogo ? <img src={resolvedLogo} alt={businessName} /> : businessName}<span>°</span></a><div className={`showroom-nav-links ${menuOpen ? "is-open" : ""}`}>{links.map(([icon, label, href]) => <a key={href} href={href} onClick={closeMenu}><NavIcon name={icon} /><span>{label}</span></a>)}<AnimatedThemeTogglerStarDemo theme={theme} onToggle={() => { setTheme((current) => current === "dark" ? "light" : "dark"); closeMenu(); }} /><button className="nav-admin-link account-launch" type="button" onClick={() => { onAccount(); closeMenu(); }}>{customer ? `CUENTA · ${customer.name.split(" ")[0].toUpperCase()}` : "MI CUENTA"}</button><button className="nav-admin-link nav-dealer-badge" type="button" onClick={() => { onRegisterDealer?.(); closeMenu(); }}>¿ERES CONCESIONARIO?</button><button className="nav-admin-link nav-backoffice-link" type="button" onClick={() => { onBackoffice(); closeMenu(); }}>PANEL DE CONTROL →</button></div><button className="showroom-nav-toggle" type="button" aria-label={menuOpen ? "Cerrar menú" : "Abrir menú"} aria-expanded={menuOpen} onClick={() => setMenuOpen((current) => !current)}><NavIcon name={menuOpen ? "explore" : "menu"} /></button></nav>;
+   return <nav className={`top-nav showroom-nav ${scrolled ? "is-scrolled" : ""}${demoMode ? " is-demo" : ""}`} aria-label="Navegación principal"><a className="brand-mark showroom-nav-brand" href="#top" onClick={closeMenu}>{resolvedLogo ? <img src={resolvedLogo} alt={businessName} /> : businessName}<span>°</span></a><div className={`showroom-nav-links ${menuOpen ? "is-open" : ""}`}>{links.map(([icon, label, href]) => <a key={href} href={href} onClick={closeMenu}><NavIcon name={icon} /><span>{label}</span></a>)}<AnimatedThemeTogglerStarDemo theme={theme} onToggle={() => { setTheme((current) => current === "dark" ? "light" : "dark"); closeMenu(); }} /><button className="nav-admin-link account-launch" type="button" onClick={() => { onAccount(); closeMenu(); }}>{customer ? `CUENTA · ${customer.name.split(" ")[0].toUpperCase()}` : "MI CUENTA"}</button><button className="nav-admin-link nav-dealer-badge" type="button" onClick={() => { onRegisterDealer?.(); closeMenu(); }}>¿ERES CONCESIONARIO?</button><button className="nav-admin-link nav-backoffice-link" type="button" onClick={() => { onBackoffice(); closeMenu(); }}>PANEL DE CONTROL →</button></div><button className="showroom-nav-toggle" type="button" aria-label={menuOpen ? "Cerrar menú" : "Abrir menú"} aria-expanded={menuOpen} onClick={() => setMenuOpen((current) => !current)}><NavIcon name={menuOpen ? "explore" : "menu"} /></button></nav>;
 }
 
 function PresentationMode({ vehicles, loading, onExit, onOpenVehicle, businessName = "ZEVROA", logoUrl = "" }) {
@@ -3067,8 +3068,8 @@ function App() {
   const [vehicles, setVehicles] = useState([]);
   const [selected, setSelected] = useState(null);
   const [compareVehicles, setCompareVehicles] = useState([]);
-  const [favoriteIds, setFavoriteIds] = useState(() => { try { return JSON.parse(localStorage.getItem("authentiq_favorite_vehicles") || "[]"); } catch { return []; } });
-  const [recentVehicleIds, setRecentVehicleIds] = useState(() => { try { return JSON.parse(localStorage.getItem("authentiq_recent_vehicles") || "[]"); } catch { return []; } });
+  const [favoriteIds, setFavoriteIds] = useState(() => { try { return JSON.parse(getStoredValue("authentiq_favorite_vehicles", "[]")); } catch { return []; } });
+  const [recentVehicleIds, setRecentVehicleIds] = useState(() => { try { return JSON.parse(getStoredValue("authentiq_recent_vehicles", "[]")); } catch { return []; } });
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [customerToken, setCustomerToken] = useState("");
   const [customer, setCustomer] = useState(null);
@@ -3087,7 +3088,7 @@ function App() {
   const [category, setCategory] = useState(initialCatalogFilters.category);
   const [search, setSearch] = useState(initialCatalogFilters.search);
   const [sort, setSort] = useState(initialCatalogFilters.sort);
-  const [catalogView, setCatalogView] = useState(() => localStorage.getItem("authentiq_catalog_view") || "grid");
+  const [catalogView, setCatalogView] = useState(() => getStoredValue("authentiq_catalog_view", "grid") || "grid");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [condition, setCondition] = useState(initialCatalogFilters.condition);
   const [fuelType, setFuelType] = useState(initialCatalogFilters.fuelType);
@@ -3110,7 +3111,7 @@ function App() {
   // este host es la landing de la plataforma o el showroom de un dealer, no hay forma de
   // saber qué renderizar. Sin esta bandera se veía brevemente el catálogo por defecto.
   const [settingsLoaded, setSettingsLoaded] = useState(false);
-  const [theme, setTheme] = useState(() => localStorage.getItem("authentiq_theme") || "light");
+  const [theme, setTheme] = useState(() => getStoredValue("authentiq_theme", "light") || "light");
   publicBrandName = businessSettings.businessName || "ZEVROA";
   useEffect(() => {
     const root = document.documentElement;
@@ -3159,7 +3160,7 @@ function App() {
     return payload;
   };
 
-  useEffect(() => { document.documentElement.dataset.theme = theme; localStorage.setItem("authentiq_theme", theme); }, [theme]);
+  useEffect(() => { document.documentElement.dataset.theme = theme; setStoredValue("authentiq_theme", theme); }, [theme]);
   useEffect(() => {
     const guardUnconfiguredWhatsapp = async (event) => {
       const link = event.target.closest?.('a[href*="wa.me/"]');
@@ -3174,9 +3175,9 @@ function App() {
     document.addEventListener("click", guardUnconfiguredWhatsapp);
     return () => document.removeEventListener("click", guardUnconfiguredWhatsapp);
   }, []);
-  useEffect(() => { localStorage.setItem("authentiq_favorite_vehicles", JSON.stringify(favoriteIds)); }, [favoriteIds]);
-  useEffect(() => { localStorage.setItem("authentiq_recent_vehicles", JSON.stringify(recentVehicleIds)); }, [recentVehicleIds]);
-  useEffect(() => { localStorage.setItem("authentiq_catalog_view", catalogView); }, [catalogView]);
+  useEffect(() => { setStoredValue("authentiq_favorite_vehicles", JSON.stringify(favoriteIds)); }, [favoriteIds]);
+  useEffect(() => { setStoredValue("authentiq_recent_vehicles", JSON.stringify(recentVehicleIds)); }, [recentVehicleIds]);
+  useEffect(() => { setStoredValue("authentiq_catalog_view", catalogView); }, [catalogView]);
   useEffect(() => {
     if (pathname !== "/") return;
     const params = new URLSearchParams(window.location.search);
@@ -3207,7 +3208,7 @@ function App() {
         setCustomer(profile.data);
         setCustomerActivity(activity.data || { offers: [], quotes: [], notifications: [] });
         const serverIds = favorites.data || [];
-        const localIds = JSON.parse(localStorage.getItem("authentiq_favorite_vehicles") || "[]");
+        const localIds = JSON.parse(getStoredValue("authentiq_favorite_vehicles", "[]"));
         const mergedIds = [...new Set([...serverIds, ...localIds])];
         setFavoriteIds(mergedIds);
         await Promise.all(localIds.filter((id) => !serverIds.includes(id)).map((id) => customerRequest(`/api/customer/favorites/${id}`, { method: "PUT" }).catch(() => null)));
@@ -3270,7 +3271,7 @@ function App() {
     return () => window.removeEventListener("focus", handleFocus);
   }, []);
   useEffect(() => { fetch(`${apiUrl}/api/blog`).then((response) => response.ok ? response.json() : { data: [] }).then((payload) => setPosts(payload.data || [])).catch(() => setPosts([])); }, []);
-  useEffect(() => { fetch(`${apiUrl}/api/settings`).then((response) => { if (response.status === 404 && (requestedDealerSlug || requestedDemoMode)) { setTenantNotFound(true); return { data: null }; } return response.ok ? response.json() : { data: null }; }).then((payload) => { if (!payload.data) return; publicCurrency = String(payload.data.currency || "USD").trim().toUpperCase(); localStorage.setItem("authentiq_currency", publicCurrency); const demoFallback = requestedDemoMode && payload.data.isPlatformHome ? { heroHeadline: "", heroSubheadline: "", heroImageUrl: "/assets/zevroa-hero-v1.webp", address: "", hours: "" } : {}; setBusinessSettings((current) => ({ ...current, ...payload.data, ...demoFallback })); }).catch(() => {}).finally(() => setSettingsLoaded(true)); }, []);
+  useEffect(() => { fetch(`${apiUrl}/api/settings`).then((response) => { if (response.status === 404 && (requestedDealerSlug || requestedDemoMode)) { setTenantNotFound(true); return { data: null }; } return response.ok ? response.json() : { data: null }; }).then((payload) => { if (!payload.data) return; publicCurrency = String(payload.data.currency || "USD").trim().toUpperCase(); setStoredValue("authentiq_currency", publicCurrency); const demoFallback = requestedDemoMode && payload.data.isPlatformHome ? { heroHeadline: "", heroSubheadline: "", heroImageUrl: "/assets/zevroa-hero-v1.webp", address: "", hours: "" } : {}; setBusinessSettings((current) => ({ ...current, ...payload.data, ...demoFallback })); }).catch(() => {}).finally(() => setSettingsLoaded(true)); }, []);
   const routeVehicle = useMemo(() => findVehicleByPath(vehicles, pathname), [pathname, vehicles]);
   const activeVehicle = selected || routeVehicle;
   useEffect(() => {

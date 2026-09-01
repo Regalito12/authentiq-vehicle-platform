@@ -5179,9 +5179,10 @@ html[data-theme="dark"] .dealer-plan-option-copy strong, html[data-theme="dark"]
 .demo-mode-banner strong { color: var(--auth-gold, #e2b95f); font-weight: 500; }
 .demo-mode-banner a { display: inline-flex; align-items: center; min-height: 28px; color: #f7f4ed; font-weight: 500; text-decoration: none; white-space: nowrap; }
 .demo-mode-banner a:hover, .demo-mode-banner a:focus-visible { color: var(--auth-gold, #e2b95f); }
+.showroom-nav.is-demo { top: 42px; }
 html[data-theme="dark"] .password-field button { background: #171b1b; border-color: var(--rule-dark); color: #b8b4ac; }
 html[data-theme="dark"] .slug-preview, html[data-theme="dark"] .password-rule, html[data-theme="dark"] .register-legal-note { color: #b8b4ac; }
-@media (max-width: 620px) { .demo-mode-banner { align-items: flex-start; flex-direction: column; gap: 5px; padding: 10px 16px; font-size: 14px; line-height: 1.45; } }
+@media (max-width: 620px) { .demo-mode-banner { align-items: flex-start; flex-direction: column; gap: 5px; padding: 10px 16px; font-size: 14px; line-height: 1.45; } .showroom-nav.is-demo { top: 96px; } }
 
 /* Precios y preguntas del landing. Fondo oscuro para que no rompa el ritmo del
    capítulo anterior y el cierre claro siga siendo el final del recorrido. */
