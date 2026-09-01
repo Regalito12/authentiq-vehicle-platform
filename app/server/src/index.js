@@ -56,7 +56,15 @@ const frontendOrigin = String(process.env.FRONTEND_ORIGIN || "").trim();
 // servicio y el dominio comodín agregado en Vercel — eso es manual, fuera de este código.
 const platformBaseDomain = String(process.env.PLATFORM_BASE_DOMAIN || "").trim().toLowerCase().replace(/^\.+/, "");
 function subdomainForSlug(slug) {
-  return platformBaseDomain ? `${slug}.${platformBaseDomain}` : null;
+  if (!platformBaseDomain) return null;
+  const normalizedSlug = String(slug || "").trim().toLowerCase();
+  if (!normalizedSlug) return null;
+  // El showroom de la plataforma puede conservar el slug histórico `zevroa`.
+  // No debe convertirse en un subdominio duplicado: el dominio raíz ya representa
+  // ese showroom y es el enlace que se debe compartir con compradores.
+  const platformRootLabel = platformBaseDomain.split(".")[0];
+  if (normalizedSlug === platformRootLabel) return platformBaseDomain;
+  return `${normalizedSlug}.${platformBaseDomain}`;
 }
 
 // El slug se convierte en subdominio del dealer (<slug>.dominio.com) y en el

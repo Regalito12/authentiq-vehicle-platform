@@ -6229,6 +6229,25 @@ html[data-theme="dark"] .quotes-content .quote-total-preview {
   }
 }
 
+/* Shared onboarding surfaces: keep the premium frame consistent across both
+ * themes and prevent the share card from reading like a rigid spreadsheet. */
+.admin-page .dealer-share-card,
+.admin-page .dashboard-setup-card,
+.admin-page .settings-public-link {
+  border-radius: var(--auth-radius-md);
+  overflow: hidden;
+}
+
+.admin-page .dealer-share-side {
+  border-left: 1px solid var(--admin-border);
+  background: var(--admin-surface-soft);
+}
+
+html[data-theme="dark"] .admin-page .dealer-share-side {
+  border-color: var(--admin-border);
+  background: var(--admin-surface-soft);
+}
+
 /* Light theme contrast pass: the previous values sat too close together
  * (#f8f7f3 / #fffefa / #e3dfd7), which made the backoffice look washed out.
  * Keep the warm ZEVROA identity in the accent; let the neutral ramp create

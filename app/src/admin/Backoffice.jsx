@@ -55,6 +55,38 @@ import {
   UsersThreeIcon,
 } from "@phosphor-icons/react";
 
+function normalizedHostname(value) {
+  return String(value || "")
+    .trim()
+    .replace(/^[a-z][a-z\d+.-]*:\/\//i, "")
+    .split(/[/?#]/)[0]
+    .replace(/:\d+$/, "")
+    .replace(/\.$/, "")
+    .toLowerCase();
+}
+
+function publicShowroomUrl(organization, { preview = false } = {}) {
+  const origin = window.location.origin.replace(/\/$/, "");
+  if (preview) return `${origin}/?preview=1`;
+
+  const slug = String(organization?.slug || "zevroa").trim().toLowerCase();
+  const currentHost = normalizedHostname(window.location.hostname);
+  const configuredPlatformDomain = normalizedHostname(import.meta.env.VITE_PLATFORM_BASE_DOMAIN);
+  const platformDomain = configuredPlatformDomain || (currentHost.split(".").length === 2 ? currentHost : "");
+  const platformRootLabel = platformDomain.split(".")[0];
+  const customDomain = normalizedHostname(organization?.customDomain);
+  const customDomainReady = Boolean(customDomain && currentHost === customDomain);
+  const subdomain = normalizedHostname(organization?.subdomain);
+
+  if (customDomainReady) return `https://${customDomain}`;
+  // Compatibilidad defensiva con datos antiguos que devolvían un subdominio
+  // duplicado para el showroom raíz.
+  if (platformDomain && slug === platformRootLabel) return `https://${platformDomain}`;
+  if (slug === currentHost.split(".")[0] && subdomain === `${currentHost.split(".")[0]}.${currentHost}`) return `https://${currentHost}`;
+  if (subdomain) return `https://${subdomain}`;
+  return `${origin}/?dealer=${encodeURIComponent(slug)}`;
+}
+
 // Estas piezas arrastran dependencias grandes o solo se usan en módulos
 // secundarios. Mantenerlas lazy evita pagar su coste al abrir Inicio.
 const PlatformCenter = lazy(() => import("./PlatformCenter.jsx"));
@@ -461,19 +493,15 @@ function DealerShareCard({ organization, settings, onNavigate }) {
   const [copied, setCopied] = useState(false);
   const slug = organization?.slug || "zevroa";
   const customDomain = organization?.customDomain;
-  const normalizedCustomDomain = String(customDomain || "").replace(/^https?:\/\//i, "").replace(/\/+$/, "").toLowerCase();
+  const normalizedCustomDomain = normalizedHostname(customDomain);
   const customDomainReady = Boolean(normalizedCustomDomain && window.location.hostname.toLowerCase() === normalizedCustomDomain);
   const isPending = organization?.approvalStatus === "pending";
 
   const publicUrl = useMemo(() => {
     // Pendiente de aprobación: todavía no hay nada público que compartir, así que
     // el enlace que se ofrece es la vista previa privada, no un enlace de cliente.
-    if (isPending) return `${window.location.origin}/?preview=1`;
-    if (customDomainReady) return `https://${normalizedCustomDomain}`;
-    if (organization?.subdomain) return `https://${organization.subdomain}`;
-    const origin = window.location.origin;
-    return `${origin}/?dealer=${slug}`;
-  }, [customDomainReady, normalizedCustomDomain, slug, isPending, organization?.subdomain]);
+    return publicShowroomUrl(organization, { preview: isPending });
+  }, [organization, isPending]);
 
   const copyLink = async () => {
     try {
@@ -1555,7 +1583,7 @@ function SettingsModule({ form, organization, onboarding, onChange, onOrganizati
   const sections = [["brand", "Marca"], ["showroom", "Portada"], ["contact", "Contacto"], ["appointments", "Agenda"], ["legal", "Legal"]];
   const pendingSections = sections.filter(([id]) => !sectionReady[id]);
   const isOwner = Boolean(organization?.id);
-  const profileLink = organization?.subdomain ? `https://${organization.subdomain}` : `${window.location.origin}/?dealer=${organization?.slug || "zevroa"}`;
+  const profileLink = publicShowroomUrl(organization);
   const copyProfileLink = async () => {
     try { await navigator.clipboard.writeText(profileLink); } catch { /* El botón sigue dando feedback aunque el navegador bloquee el portapapeles. */ }
     setProfileLinkCopied(true);
