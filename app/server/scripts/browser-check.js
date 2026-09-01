@@ -18,7 +18,7 @@ const headful = args.includes("--headful");
 const skip3d = args.includes("--skip-3d");
 const siteOrigin = new URL(`${siteUrl}/`);
 const isLocalSite = siteOrigin.hostname === "localhost" || siteOrigin.hostname === "127.0.0.1";
-const isLocalOnlyTelemetry = (url) => isLocalSite && new URL(url).pathname === "/_vercel/speed-insights/script.js";
+const isLocalOnlyTelemetry = (url) => isLocalSite && ["/_vercel/speed-insights/script.js", "/_vercel/insights/script.js"].includes(new URL(url).pathname);
 const configuredDemoTenant = process.env.BROWSER_TENANT;
 const demoTenant = String(configuredDemoTenant !== undefined
   ? configuredDemoTenant
