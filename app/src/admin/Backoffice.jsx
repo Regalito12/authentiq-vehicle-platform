@@ -351,6 +351,23 @@ function AdminNav({ activeModule, onChange, onBack, onLogout, role, unreadNotifi
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
+  useEffect(() => {
+    if (!showNotifications) return undefined;
+    const onKeyDown = (event) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setShowNotifications(false);
+    };
+    const onPointerDown = (event) => {
+      if (!event.target.closest?.(".notification-wrap")) setShowNotifications(false);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("pointerdown", onPointerDown);
+    };
+  }, [showNotifications]);
   return (
     <>
       <header className="admin-header">
@@ -1165,6 +1182,7 @@ function QuoteShareAction({ quote, onShare }) {
 function QuotesModule({ quotes, leads, vehicles, loading, onRefresh, onCreate, onStatusChange, onShare, onExport, initialLead }) {
   const initial = { leadId: "", vehicleId: "", customerName: "", customerEmail: "", customerPhone: "", basePriceUsd: "", discountUsd: 0, validUntil: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10), notes: "" };
   const [form, setForm] = useState(initial);
+  const [saving, setSaving] = useState(false);
   useEffect(() => {
     if (!initialLead?.id) return;
     const vehicle = vehicles.find((item) => item.id === initialLead.vehicleId);
@@ -1174,7 +1192,7 @@ function QuotesModule({ quotes, leads, vehicles, loading, onRefresh, onCreate, o
   const total = Math.max(0, Number(form.basePriceUsd || 0) - Number(form.discountUsd || 0));
   const selectLead = (leadId) => { const lead = leads.find((item) => item.id === leadId); const vehicle = vehicles.find((item) => item.id === lead?.vehicleId); setForm((current) => ({ ...current, leadId, vehicleId: lead?.vehicleId || current.vehicleId, customerName: lead?.name || current.customerName, customerEmail: lead?.email || current.customerEmail, customerPhone: lead?.phone || current.customerPhone, basePriceUsd: vehicle?.priceUsd ?? current.basePriceUsd })); };
   const selectVehicle = (vehicleId) => { const vehicle = vehicles.find((item) => item.id === vehicleId); setForm((current) => ({ ...current, vehicleId, basePriceUsd: vehicle?.priceUsd ?? current.basePriceUsd })); };
-  const submit = async (event) => { event.preventDefault(); await onCreate(form); setForm(initial); };
+  const submit = async (event) => { event.preventDefault(); if (saving) return; setSaving(true); try { await onCreate(form); setForm(initial); } finally { setSaving(false); } };
   return <section className="records-content quotes-content"><div className="panel-heading"><div><span className="eyebrow">DOCUMENTOS COMERCIALES</span><h2>Cotizaciones.</h2></div><button className="secondary-action" type="button" onClick={onRefresh}>Actualizar</button></div><div className="quotes-layout"><form className="admin-form quote-form" onSubmit={submit}><div className="admin-form-head"><h2>Nueva cotización</h2><span className="quote-total-preview">{formatPrice(total)}</span></div><label>Cliente relacionado<select value={form.leadId} onChange={(event) => selectLead(event.target.value)}><option value="">Seleccionar cliente (opcional)</option>{leads.map((lead) => <option key={lead.id} value={lead.id}>{lead.name}{lead.brand ? ` · ${lead.brand} ${lead.model}` : ""}</option>)}</select></label><label>Vehículo<select value={form.vehicleId} onChange={(event) => selectVehicle(event.target.value)}><option value="">Seleccionar vehículo</option>{vehicles.filter((vehicle) => ["published", "reserved"].includes(vehicle.status)).map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.brand} {vehicle.model} · {vehicle.year}</option>)}</select></label><div className="form-grid"><label>Cliente<input value={form.customerName} onChange={(event) => setForm({ ...form, customerName: event.target.value })} required /></label><label>Correo<input type="email" value={form.customerEmail} onChange={(event) => setForm({ ...form, customerEmail: event.target.value })} /></label><label>Teléfono<input value={form.customerPhone} onChange={(event) => setForm({ ...form, customerPhone: event.target.value })} /></label><label>Vigente hasta<input type="date" value={form.validUntil} onChange={(event) => setForm({ ...form, validUntil: event.target.value })} /></label><label>Precio base<input type="number" min="0" step="0.01" value={form.basePriceUsd} onChange={(event) => setForm({ ...form, basePriceUsd: event.target.value })} required /></label><label>Descuento<input type="number" min="0" step="0.01" value={form.discountUsd} onChange={(event) => setForm({ ...form, discountUsd: event.target.value })} /></label></div><label>Notas para el cliente<textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} placeholder="Garantía, condiciones, entrega…" /></label><button className="primary-action" type="submit">Guardar cotización</button>{selectedLead && <small>Se creará vinculada al seguimiento de {selectedLead.name}.</small>}</form><section className="table-panel"><div className="panel-heading"><div><span className="eyebrow">HISTORIAL · {quotes.length.toString().padStart(2, "0")}</span><h3>Propuestas emitidas</h3></div></div>{loading ? <p className="empty-state">Cargando cotizaciones…</p> : quotes.length ? <div className="quotes-list">{quotes.map((quote) => <article className="quote-admin-row" key={quote.id}><div className="quote-admin-main"><span className="eyebrow">{quote.quoteNumber}</span><strong>{quote.customerName}</strong><span>{quote.brand ? `${quote.brand} ${quote.model} · ${quote.year}` : "Sin vehículo"}</span><small>{quote.customerEmail || quote.customerPhone || "Sin contacto"} · Vigente {formatDate(quote.validUntil)}</small></div><div className="quote-admin-total"><strong>{formatPrice(quote.totalUsd)}</strong><span>Base {formatPrice(quote.basePriceUsd)}{Number(quote.discountUsd) ? ` · -${formatPrice(quote.discountUsd)}` : ""}</span></div><div className="quote-admin-actions"><select value={quote.status} onChange={(event) => onStatusChange(quote.id, event.target.value)} aria-label={`Estado de ${quote.quoteNumber}`}><option value="draft">Borrador</option><option value="sent">Enviada</option><option value="accepted">Aceptada</option><option value="expired">Vencida</option><option value="cancelled">Cancelada</option></select><button className="text-button" type="button" onClick={() => window.print()}>Imprimir</button>{onShare && !["cancelled", "expired"].includes(quote.status) && <QuoteShareAction quote={quote} onShare={onShare} />}</div></article>)}</div> : <p className="empty-state">Aún no hay cotizaciones guardadas.</p>}</section></div></section>;
 }
 

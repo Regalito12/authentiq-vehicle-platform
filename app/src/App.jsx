@@ -2977,6 +2977,7 @@ function NavIcon({ name }) {
 function ShowroomNav({ theme, setTheme, customer, onAccount, onBackoffice, onRegisterDealer, businessName = "ZEVROA", logoUrl = "", demoMode = false }) {
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const menuToggleRef = useRef(null);
   useEffect(() => {
     const onScroll = () => {
       const isScrolled = window.scrollY > 36;
@@ -2986,10 +2987,28 @@ function ShowroomNav({ theme, setTheme, customer, onAccount, onBackoffice, onReg
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, [menuOpen]);
+  useEffect(() => {
+    if (!menuOpen) return undefined;
+    const onKeyDown = (event) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setMenuOpen(false);
+      menuToggleRef.current?.focus();
+    };
+    const onPointerDown = (event) => {
+      if (!event.target.closest?.(".showroom-nav")) setMenuOpen(false);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("pointerdown", onPointerDown);
+    };
+  }, [menuOpen]);
   const links = [["inventory", "Inventario", "#catalog"], ["brands", "Marcas", "#brands"], ["explore", "Modelos", "#models"], ["compare", "Comparar", "#compare-table"]];
   const closeMenu = () => setMenuOpen(false);
   const resolvedLogo = publicMediaUrl(logoUrl);
-   return <nav className={`top-nav showroom-nav ${scrolled ? "is-scrolled" : ""}${demoMode ? " is-demo" : ""}`} aria-label="Navegación principal"><a className="brand-mark showroom-nav-brand" href="#top" onClick={closeMenu}>{resolvedLogo ? <img src={resolvedLogo} alt={businessName} /> : businessName}<span>°</span></a><div className={`showroom-nav-links ${menuOpen ? "is-open" : ""}`}>{links.map(([icon, label, href]) => <a key={href} href={href} onClick={closeMenu}><NavIcon name={icon} /><span>{label}</span></a>)}<AnimatedThemeTogglerStarDemo theme={theme} onToggle={() => { setTheme((current) => current === "dark" ? "light" : "dark"); closeMenu(); }} /><button className="nav-admin-link account-launch" type="button" onClick={() => { onAccount(); closeMenu(); }}>{customer ? `CUENTA · ${customer.name.split(" ")[0].toUpperCase()}` : "MI CUENTA"}</button><button className="nav-admin-link nav-dealer-badge" type="button" onClick={() => { onRegisterDealer?.(); closeMenu(); }}>¿ERES CONCESIONARIO?</button><button className="nav-admin-link nav-backoffice-link" type="button" onClick={() => { onBackoffice(); closeMenu(); }}>PANEL DE CONTROL →</button></div><button className="showroom-nav-toggle" type="button" aria-label={menuOpen ? "Cerrar menú" : "Abrir menú"} aria-expanded={menuOpen} onClick={() => setMenuOpen((current) => !current)}><NavIcon name={menuOpen ? "explore" : "menu"} /></button></nav>;
+  return <nav className={`top-nav showroom-nav ${scrolled ? "is-scrolled" : ""}${demoMode ? " is-demo" : ""}`} aria-label="Navegación principal"><a className="brand-mark showroom-nav-brand" href="#top" onClick={closeMenu}>{resolvedLogo ? <img src={resolvedLogo} alt={businessName} /> : businessName}<span>°</span></a><div className={`showroom-nav-links ${menuOpen ? "is-open" : ""}`}>{links.map(([icon, label, href]) => <a key={href} href={href} onClick={closeMenu}><NavIcon name={icon} /><span>{label}</span></a>)}<AnimatedThemeTogglerStarDemo theme={theme} onToggle={() => { setTheme((current) => current === "dark" ? "light" : "dark"); closeMenu(); }} /><button className="nav-admin-link account-launch" type="button" onClick={() => { onAccount(); closeMenu(); }}>{customer ? `CUENTA · ${customer.name.split(" ")[0].toUpperCase()}` : "MI CUENTA"}</button><button className="nav-admin-link nav-dealer-badge" type="button" onClick={() => { onRegisterDealer?.(); closeMenu(); }}>¿ERES CONCESIONARIO?</button><button className="nav-admin-link nav-backoffice-link" type="button" onClick={() => { onBackoffice(); closeMenu(); }}>PANEL DE CONTROL →</button></div><button ref={menuToggleRef} className="showroom-nav-toggle" type="button" aria-label={menuOpen ? "Cerrar menú" : "Abrir menú"} aria-expanded={menuOpen} onClick={() => setMenuOpen((current) => !current)}><NavIcon name={menuOpen ? "explore" : "menu"} /></button></nav>;
 }
 
 function PresentationMode({ vehicles, loading, onExit, onOpenVehicle, businessName = "ZEVROA", logoUrl = "" }) {
