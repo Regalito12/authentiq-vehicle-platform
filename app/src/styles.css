@@ -6430,3 +6430,297 @@ html[data-theme="dark"] .admin-page .crm-assignment select:hover {
   border-color: #8d753d;
   background: #1b211f;
 }
+
+/* Mobile premium pass: phone layouts need their own rhythm, not a shrunken
+ * desktop. Keep the editorial identity, add comfortable touch targets, and
+ * let surfaces separate clearly without adding another dependency. */
+@media (max-width: 620px) {
+  html {
+    scroll-padding-top: 76px;
+  }
+
+  body {
+    overflow-x: hidden;
+  }
+
+  .showroom-nav {
+    align-items: center;
+    flex-direction: row;
+    gap: 12px;
+    padding: 8px 14px;
+    border-bottom-color: rgba(250, 248, 245, .18);
+  }
+
+  .showroom-nav-brand {
+    min-height: 44px;
+    font-size: 17px;
+  }
+
+  .showroom-nav-toggle {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    background: rgba(8, 9, 9, .16);
+  }
+
+  .showroom-nav.is-scrolled .showroom-nav-toggle {
+    background: rgba(255, 255, 255, .45);
+  }
+
+  .showroom-nav-links {
+    top: calc(100% + 10px);
+    right: 12px;
+    left: 12px;
+    gap: 4px;
+    padding: 8px;
+    border-radius: 16px;
+    border-color: rgba(250, 248, 245, .2);
+    box-shadow: 0 18px 44px rgba(0, 0, 0, .28);
+  }
+
+  .showroom-nav-links > a,
+  .showroom-nav-links .nav-admin-link,
+  .showroom-nav-links .animated-theme-toggler-star {
+    min-height: 48px;
+    border-radius: 10px;
+    padding: 0 14px;
+  }
+
+  .showroom-nav-links > a::after {
+    right: 14px;
+    bottom: 4px;
+    left: 14px;
+  }
+
+  .demo-mode-banner {
+    padding-right: 18px;
+    padding-left: 18px;
+    padding-bottom: calc(10px + env(safe-area-inset-top));
+  }
+
+  .showroom-nav.is-demo {
+    top: calc(96px + env(safe-area-inset-top));
+  }
+
+  .hero-content {
+    padding-right: 20px;
+    padding-bottom: 68px;
+    padding-left: 20px;
+  }
+
+  .hero-actions {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .hero-actions > * {
+    width: 100%;
+    min-height: 48px;
+    justify-content: center;
+  }
+
+  .catalog {
+    padding-right: 18px;
+    padding-left: 18px;
+  }
+
+  .section-head h2 {
+    font-size: clamp(38px, 11vw, 48px);
+    line-height: .94;
+  }
+
+  .filters,
+  .catalog-empty,
+  .catalog-state-card,
+  .financing-spotlight,
+  .contact-section,
+  .brand-rail,
+  .compare-table-section {
+    border-radius: 16px;
+  }
+
+  .filters {
+    padding: 14px;
+    background: color-mix(in srgb, var(--auth-surface) 86%, var(--auth-soft));
+  }
+
+  .vehicle-image-wrap {
+    border-radius: 16px;
+    box-shadow: 0 12px 28px rgba(55, 47, 34, .1);
+  }
+
+  .vehicle-card-body {
+    padding: 16px 3px 22px;
+  }
+
+  .vehicle-card h3 {
+    font-size: 23px;
+    line-height: 1.02;
+  }
+
+  .compare-toggle {
+    right: 10px;
+    bottom: 10px;
+    min-height: 44px;
+    opacity: 1;
+    transform: none;
+  }
+
+  .cookie-consent {
+    right: 12px;
+    bottom: calc(12px + env(safe-area-inset-bottom));
+    width: calc(100% - 24px);
+    padding: 18px 16px calc(16px + env(safe-area-inset-bottom));
+    border-radius: 18px;
+    box-shadow: 0 -10px 34px rgba(20, 18, 14, .18), 0 8px 24px rgba(0, 0, 0, .1);
+  }
+
+  .cookie-consent-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .cookie-consent-actions button {
+    width: 100%;
+    min-height: 48px;
+  }
+
+  /* Backoffice: give the phone a deliberate app shell and keep actions
+   * discoverable instead of letting a dense toolbar wrap unpredictably. */
+  .admin-page:not(.admin-login-page) {
+    padding-right: 14px;
+    padding-bottom: calc(96px + env(safe-area-inset-bottom));
+    padding-left: 14px;
+  }
+
+  .admin-page:not(.admin-login-page) .admin-header {
+    margin-right: -14px;
+    margin-left: -14px;
+    padding: 12px 14px 10px;
+  }
+
+  .admin-title-row .admin-app-title {
+    font-size: 15px;
+  }
+
+  .admin-header-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 14px;
+  }
+
+  .admin-header-actions > button,
+  .admin-header-actions .notification-button {
+    width: 100%;
+    min-height: 44px;
+    justify-content: center;
+    padding: 9px 8px;
+  }
+
+  .admin-presentation-launch {
+    margin-right: -14px;
+    margin-left: -14px;
+    padding-right: 14px;
+    padding-left: 14px;
+  }
+
+  .admin-navigation-shell {
+    margin-top: 12px;
+    border-radius: 16px;
+    padding: 8px;
+    box-shadow: 0 8px 22px rgba(32, 29, 20, .06);
+  }
+
+  .admin-nav {
+    padding-top: 2px;
+  }
+
+  .admin-nav-core {
+    gap: 6px;
+    padding-bottom: 3px;
+    scrollbar-width: none;
+  }
+
+  .admin-nav-core::-webkit-scrollbar {
+    display: none;
+  }
+
+  .admin-nav-item {
+    min-height: 44px;
+    border-radius: 10px;
+    padding: 10px 13px;
+  }
+
+  .admin-nav-item.active {
+    box-shadow: 0 4px 12px rgba(20, 24, 22, .14);
+  }
+
+  .admin-content-column {
+    padding-top: 14px;
+  }
+
+  .inventory-overview-stats {
+    gap: 8px;
+  }
+
+  .inventory-overview-stats article {
+    border-radius: 14px;
+  }
+
+  .inventory-virtual-list {
+    gap: 12px;
+  }
+
+  .inventory-virtual-row {
+    border-radius: 14px;
+    padding: 15px;
+  }
+
+  .inventory-virtual-actions {
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .inventory-virtual-actions .text-button,
+  .inventory-virtual-actions .status-quick-action {
+    min-height: 40px;
+  }
+
+  .admin-page .admin-form,
+  .admin-page .admin-list,
+  .admin-page .table-panel,
+  .admin-page .chart-panel,
+  .admin-page .activity-panel {
+    border-radius: 14px;
+  }
+}
+
+@media (hover: none) and (max-width: 620px) {
+  .vehicle-card:hover .vehicle-image,
+  .vehicle-card:hover::before,
+  .inventory-overview-stats article:hover,
+  .inventory-virtual-row:hover {
+    transform: none;
+    opacity: 1;
+  }
+
+  .vehicle-card:hover::before {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .showroom-nav,
+  .showroom-nav-links,
+  .showroom-nav-links > a,
+  .showroom-nav-links > a::after,
+  .vehicle-image,
+  .inventory-overview-stats article,
+  .inventory-virtual-row {
+    transition: none !important;
+  }
+}
