@@ -2111,6 +2111,7 @@ function VehicleCard({ vehicle, onOpen, onToggleCompare, isCompared, isFavorite,
   const whatsappHref = `https://wa.me/${whatsappNumber}${whatsappText ? `?text=${whatsappText}` : ""}`;
   const [shareStatus, setShareStatus] = useState("");
   const reduceMotion = useReducedMotion();
+  const freshness = vehicleFreshness(vehicle);
   const shareVehicle = async (event) => { event.stopPropagation(); try { const result = await shareOrCopyUrl(`${window.location.origin}${vehiclePath(vehicle)}`, `${vehicle.brand} ${vehicle.model}`); setShareStatus(result === "copied" ? "URL copiada" : result === "shared" ? "Compartido" : "No disponible"); window.setTimeout(() => setShareStatus(""), 2200); } catch { setShareStatus(""); } };
   // La vista de ficha se registra al cambiar de ruta (cubre también los enlaces directos),
   // así que aquí no se emite un segundo vehicle_view para no duplicar la métrica.
@@ -2154,7 +2155,7 @@ function VehicleCard({ vehicle, onOpen, onToggleCompare, isCompared, isFavorite,
         <div>
           <h3>{vehicle.brand} {vehicle.model}</h3>
            <span className="vehicle-meta">{vehicle.year} · {vehicle.variant || vehicle.fuelType || vehicle.power || "—"}</span>
-           {vehicleFreshness(vehicle) && <span className="vehicle-card-freshness">{vehicleFreshness(vehicle)}</span>}
+           {freshness && <span className="vehicle-card-freshness">{freshness}</span>}
            <span className="vehicle-card-specs"><i>◉</i>{fuelDisplay(vehicle.fuelType || "Gasolina")}<i>⚙</i>{transmissionDisplay(vehicle.transmission || "Automático")}<i>↗</i>{Number(vehicle.mileageKm || 0).toLocaleString("en-US")} km</span>
         </div>
         <strong>{vehiclePrice(vehicle)}</strong>
