@@ -2420,6 +2420,7 @@ function LocationSection({ settings = {} }) {
 function CookieConsentBanner() {
   const [visible, setVisible] = useState(() => getStoredValue("authentiq_cookie_consent") !== "accepted");
   const [path, setPath] = useState(() => normalizePathname(window.location.pathname));
+  const [adminVisible, setAdminVisible] = useState(() => Boolean(document.querySelector(".admin-page")));
   useEffect(() => {
     const syncPath = () => setPath(normalizePathname(window.location.pathname));
     window.addEventListener("popstate", syncPath);
@@ -2429,11 +2430,18 @@ function CookieConsentBanner() {
       window.removeEventListener("zevroa:navigation", syncPath);
     };
   }, []);
+  useEffect(() => {
+    const syncAdminVisibility = () => setAdminVisible(Boolean(document.querySelector(".admin-page")));
+    syncAdminVisibility();
+    const observer = new MutationObserver(syncAdminVisibility);
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, []);
   const isPublicExperience = path === "/" || path === "/catalogo" || path === "/blog" || path.startsWith("/vehiculos/") || path.startsWith("/blog/");
-  if (!visible || !isPublicExperience) return null;
+  if (!visible || !isPublicExperience || adminVisible) return null;
   const accept = () => { setStoredValue("authentiq_cookie_consent", "accepted"); setVisible(false); };
   const reject = () => { setStoredValue("authentiq_cookie_consent", "rejected"); setVisible(false); };
-  return <aside className="cookie-consent" role="dialog" aria-label="Preferencias de cookies"><div><strong>Tu privacidad importa.</strong><p>Usamos cookies esenciales para que el showroom funcione. La analítica solo se activa si la aceptas.</p></div><div className="cookie-consent-actions"><button type="button" className="secondary-action" onClick={reject}>Solo esenciales</button><button type="button" className="primary-action" onClick={accept}>Aceptar analítica</button></div></aside>;
+  return <aside className="cookie-consent" role="region" aria-label="Preferencias de cookies"><div><strong>Tu privacidad importa.</strong><p>Usamos cookies esenciales para que el showroom funcione. La analítica solo se activa si la aceptas.</p></div><div className="cookie-consent-actions"><button type="button" className="secondary-action" onClick={reject}>Solo esenciales</button><button type="button" className="primary-action" onClick={accept}>Aceptar analítica</button></div></aside>;
 }
 
 function BlogSection({ posts }) {
