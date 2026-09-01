@@ -163,6 +163,17 @@ function formatFinancePrice(value, currency = publicCurrency) {
 
 function vehicleAmount(vehicle) { return Number(vehicle?.price ?? vehicle?.priceAmount ?? vehicle?.priceUsd ?? 0); }
 function vehiclePrice(vehicle) { return formatPrice(vehicleAmount(vehicle), vehicle?.currency || vehicle?.priceCurrency || "USD"); }
+function vehicleFreshness(vehicle) {
+  const rawDate = vehicle?.updatedAt || vehicle?.createdAt;
+  if (!rawDate) return "";
+  const timestamp = new Date(rawDate).getTime();
+  if (!Number.isFinite(timestamp)) return "";
+  const days = Math.max(0, Math.floor((Date.now() - timestamp) / 86400000));
+  if (days === 0) return "Actualizado hoy";
+  if (days === 1) return "Actualizado ayer";
+  if (days < 7) return `Actualizado hace ${days} días`;
+  return `Actualizado el ${new Intl.DateTimeFormat("es-DO", { day: "2-digit", month: "short" }).format(new Date(timestamp))}`;
+}
 
 function normalizeSearchText(value) {
   return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
@@ -1437,7 +1448,7 @@ function BuyerRequestModal({ kind, vehicle = null, onClose }) {
       ? `[TASACIÓN] Vehículo actual: ${form.currentVehicle}. Año: ${form.year || "No indicado"}. Kilometraje: ${form.mileage || "No indicado"} km.${vehicle ? ` Interesado además en: ${vehicle.brand} ${vehicle.model}.` : ""}${form.note ? ` Nota: ${form.note}` : ""}`
       : `[ALERTA DE BÚSQUEDA] Busca: ${form.currentVehicle}.${form.year ? ` Año desde: ${form.year}.` : ""}${form.note ? ` Preferencias: ${form.note}` : ""}`;
     try {
-      const response = await fetch(`${apiUrl}/api/leads`, { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": publicRequestKey("vehicle-lead") }, body: JSON.stringify({ name: form.name, email: form.email, phone: normalizePhone(form.phone), vehicleId: vehicle?.id || null, message: requestMessage, privacyConsent: form.privacyConsent, turnstileToken }) });
+      const response = await fetch(`${apiUrl}/api/leads`, { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": publicRequestKey("vehicle-lead") }, body: JSON.stringify({ name: form.name, email: form.email, phone: normalizePhone(form.phone), vehicleId: vehicle?.id || null, message: requestMessage, intent: isTradeIn ? "trade-in" : "search-alert", privacyConsent: form.privacyConsent, turnstileToken }) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "No se pudo registrar tu solicitud");
       trackEvent(isTradeIn ? "trade_in_submitted" : "search_alert_submitted", vehicle ? { vehicleId: vehicle.id } : {});
@@ -2142,7 +2153,8 @@ function VehicleCard({ vehicle, onOpen, onToggleCompare, isCompared, isFavorite,
       <button className="vehicle-card-body vehicle-card-open" type="button" onClick={open}>
         <div>
           <h3>{vehicle.brand} {vehicle.model}</h3>
-          <span className="vehicle-meta">{vehicle.year} · {vehicle.variant || vehicle.fuelType || vehicle.power || "—"}</span>
+           <span className="vehicle-meta">{vehicle.year} · {vehicle.variant || vehicle.fuelType || vehicle.power || "—"}</span>
+           {vehicleFreshness(vehicle) && <span className="vehicle-card-freshness">{vehicleFreshness(vehicle)}</span>}
            <span className="vehicle-card-specs"><i>◉</i>{fuelDisplay(vehicle.fuelType || "Gasolina")}<i>⚙</i>{transmissionDisplay(vehicle.transmission || "Automático")}<i>↗</i>{Number(vehicle.mileageKm || 0).toLocaleString("en-US")} km</span>
         </div>
         <strong>{vehiclePrice(vehicle)}</strong>

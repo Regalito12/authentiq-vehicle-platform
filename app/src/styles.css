@@ -6230,6 +6230,21 @@ html[data-theme="dark"] .quotes-content .quote-total-preview {
   }
 }
 
+/* Señal de confianza discreta: ayuda a decidir sin competir con precio y CTA. */
+.vehicle-card-freshness {
+  display: block;
+  margin-top: 5px;
+  color: var(--muted, #777);
+  font-size: 0.875rem;
+  letter-spacing: 0.02em;
+}
+
+@media (max-width: 620px) {
+  .vehicle-card-freshness {
+    font-size: 0.875rem;
+  }
+}
+
 /* Shared onboarding surfaces: keep the premium frame consistent across both
  * themes and prevent the share card from reading like a rigid spreadsheet. */
 .admin-page .dealer-share-card,
