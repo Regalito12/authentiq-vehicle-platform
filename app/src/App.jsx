@@ -2146,7 +2146,7 @@ function VehicleCard({ vehicle, onOpen, onToggleCompare, isCompared, isFavorite,
 }
 
 function CatalogSkeleton() {
-  return <div className="vehicle-grid catalog-skeleton" aria-label="Cargando inventario" aria-busy="true">{Array.from({ length: 6 }, (_, index) => <article className="vehicle-skeleton-card" key={index}><div className="vehicle-skeleton-image" /><div className="vehicle-skeleton-copy"><span /><strong /><small /></div></article>)}</div>;
+  return <div className="vehicle-grid catalog-skeleton" role="status" aria-live="polite" aria-busy="true"><span className="visually-hidden">Cargando inventario</span>{Array.from({ length: 6 }, (_, index) => <article className="vehicle-skeleton-card" key={index}><div className="vehicle-skeleton-image" /><div className="vehicle-skeleton-copy"><span /><strong /><small /></div></article>)}</div>;
 }
 
 function CatalogError({ message, onRetry }) {
