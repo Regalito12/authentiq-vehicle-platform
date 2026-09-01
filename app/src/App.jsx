@@ -1832,10 +1832,11 @@ function Vehicle3DViewer({ vehicle, media }) {
         window.clearTimeout(jumpTimer);
         window.clearTimeout(interactionResumeTimer);
         viewer.pause?.();
-        // Interrumpir también la descarga de GLTF al cambiar de ficha. Si se
-        // deja el src activo, una navegación rápida mantiene texturas pesadas
-        // en vuelo y el siguiente visor puede fallar por falta de recursos.
-        viewer.removeAttribute("src");
+        // No vaciamos `src` durante el desmontaje. model-viewer convierte las
+        // texturas GLTF en URLs blob internas; quitar el atributo mientras el
+        // loader aún resuelve una textura produce errores de consola aunque la
+        // ficha siguiente funcione. Al desmontarse el elemento, el navegador
+        // libera el visor y su caché compartida evita repetir la descarga.
         ModelViewerElement.minimumRenderScale = 1;
       };
     }).catch(() => setState("error"));

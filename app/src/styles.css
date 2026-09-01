@@ -1336,6 +1336,9 @@ html[data-theme="dark"] .appointment-actions select { background: var(--panel-de
 .admin-toast { position: fixed; right: 28px; bottom: 28px; z-index: var(--z-toast); display: flex; align-items: center; gap: 10px; max-width: min(420px, calc(100vw - 40px)); padding: 13px 16px; border: 1px solid var(--tenant-primary); background: var(--text-ink); color: var(--shell-bg); box-shadow: 0 8px 18px rgba(10,10,10,.18); font: 500 14px "IBM Plex Mono", monospace; letter-spacing: .03em; }
 .admin-toast-mark { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--tenant-primary); color: var(--tenant-on-primary, var(--text-ink)); font-weight: 700; }
 .admin-toast-action { flex: 0 0 auto; border: 1px solid var(--tenant-primary); padding: 6px 9px; background: transparent; color: var(--brand-gold-light); font: inherit; cursor: pointer; }
+.admin-toast-close { flex: 0 0 auto; width: 24px; height: 24px; margin-left: 2px; border: 0; background: transparent; color: #c9c4bc; font: 500 21px/1 Arial, sans-serif; cursor: pointer; }
+.admin-toast-close:hover, .admin-toast-close:focus-visible { color: #fff; }
+.admin-toast-close:focus-visible { outline: 2px solid var(--brand-gold-light); outline-offset: 2px; }
 .admin-toast-action:hover, .admin-toast-action:focus-visible { background: var(--tenant-primary); color: var(--tenant-on-primary, var(--text-ink)); }
 .admin-toast-action:focus-visible { outline: 2px solid #f7f4ed; outline-offset: 2px; }
 .admin-dialog-backdrop { position: fixed; inset: 0; z-index: var(--z-modal-backdrop); display: grid; place-items: center; padding: 20px; background: rgba(9, 10, 10, .62); backdrop-filter: blur(10px); }
