@@ -3441,7 +3441,7 @@ function App() {
   return (
     <><a className="skip-link" href="#top">Saltar al contenido</a><main id="top">
       {requestedDemoMode && <div className="demo-mode-banner" role="status"><span><strong>DEMO ZEVROA</strong> · Explora un showroom completo con inventario, fichas y experiencias 3D.</span><a href="/">Volver a la plataforma →</a></div>}
-      <ShowroomNav theme={theme} setTheme={setTheme} customer={customer} businessName={businessSettings.businessName} logoUrl={businessSettings.logoUrl} onAccount={() => { setAccountOpen(true); setAccountStatus({ loading: false, error: "" }); }} onBackoffice={() => { setAdminInitialMode("login"); setScreen("admin"); navigate("/backoffice"); }} onRegisterDealer={() => { setAdminInitialMode("register"); setScreen("admin"); navigate("/backoffice"); }} />
+      <ShowroomNav theme={theme} setTheme={setTheme} customer={customer} businessName={businessSettings.businessName} logoUrl={businessSettings.logoUrl} demoMode={requestedDemoMode} onAccount={() => { setAccountOpen(true); setAccountStatus({ loading: false, error: "" }); }} onBackoffice={() => { setAdminInitialMode("login"); setScreen("admin"); navigate("/backoffice"); }} onRegisterDealer={() => { setAdminInitialMode("register"); setScreen("admin"); navigate("/backoffice"); }} />
       <section className="hero">
         {heroVideoUrl
           ? <video className="hero-background hero-video" autoPlay={!prefersReducedMotion} muted loop playsInline preload="metadata" poster={heroImage || undefined} aria-label={`Vehículo de ${getBrandName()}`}><source src={heroVideoUrl} /></video>
