@@ -1358,6 +1358,8 @@ function PriceAlertModal({ vehicle, onClose }) {
           phone: normalizePhone(form.phone),
           vehicleId: vehicle.id,
           message: `[ALERTA DE PRECIO] Interesado en ${vehicle.brand} ${vehicle.model} (${formatPrice(vehicle.priceUsd)}). Precio objetivo: ${form.targetPrice ? formatPrice(form.targetPrice) : "Cualquier rebaja"}`,
+          intent: "price-alert",
+          privacyConsent: form.privacyConsent,
           turnstileToken,
         }),
       });

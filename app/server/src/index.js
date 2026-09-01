@@ -2153,7 +2153,7 @@ app.post("/api/leads", verifyPublicForm, publicRequestIdempotency, async (req, r
   const phone = String(req.body.phone || "").trim() || null;
   const message = String(req.body.message || "").trim() || null;
   const vehicleId = String(req.body.vehicleId || "").trim() || null;
-  const intent = ["search-alert", "trade-in"].includes(String(req.body.intent || "")) ? String(req.body.intent) : "contact";
+  const intent = ["search-alert", "trade-in", "price-alert"].includes(String(req.body.intent || "")) ? String(req.body.intent) : "contact";
   const privacyConsent = req.body.privacyConsent === true;
   if (!privacyConsent) return res.status(400).json({ error: "Debes aceptar la politica de privacidad para enviar el mensaje" });
   if (!name || name.length > 120 || (!email && !phone) || (email && !isValidEmail(email)) || phone?.length > 40 || message?.length > 1200) return res.status(400).json({ error: "Nombre y un correo o teléfono válido son obligatorios" });
@@ -2164,16 +2164,16 @@ app.post("/api/leads", verifyPublicForm, publicRequestIdempotency, async (req, r
       const vehicle = await pool.query("SELECT id FROM vehicles WHERE id=$1 AND organization_id=$2 AND status IN ('published','reserved')", [vehicleId, organization.id]);
       if (!vehicle.rowCount) return res.status(404).json({ error: "Vehículo no disponible" });
     }
-    const source = intent === "search-alert" ? "search-alert" : intent === "trade-in" ? "trade-in" : vehicleId ? "vehicle-interest" : "contact-form";
+    const source = intent === "search-alert" ? "search-alert" : intent === "trade-in" ? "trade-in" : intent === "price-alert" ? "price-alert" : vehicleId ? "vehicle-interest" : "contact-form";
     const lead = await createLead({ organizationId: organization.id, leadType: vehicleId ? "interest" : "contact", vehicleId, name, email, phone, message, source, privacyConsent });
-    const notificationTitle = intent === "search-alert" ? "Nueva búsqueda guardada" : intent === "trade-in" ? "Nueva solicitud de tasación" : "Nuevo lead recibido";
+    const notificationTitle = intent === "search-alert" ? "Nueva búsqueda guardada" : intent === "trade-in" ? "Nueva solicitud de tasación" : intent === "price-alert" ? "Nueva alerta de precio" : "Nuevo lead recibido";
     await notifyAdmins({ organizationId: organization.id, title: notificationTitle, body: `${name} dejó sus datos desde el sitio web.`, entityType: "lead", entityId: lead.id });
     await sendTransactionalEmail({
       to: email,
       organizationId: organization.id,
       subject: "Recibimos tu mensaje",
-      text: `Hola ${name}. ${intent === "search-alert" ? "Guardamos tu búsqueda y te avisaremos cuando aparezca una opción relevante." : intent === "trade-in" ? "Recibimos los datos de tu vehículo y un asesor te contactará para orientarte." : "Recibimos tu mensaje y un asesor del dealer se pondrá en contacto contigo."}`,
-      html: `<p>Hola <strong>${escapeHtml(name)}</strong>.</p><p>${intent === "search-alert" ? "Guardamos tu búsqueda y te avisaremos cuando aparezca una opción relevante." : intent === "trade-in" ? "Recibimos los datos de tu vehículo y un asesor te contactará para orientarte." : "Recibimos tu mensaje y un asesor del dealer se pondrá en contacto contigo."}</p>`,
+      text: `Hola ${name}. ${intent === "search-alert" ? "Guardamos tu búsqueda y te avisaremos cuando aparezca una opción relevante." : intent === "trade-in" ? "Recibimos los datos de tu vehículo y un asesor te contactará para orientarte." : intent === "price-alert" ? "Registramos tu alerta y el equipo podrá avisarte si cambia el precio." : "Recibimos tu mensaje y un asesor del dealer se pondrá en contacto contigo."}`,
+      html: `<p>Hola <strong>${escapeHtml(name)}</strong>.</p><p>${intent === "search-alert" ? "Guardamos tu búsqueda y te avisaremos cuando aparezca una opción relevante." : intent === "trade-in" ? "Recibimos los datos de tu vehículo y un asesor te contactará para orientarte." : intent === "price-alert" ? "Registramos tu alerta y el equipo podrá avisarte si cambia el precio." : "Recibimos tu mensaje y un asesor del dealer se pondrá en contacto contigo."}</p>`,
     });
     res.status(201).json({ data: lead });
   } catch (error) {

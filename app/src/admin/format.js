@@ -70,7 +70,7 @@ export function formatPlatform(value) {
 }
 
 export function formatLeadSource(value) {
-  return { direct: "Directo", website: "Sitio web", contact: "Contacto", "contact-form": "Formulario", appointment: "Cita", offer: "Oferta", quote: "Cotización", import: "Importado", "vehicle-interest": "Interés en vehículo", "search-alert": "Alerta de búsqueda", "trade-in": "Tasación" }[String(value || "").toLowerCase()] || String(value || "Directo");
+  return { direct: "Directo", website: "Sitio web", contact: "Contacto", "contact-form": "Formulario", appointment: "Cita", offer: "Oferta", quote: "Cotización", import: "Importado", "vehicle-interest": "Interés en vehículo", "search-alert": "Alerta de búsqueda", "price-alert": "Alerta de precio", "trade-in": "Tasación" }[String(value || "").toLowerCase()] || String(value || "Directo");
 }
 
 export function slugify(value) {
