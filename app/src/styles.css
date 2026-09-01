@@ -6228,3 +6228,185 @@ html[data-theme="dark"] .quotes-content .quote-total-preview {
     box-shadow: none;
   }
 }
+
+/* Light theme contrast pass: the previous values sat too close together
+ * (#f8f7f3 / #fffefa / #e3dfd7), which made the backoffice look washed out.
+ * Keep the warm ZEVROA identity in the accent; let the neutral ramp create
+ * the hierarchy users need to scan a work surface. */
+.admin-page {
+  --admin-bg: #f0f0ec;
+  --admin-surface: #fcfbf7;
+  --admin-surface-soft: #e9e9e4;
+  --admin-hover: #e7e6df;
+  --admin-border: #c8c8c0;
+  --admin-border-strong: #aaa9a0;
+  --admin-ink: #171918;
+  --admin-muted: #5d625e;
+  --admin-focus: #8b681f;
+  background: radial-gradient(circle at 94% 0%, rgba(200, 162, 75, .12), transparent 26%), var(--admin-bg);
+  color: var(--admin-ink);
+}
+
+.admin-header {
+  background: rgba(252, 251, 247, .96);
+  border-bottom-color: var(--admin-border);
+}
+
+.admin-presentation-launch {
+  background: var(--admin-surface);
+  border-bottom-color: var(--admin-border);
+}
+
+.admin-navigation-shell {
+  background: rgba(252, 251, 247, .97);
+  border-color: var(--admin-border);
+  box-shadow: 0 5px 12px rgba(32, 29, 20, .055);
+}
+
+.admin-navigation-brand,
+.admin-nav-advanced,
+.admin-context-bar,
+.admin-content-heading,
+.admin-form-head,
+.panel-heading,
+.table-scroll th,
+.table-scroll td,
+.inventory-virtual-actions {
+  border-color: var(--admin-border);
+}
+
+.admin-navigation-kicker,
+.admin-nav-label,
+.admin-presentation-launch .secondary-action,
+.admin-header-actions .onboarding-launch-button,
+.table-actions .text-button,
+.admin-page .text-button:not(.danger-text) {
+  color: #765a1d;
+}
+
+.admin-nav-item {
+  color: var(--admin-muted);
+}
+
+.admin-nav-item:hover,
+.inventory-virtual-actions .text-button:hover {
+  background: var(--admin-hover);
+  color: var(--admin-ink);
+}
+
+.admin-nav-item.active {
+  background: #1b211f;
+  color: #fffefa;
+}
+
+.inventory-overview-stats article,
+.inventory-virtual-row {
+  border-color: var(--admin-border);
+  background: var(--admin-surface);
+}
+
+.inventory-overview-stats article:hover,
+.inventory-virtual-row:hover {
+  border-color: var(--admin-border-strong);
+}
+
+.admin-page .admin-form input,
+.admin-page .admin-form select,
+.admin-page .admin-form textarea,
+.admin-page .security-mfa-form input,
+.admin-page .crm-note-form textarea,
+.admin-page .crm-assignment select {
+  border-color: var(--admin-border-strong);
+  background: #f6f5f0;
+  color: var(--admin-ink);
+}
+
+.admin-page .admin-form input:hover,
+.admin-page .admin-form select:hover,
+.admin-page .admin-form textarea:hover,
+.admin-page .security-mfa-form input:hover,
+.admin-page .crm-note-form textarea:hover,
+.admin-page .crm-assignment select:hover {
+  border-color: #92732c;
+  background: var(--admin-surface);
+}
+
+.admin-page .admin-form input:focus,
+.admin-page .admin-form select:focus,
+.admin-page .admin-form textarea:focus,
+.admin-page .security-mfa-form input:focus,
+.admin-page .crm-note-form textarea:focus,
+.admin-page .crm-assignment select:focus {
+  border-color: var(--admin-focus);
+  background: var(--admin-surface);
+}
+
+.admin-page .admin-form input::placeholder,
+.admin-page .admin-form textarea::placeholder,
+.admin-page .crm-note-form textarea::placeholder {
+  color: #656963;
+}
+
+.admin-page .security-setup-panel,
+.admin-page .quote-form,
+.admin-page .quotes-content > .quotes-layout > .table-panel,
+.admin-page .invite-form,
+.admin-page .users-layout > .admin-form,
+.admin-page .users-layout > .table-panel,
+.admin-page .taxonomy-layout > .admin-form,
+.admin-page .taxonomy-layout > .table-panel,
+.admin-page .blog-layout > .admin-form,
+.admin-page .blog-layout > .table-panel {
+  border-color: var(--admin-border);
+  background: var(--admin-surface);
+}
+
+.quotes-content .quote-form,
+.quotes-content .quotes-layout > .table-panel,
+html[data-theme="dark"] .quotes-content .quote-form,
+html[data-theme="dark"] .quotes-content .quotes-layout > .table-panel {
+  box-shadow: none;
+}
+
+html[data-theme="dark"] .admin-page {
+  --admin-bg: #101313;
+  --admin-surface: #1e2321;
+  --admin-surface-soft: #202624;
+  --admin-hover: #252b29;
+  --admin-border: #353b37;
+  --admin-border-strong: #59625d;
+  --admin-ink: #f2f0e9;
+  --admin-muted: #a8aea8;
+  --admin-focus: #e5c36d;
+  background: var(--admin-bg);
+}
+
+html[data-theme="dark"] .admin-header {
+  background: rgba(21, 24, 23, .96);
+}
+
+html[data-theme="dark"] .admin-presentation-launch,
+html[data-theme="dark"] .admin-navigation-shell {
+  background: var(--admin-surface);
+}
+
+html[data-theme="dark"] .admin-page .admin-form input,
+html[data-theme="dark"] .admin-page .admin-form select,
+html[data-theme="dark"] .admin-page .admin-form textarea,
+html[data-theme="dark"] .admin-page .security-mfa-form input,
+html[data-theme="dark"] .admin-page .crm-note-form textarea,
+html[data-theme="dark"] .admin-page .crm-assignment select {
+  border-color: var(--admin-border);
+  background: #151a1a;
+  color: var(--admin-ink);
+}
+
+html[data-theme="dark"] .admin-page .admin-form input:hover,
+html[data-theme="dark"] .admin-page .admin-form select:hover,
+html[data-theme="dark"] .admin-page .admin-form textarea:hover,
+html[data-theme="dark"] .admin-page .security-mfa-form input:hover,
+html[data-theme="dark"] .admin-page .crm-note-form textarea:hover,
+html[data-theme="dark"] .admin-page .crm-assignment select:hover {
+  border-color: #8d753d;
+  background: #1b211f;
+}

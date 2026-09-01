@@ -2075,7 +2075,14 @@ function BrandLogo({ brand, logoUrl = "", size = "normal" }) {
   // un logo remoto roto no debe convertirse en una petición fallida ni romper
   // la composición. El monograma mantiene el lenguaje de marca hasta que el
   // concesionario suba un asset propio al almacenamiento de la plataforma.
-  const resolvedLogoUrl = publicMediaUrl(logoUrl);
+  const storedLogoUrl = publicMediaUrl(logoUrl);
+  // Migration 031 left some catalogue records pointing to FreebieSupply,
+  // whose PNG responses are blocked by modern browsers (ORB). Do not replace
+  // one unreliable third-party request with another: the local monogram below
+  // is the intentional fallback and keeps the showroom request-clean.
+  const resolvedLogoUrl = /freebiesupply\.com/i.test(storedLogoUrl)
+    ? ""
+    : storedLogoUrl;
   // El nombre accesible va en el alt de la imagen, no en un aria-label sobre el
   // span: un span sin rol es «generic» y ARIA prohíbe nombrarlo, así que el
   // lector de pantalla lo ignoraba y la marca quedaba sin anunciar. En el
