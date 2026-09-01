@@ -23,6 +23,22 @@ const updateServiceWorker = registerSW({
     window.__zevroaUpdateAvailable = true;
     window.dispatchEvent(new Event("zevroa:update-available"));
   },
+  onRegisteredSW(_swUrl, registration) {
+    if (!registration) return;
+    // Los navegadores espacian los chequeos de actualización cuando la pestaña
+    // permanece abierta. Reintentamos solo al volver a la app, al recuperar
+    // conexión y con una frecuencia moderada; nunca recargamos sin confirmación.
+    const checkForUpdate = () => {
+      if (document.visibilityState === "hidden") return;
+      registration.update().catch(() => {});
+    };
+    window.__zevroaCheckForUpdate = checkForUpdate;
+    window.addEventListener("focus", checkForUpdate);
+    window.addEventListener("online", checkForUpdate);
+    document.addEventListener("visibilitychange", checkForUpdate);
+    window.setTimeout(checkForUpdate, 5000);
+    window.setInterval(checkForUpdate, 60000);
+  },
 });
 window.__zevroaApplyUpdate = () => updateServiceWorker(true);
 

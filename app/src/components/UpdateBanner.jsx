@@ -7,7 +7,25 @@ export default function UpdateBanner() {
   useEffect(() => {
     const show = () => setVisible(true);
     window.addEventListener("zevroa:update-available", show);
-    return () => window.removeEventListener("zevroa:update-available", show);
+    // Si el Service Worker terminó de instalarse antes de que React montara
+    // este componente, el evento ya pasó. Recuperamos ese estado directamente
+    // para que el aviso no dependa del timing del primer render.
+    let cancelled = false;
+    const detectWaitingWorker = async () => {
+      if (!("serviceWorker" in navigator)) return;
+      try {
+        const registration = await navigator.serviceWorker.ready;
+        if (!cancelled && registration.waiting) setVisible(true);
+      } catch {
+        // La app sigue funcionando aunque el navegador no exponga el registro.
+      }
+    };
+    detectWaitingWorker();
+    window.__zevroaCheckForUpdate?.();
+    return () => {
+      cancelled = true;
+      window.removeEventListener("zevroa:update-available", show);
+    };
   }, []);
 
   if (!visible) return null;
