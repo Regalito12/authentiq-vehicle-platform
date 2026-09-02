@@ -1443,6 +1443,65 @@ html[data-theme="dark"] .lead-pipeline-card { background: var(--panel-dark); box
 html[data-theme="dark"] .lead-pipeline-card select { background: var(--panel-deep); color: #e3e0d8; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; } }
 @media (max-width: 680px) { .lead-filters { grid-template-columns: 1fr; } .lead-filters span { text-align: left; } .user-row { align-items: flex-start; flex-direction: column; } }
+
+/* Capa de coherencia del producto: los módulos conservan la identidad editorial,
+   pero comparten una superficie más cómoda para el trabajo diario. */
+button, input, select, textarea { font: inherit; }
+button:not(:disabled), select:not(:disabled), input[type="checkbox"]:not(:disabled), input[type="radio"]:not(:disabled) { cursor: pointer; }
+button:disabled, input:disabled, select:disabled, textarea:disabled { cursor: not-allowed; opacity: .62; }
+:where(button, a, input, select, textarea):focus-visible { outline: 2px solid var(--tenant-primary, var(--brand-gold-ink)); outline-offset: 3px; }
+
+/* En claro, el contenido necesita una segunda capa para no quedar suspendido
+   sobre un único blanco. En oscuro se conserva la superficie ya definida. */
+.admin-page { background: var(--shell-soft); }
+.admin-login { border-radius: 14px; background: #fff; }
+.admin-form, .admin-list, .chart-panel, .activity-panel, .table-panel,
+.stat-card, .priority-panel, .quick-action, .records-list, .lead-row,
+.audit-list, .blog-public-card, .dealer-share-card, .dashboard-setup-card,
+.dashboard-workflow, .onboarding-panel, .integration-card { border-radius: 10px; }
+.admin-login input, .admin-form input, .admin-form select, .admin-form textarea,
+.notification-button, .primary-action, .secondary-action, .copy-action,
+.catalog-search, .filters select, .filter-number, .table-search,
+.lead-filters input, .lead-filters select, .record-actions select, .user-row select {
+  border-radius: 8px;
+}
+.admin-nav-item, .admin-nav-more-toggle { border-radius: 7px 7px 0 0; }
+.admin-nav-item.active { background: color-mix(in srgb, var(--tenant-primary) 10%, transparent); }
+.admin-nav-item:hover { background: color-mix(in srgb, var(--tenant-primary) 6%, transparent); }
+.admin-presentation-launch { min-height: 52px; }
+.admin-header-actions { align-items: center; }
+.admin-header-actions > button, .admin-header-actions .notification-button { border-radius: 8px; }
+.admin-login .primary-action, .admin-form .primary-action { min-height: 48px; }
+.admin-empty-state { border-radius: 10px; }
+html[data-theme="dark"] .admin-page { background: var(--panel-deep); }
+html[data-theme="dark"] .admin-nav-item.active { background: color-mix(in srgb, var(--tenant-primary) 14%, transparent); }
+html[data-theme="dark"] .admin-nav-item:hover { background: color-mix(in srgb, var(--tenant-primary) 9%, transparent); }
+
+@media (max-width: 700px) {
+  .admin-page { padding: 18px 16px 72px; }
+  .admin-header-actions { gap: 7px; }
+  .admin-header-actions > button, .admin-header-actions .notification-button { min-height: 44px; }
+  .admin-nav { scrollbar-width: thin; }
+  .admin-nav-core, .admin-nav-more-panel { gap: 4px; }
+  .admin-nav-item { min-height: 44px; padding-inline: 12px; }
+  .admin-form, .admin-list, .chart-panel, .activity-panel, .table-panel { padding: 18px; }
+  .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .stat-card { min-height: 118px; padding: 14px; }
+  .stat-card > span, .stat-card small { font-size: 14px; }
+  .dashboard-pulse, .charts-grid, .dashboard-lower { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 420px) {
+  .admin-page { padding-inline: 12px; }
+  .admin-login { margin-top: 28px; padding: 24px 18px; }
+  .admin-login h1 { font-size: clamp(42px, 14vw, 62px); }
+  .admin-header-actions > button, .admin-header-actions .notification-button { flex-basis: 100%; }
+  .stats-grid { grid-template-columns: 1fr 1fr; }
+  .stat-card strong { font-size: 26px; }
+  .dashboard-workflow-rail { grid-template-columns: 1fr; }
+  .dashboard-workflow-step, .dashboard-workflow-step + .dashboard-workflow-step { border-right: 0; border-bottom: 1px solid var(--auth-line); padding: 13px 0; }
+  .dashboard-workflow-step:last-child { border-bottom: 0; }
+}
 @media (max-width: 620px) { .admin-title-row { align-items: flex-start; flex-direction: column; gap: 8px; } .admin-toast { right: 16px; bottom: 16px; left: 16px; max-width: none; } }
 @media (max-width: 620px) { .skeleton-grid { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 620px) { .lead-control-room > .panel-heading { display: block; } .lead-view-switcher { margin-top: 16px; } .lead-pipeline { grid-template-columns: repeat(5, minmax(178px, 1fr)); } }
