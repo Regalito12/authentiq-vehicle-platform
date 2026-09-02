@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const apiUrl = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "http://localhost:3001" : window.location.origin);
 
@@ -54,6 +54,7 @@ export default function PlatformCenter({ token, user, onLogout, onBack }) {
   const [overrideSaving, setOverrideSaving] = useState(false);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const loadingRef = useRef(false);
 
   const request = async (path, options = {}) => {
     const response = await fetch(`${apiUrl}${path}`, { ...options, credentials: "include", headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(options.headers || {}) } });
@@ -63,9 +64,11 @@ export default function PlatformCenter({ token, user, onLogout, onBack }) {
   };
 
   const load = async () => {
+    if (loadingRef.current) return;
+    loadingRef.current = true;
     setLoading(true);
     setError("");
-    try { setOverview((await request("/api/platform/overview")).data); } catch (requestError) { setError(requestError.message); } finally { setLoading(false); }
+    try { setOverview((await request("/api/platform/overview")).data); } catch (requestError) { setError(requestError.message); } finally { loadingRef.current = false; setLoading(false); }
   };
 
   useEffect(() => { load(); }, []);
