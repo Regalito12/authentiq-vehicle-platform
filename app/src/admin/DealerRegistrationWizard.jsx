@@ -38,7 +38,10 @@ export default function DealerRegistrationWizard({ onRegisterSuccess, onCancel, 
 
   // Al pasar de paso el formulario cambia por completo pero el navegador conserva
   // el scroll: el dealer se queda mirando el pie de una pantalla que ya no existe.
-  useEffect(() => { window.scrollTo({ top: 0, behavior: "smooth" }); }, [step]);
+  useEffect(() => {
+    const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    window.scrollTo({ top: 0, behavior: reducedMotion ? "auto" : "smooth" });
+  }, [step]);
 
   const [form, setForm] = useState({
     dealershipName: "",
