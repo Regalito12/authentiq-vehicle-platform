@@ -72,7 +72,7 @@ export default function ContactsModule({ contacts = [], users = [], loading = fa
   return <section className="contacts-module records-content" aria-labelledby="contacts-title">
     <div className="panel-heading">
       <div><span className="eyebrow">CRM COMERCIAL</span><h2 id="contacts-title">Clientes.</h2><p className="module-note">Un contacto reúne sus solicitudes, citas, propuestas y seguimiento sin duplicar conversaciones.</p></div>
-      <div className="panel-actions"><button className="secondary-action" type="button" onClick={onOpenPipeline}>Ver seguimiento</button><button className="secondary-action" type="button" onClick={onRefresh}>Actualizar</button></div>
+      <div className="panel-actions"><button className="secondary-action" type="button" onClick={onOpenPipeline}>Ver seguimiento</button><button className="secondary-action" type="button" onClick={onRefresh} disabled={loading}>{loading ? "Actualizando…" : "Actualizar"}</button></div>
     </div>
     <div className="crm-workspace">
       <section className="crm-contact-list" aria-label="Lista de clientes">
