@@ -26,6 +26,10 @@ try {
   for (const [route, shouldIndex] of routes) {
     const page = await browser.newPage();
     const response = await page.goto(`${baseUrl}${route}`, { waitUntil: "networkidle", timeout: 30_000 }).catch(() => null);
+    // Metadata is applied by the route component. Waiting for the actual
+    // canonical/title state avoids a false negative when a cold Vite build or
+    // a slower device needs more than one animation frame to mount the route.
+    await page.waitForFunction(() => Boolean(document.title.trim()) && Boolean(document.querySelector('link[rel="canonical"]')?.href), null, { timeout: 5_000 }).catch(() => null);
     await page.waitForTimeout(250);
     assert(response && response.ok(), `${route} responde ${response?.status() || "sin respuesta"}`);
     const snapshot = await page.evaluate(() => ({
