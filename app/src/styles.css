@@ -1871,7 +1871,8 @@ html[data-theme="dark"] .detail-decision-summary-grid article { border-color: va
 .intent-option { position: relative; display: grid; min-height: 88px; align-content: space-between; gap: 12px; padding: 13px 14px; border: 1px solid var(--auth-line); background: var(--auth-surface); color: var(--auth-ink); text-align: left; cursor: pointer; transition: border-color .2s ease, background .2s ease, transform .2s ease; }
 .intent-option:hover, .intent-option:focus-visible { border-color: var(--auth-gold); background: var(--auth-soft); transform: translateY(-2px); }
 .intent-option strong { font-size: 15px; font-weight: 500; }
-.intent-option span { color: var(--auth-muted); font: 14px "IBM Plex Mono", monospace; letter-spacing: .04em; }
+.intent-option span { color: #625e56; font: 14px "IBM Plex Mono", monospace; letter-spacing: .04em; }
+html[data-theme="dark"] .intent-option span { color: #b5bbb6; }
 .intent-option i { position: absolute; right: 13px; bottom: 12px; color: var(--auth-gold); font-style: normal; font-size: 17px; }
 .showroom-trust-rail { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; max-width: 1440px; margin: 58px auto 0; border-top: 1px solid var(--auth-line); border-bottom: 1px solid var(--auth-line); }
 .showroom-trust-rail > div { display: grid; gap: 6px; min-height: 118px; padding: 20px 24px 20px 0; border-right: 1px solid var(--auth-line); }
