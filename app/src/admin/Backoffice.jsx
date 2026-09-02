@@ -510,6 +510,7 @@ function DashboardSetupCard({ onboarding, onOpenOnboarding, onOpenPublic }) {
 
 function DealerShareCard({ organization, settings, onNavigate }) {
   const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState(false);
   const slug = organization?.slug || "zevroa";
   const customDomain = organization?.customDomain;
   const normalizedCustomDomain = normalizedHostname(customDomain);
@@ -523,13 +524,16 @@ function DealerShareCard({ organization, settings, onNavigate }) {
   }, [organization, isPending]);
 
   const copyLink = async () => {
+    setCopyError(false);
     try {
+      if (!navigator.clipboard?.writeText) throw new Error("Clipboard unavailable");
       await navigator.clipboard.writeText(publicUrl);
       setCopied(true);
       setTimeout(() => setCopied(false), 2400);
     } catch {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2400);
+      setCopied(false);
+      setCopyError(true);
+      setTimeout(() => setCopyError(false), 3200);
     }
   };
 
@@ -558,9 +562,10 @@ function DealerShareCard({ organization, settings, onNavigate }) {
         {!isPending && customDomain && !customDomainReady && <p className="form-message">Tu dominio personalizado todavía no apunta al showroom. Comparte este enlace provisional mientras se actualiza el DNS.</p>}
         <div className="dealer-url-box">
           <span className="dealer-url-text">{publicUrl}</span>
-          <button className="dealer-copy-btn" type="button" onClick={copyLink}>
+          <button className="dealer-copy-btn" type="button" onClick={copyLink} aria-describedby={copyError ? "dealer-copy-status" : undefined}>
             {copied ? "✓ ¡Copiado!" : "Copiar Enlace"}
           </button>
+          {copyError && <span id="dealer-copy-status" className="visually-hidden" role="status" aria-live="polite">No se pudo copiar el enlace. Selecciónalo y cópialo manualmente.</span>}
         </div>
         <div className="dealer-share-actions">
           <button className="primary-action" type="button" onClick={openShowroom}>
