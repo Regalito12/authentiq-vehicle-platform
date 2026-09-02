@@ -6590,20 +6590,23 @@ html[data-theme="dark"] .admin-page .crm-assignment select:hover {
     right: 12px;
     bottom: calc(12px + env(safe-area-inset-bottom));
     width: calc(100% - 24px);
-    padding: 18px 16px calc(16px + env(safe-area-inset-bottom));
-    border-radius: 18px;
+    padding: 14px 14px calc(14px + env(safe-area-inset-bottom));
+    border-radius: 14px;
     box-shadow: 0 -10px 34px rgba(20, 18, 14, .18), 0 8px 24px rgba(0, 0, 0, .1);
   }
+
+  .cookie-consent p { margin-top: 4px; line-height: 1.35; }
 
   .cookie-consent-actions {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
+    margin-top: 10px;
   }
 
   .cookie-consent-actions button {
     width: 100%;
-    min-height: 48px;
+    min-height: 44px;
   }
 
   /* Backoffice: give the phone a deliberate app shell and keep actions

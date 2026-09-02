@@ -2445,7 +2445,7 @@ function CookieConsentBanner() {
   if (!visible || !isPublicExperience || adminVisible) return null;
   const accept = () => { setStoredValue("authentiq_cookie_consent", "accepted"); setVisible(false); };
   const reject = () => { setStoredValue("authentiq_cookie_consent", "rejected"); setVisible(false); };
-  return <aside className="cookie-consent" role="region" aria-label="Preferencias de cookies"><div><strong>Tu privacidad importa.</strong><p>Usamos cookies esenciales para que el showroom funcione. La analítica solo se activa si la aceptas.</p></div><div className="cookie-consent-actions"><button type="button" className="secondary-action" onClick={reject}>Solo esenciales</button><button type="button" className="primary-action" onClick={accept}>Aceptar analítica</button></div></aside>;
+  return <aside className="cookie-consent" role="region" aria-label="Preferencias de cookies"><div><strong>Tu privacidad importa.</strong><p>Usamos cookies esenciales. La analítica solo se activa si la aceptas.</p></div><div className="cookie-consent-actions"><button type="button" className="secondary-action" onClick={reject}>Solo esenciales</button><button type="button" className="primary-action" onClick={accept}>Aceptar analítica</button></div></aside>;
 }
 
 function BlogSection({ posts }) {
