@@ -68,9 +68,40 @@ Verificado tras el fix en las tres superficies: badge del catálogo (`USADO`), f
 | 29 | Mensajes de validación nativos en español (verificación cruzada) | ✅ Confirmado | El fix de la sesión anterior (`instalarMensajesDeValidacion`) sí se dispara en este modal distinto: "Completa este campo." |
 | 30 | Texto "N cita(s) registrada(s)" | ❌ Encontrado y corregido | Decía "1 cita **registradas**" (plural fijo sin importar el conteo) — `Backoffice.jsx`, ahora concuerda con el número |
 
-## Backoffice — resto de módulos (requiere seguir probando)
+## Operador de plataforma (platform_admin) — "el que monitorea todo el sistema"
 
-_Pendiente: integraciones, PlatformCenter (botón real de aprobar). Aislamiento del CRM entre dos dealers distintos no se probó explícitamente (solo por inferencia del punto 20)._
+Se creó una cuenta real con `server/scripts/create-platform-admin.js`
+(`operador.qa@example.com`, rol `platform_admin`, `organization_id=NULL`).
+Documentado en `docs/LAUNCH-CHECKLIST.md`/`PILOT-READINESS.md` como la vía
+correcta — no existe registro público para este rol, y así debe ser.
+
+| # | Qué se verifica | Estado | Evidencia |
+|---|---|---|---|
+| 31 | Login con la cuenta de operador | ✅ Confirmado | `role: platform_admin` en el JWT, sin errores |
+| 32 | Centro de dealers (PlatformCenter): métricas | ✅ Confirmado | 12 dealers, 12 activos, MRR $1,140 USD, 8 pendientes — todo consistente con la base |
+| 33 | Cola de aprobación muestra bloqueos específicos por dealer | ✅ Confirmado | Mi dealer QA aparecía con "Bloqueos: logo del concesionario · al menos un vehículo publicado · canal de contacto · políticas de privacidad y términos" — exacto |
+| 34 | El botón "Aprobar dealer →" está **deshabilitado por diseño** hasta cumplir los bloqueos esenciales | ✅ Confirmado (no es un bug) | Mismo botón cambia de texto/estado según `approvalReady`. Es un candado intencional para no aprobar showrooms vacíos |
+| 35 | Botón real "Aprobar dealer →" (no SQL) | ✅ Confirmado | Completé los 4 bloqueos por la propia interfaz del dealer (logo, canal de contacto, legal, publicar vehículo), volví como operador, el botón se habilitó solo, hice clic real → "Auditoria QA Motors fue aprobado y puede publicarse en su dominio." Cola bajó de 8 a 7. Verificado en base y por API pública (200, antes 404) |
+
+### 🔴 Hallazgo 36 — no se podía publicar/editar un vehículo sin "puertas" y "asientos"
+
+Al intentar publicar el vehículo de prueba (que nunca tocó esos dos campos opcionales), el guardado fallaba con **"La cantidad de puertas no es válida"**, pese a que el propio checklist de la ficha decía "5/5, lista para revisar". Causa exacta en `Backoffice.jsx`:
+
+```js
+doors: form.doors === "" ? null : Number(form.doors)
+```
+
+Al **editar** un vehículo ya existente, `form.doors` se carga como `null` (no `""`) desde el servidor. `null === ""` es `false`, así que cae al `else` y `Number(null)` da **`0`** — que el servidor rechaza por ser menor que el mínimo (1). Cualquier vehículo con `doors`/`seats` sin llenar quedaba **imposible de volver a guardar o publicar**. Corregido a `form.doors === "" || form.doors == null ? null : Number(form.doors)` (mismo patrón para `seats`). Verificado: el vehículo se publicó y ambos campos quedaron `NULL` en base, como corresponde.
+
+### 🔴 Hallazgo 37 — guardar cualquier otra pestaña de Ajustes borraba el logo en silencio
+
+`organizations.logo_url` (identidad, pestaña Marca) y `organization_settings.logo_url` (el que de verdad lee el sitio público) son **dos columnas distintas**. `PATCH /api/admin/organization` sincroniza ambas correctamente al guardar el logo. Pero `PATCH /api/admin/settings` (el que usan las pestañas Contacto/Legal/Portada/Agenda) hacía un `UPDATE` completo de la fila, incluyendo `logo_url`/`business_name`, usando un `form` del frontend que **nunca se entera** de un logo recién guardado en la pestaña Marca — así que la siguiente vez que se guardaba Contacto o Legal, el logo se borraba sin ningún error visible.
+
+Reproducido exacto: guardar logo → aparece en el showroom público → guardar Contacto (sin tocar el logo) → el showroom vuelve a mostrar solo el texto, sin logo. Corregido en `server/src/index.js`: esas dos columnas ahora son de solo lectura desde `/api/admin/settings` (`business_name=business_name, logo_url=logo_url`, auto-asignación), dejando a `/api/admin/organization` como único dueño. Verificado: se repitió la secuencia exacta (Marca → Contacto) y el logo sobrevivió, visible en el `<img>` real del showroom.
+
+## Backoffice — resto de módulos (aún no probado)
+
+_Integraciones reales (Stripe/Google Calendar necesitan credenciales externas, fuera del alcance de este entorno). Aislamiento del CRM entre dos dealers distintos no se probó explícitamente (solo por inferencia del punto 20)._
 
 ## Notas técnicas para futuras pruebas en este entorno
 
