@@ -1845,7 +1845,8 @@ app.post("/api/customer/auth/login", async (req, res) => {
   try {
     const result = await pool.query("SELECT id, full_name, email, phone, password_hash, session_version AS \"sessionVersion\" FROM customer_accounts WHERE LOWER(email)=$1 AND is_active=TRUE", [email]);
     const account = result.rows[0];
-    if (!account || !(await bcrypt.compare(password, account.password_hash))) return res.status(401).json({ error: "Correo o contraseña incorrectos" });
+    const passwordMatches = await bcrypt.compare(password, account?.password_hash || DUMMY_PASSWORD_HASH);
+    if (!account || !passwordMatches) return res.status(401).json({ error: "Correo o contraseña incorrectos" });
     const token = jwt.sign({ id: account.id, email: account.email, name: account.full_name, kind: "customer", sessionVersion: account.sessionVersion || 0 }, jwtSecret, { expiresIn: "30d" });
     setSessionCookie(res, CUSTOMER_SESSION_COOKIE, token, 2592000);
     res.json(sessionResponse({ id: account.id, name: account.full_name, email: account.email, phone: account.phone }, token));
@@ -3381,10 +3382,10 @@ app.get("/api/integrations/google-calendar/callback", async (req, res) => {
     const config = { ...existingConfig, calendarId: calendar.id || "primary", calendarName: calendar.summary || "Google Calendar", googleEmail: calendar.id || null, timezone: calendar.timeZone || "America/Santo_Domingo", refreshTokenEncrypted, tokenExpiresAt: token.expiry_date ? new Date(token.expiry_date).toISOString() : null };
     await pool.query(`INSERT INTO organization_integrations (organization_id, provider, mode, status, config, connected_at, updated_at) VALUES ($1,'google_calendar','oauth','connected',$2::jsonb,NOW(),NOW()) ON CONFLICT (organization_id, provider) DO UPDATE SET mode='oauth', status='connected', config=EXCLUDED.config, connected_at=NOW(), updated_at=NOW()`, [state.organizationId, JSON.stringify(config)]);
     await pool.query("INSERT INTO audit_logs (actor_id, action, entity_type, entity_id, metadata) VALUES ($1,'integration.google_calendar.connect','organization_integration',$2,$3::jsonb)", [state.adminId, state.organizationId, JSON.stringify({ provider: "google_calendar", calendarId: config.calendarId })]).catch(() => {});
-    res.redirect(`${redirectBase}/?integration=google_calendar&status=connected`);
+    res.redirect(`${redirectBase}/backoffice?module=integrations&integration=google_calendar&status=connected`);
   } catch (error) {
     console.error("Google Calendar OAuth callback failed", error);
-    res.redirect(`${redirectBase}/?integration=google_calendar&status=error&message=${encodeURIComponent(error.message || "No se pudo conectar Google Calendar")}`);
+    res.redirect(`${redirectBase}/backoffice?module=integrations&integration=google_calendar&status=error&message=${encodeURIComponent(error.message || "No se pudo conectar Google Calendar")}`);
   }
 });
 

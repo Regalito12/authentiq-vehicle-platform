@@ -19,6 +19,7 @@ import { SpeedInsights } from "@vercel/speed-insights/react";
 import UpdateBanner from "./components/UpdateBanner.jsx";
 import ConnectionStatusBanner from "./components/ConnectionStatusBanner.jsx";
 import { mensajeDeError } from "./utils/errors.js";
+import { USD_TO_DOP_RATE } from "./utils/exchange.js";
 import DealersPage from "./landing/DealersPage.jsx";
 
 class SectionBoundary extends Component {
@@ -2151,8 +2152,9 @@ function VehicleCard({ vehicle, onOpen, onToggleCompare, isCompared, isFavorite,
         <button className="vehicle-card-image-button" type="button" onClick={open} aria-label={`Abrir ficha de ${vehicle.brand} ${vehicle.model}`}>
           <img src={image} alt={`${vehicle.brand} ${vehicle.model}`} className="vehicle-image" loading={imageLoading} decoding="async" fetchPriority={imageLoading === "eager" ? "high" : "auto"} />
           <span className={`vehicle-tag ${vehicle.status === "reserved" ? "reserved" : vehicle.condition}`}>
-            {vehicle.status === "reserved" ? "RESERVADO" : vehicle.condition === "new" ? "NUEVO" : "CERTIFICADO"}
+            {vehicle.status === "reserved" ? "RESERVADO" : vehicle.condition === "new" ? "NUEVO" : "USADO"}
           </span>
+          {Number(vehicle.maxDiscountPercent) > 0 && <span className="vehicle-tag discount">REBAJA -{Number(vehicle.maxDiscountPercent).toLocaleString("es-DO", { maximumFractionDigits: 1 })}%</span>}
           <BrandLogo brand={vehicle.brand} logoUrl={vehicle.brandLogoUrl} size="card" />
         </button>
         <button className={`favorite-toggle ${isFavorite ? "is-selected" : ""}`} type="button" aria-label={isFavorite ? "Quitar de favoritos" : "Guardar en favoritos"} onClick={() => onToggleFavorite(vehicle)}>{isFavorite ? "♥" : "♡"}</button>
@@ -2165,7 +2167,14 @@ function VehicleCard({ vehicle, onOpen, onToggleCompare, isCompared, isFavorite,
            {freshness && <span className="vehicle-card-freshness">{freshness}</span>}
            <span className="vehicle-card-specs"><i>◉</i>{fuelDisplay(vehicle.fuelType || "Gasolina")}<i>⚙</i>{transmissionDisplay(vehicle.transmission || "Automático")}<i>↗</i>{Number(vehicle.mileageKm || 0).toLocaleString("en-US")} km</span>
         </div>
-        <strong>{vehiclePrice(vehicle)}</strong>
+        <div className="vehicle-card-price-stack">
+          <strong>{vehiclePrice(vehicle)}</strong>
+          {(!vehicle.currency || vehicle.currency === "USD") ? (
+            <small className="vehicle-card-dop-estimate">≈ RD$ {Math.round(vehicleAmount(vehicle) * USD_TO_DOP_RATE).toLocaleString("en-US")}</small>
+          ) : (
+            <small className="vehicle-card-dop-estimate">≈ USD ${Math.round(vehicleAmount(vehicle) / 60).toLocaleString("en-US")}</small>
+          )}
+        </div>
         <span className="vehicle-card-cta">Abrir ficha <span>↗</span></span>
       </button>
       {onQuickAction && <div className="vehicle-card-quick-actions"><button type="button" onClick={(event) => { event.stopPropagation(); onQuickAction(vehicle, "appointment"); }}>Agendar cita</button><button type="button" onClick={(event) => { event.stopPropagation(); onQuickAction(vehicle, "quote"); }}>Cotización</button>{whatsappNumber ? <a href={whatsappHref} target="_blank" rel="noreferrer" onClick={(event) => { event.stopPropagation(); trackEvent("whatsapp_click", { vehicleId: vehicle.id }); }}>WhatsApp</a> : <button type="button" onClick={shareVehicle}>Compartir</button>}{shareStatus && <span className="vehicle-share-status" role="status">{shareStatus}</span>}</div>}
@@ -2667,10 +2676,17 @@ function VehicleDetail({ vehicle, vehicles = [], onBack, isFavorite = false, onT
           <DetailGalleryEditorial vehicle={vehicle} />
         </div>
         <div className="detail-copy">
-          <div className="detail-brand-line"><BrandLogo brand={vehicle.brand} logoUrl={vehicle.brandLogoUrl} /><span className="eyebrow">{vehicle.condition === "new" ? "NUEVO INVENTARIO" : "INVENTARIO CERTIFICADO"}</span></div>
+          <div className="detail-brand-line"><BrandLogo brand={vehicle.brand} logoUrl={vehicle.brandLogoUrl} /><span className="eyebrow">{vehicle.condition === "new" ? "NUEVO INVENTARIO" : "INVENTARIO USADO"}</span></div>
           <h1>{vehicle.brand} <em>{vehicle.model}</em></h1>
           {vehicle.variant && <p className="detail-variant">{vehicle.variant}</p>}
-          <p className="detail-price">{vehiclePrice(vehicle)}</p>
+          <div className="detail-price-stack">
+            <p className="detail-price">{vehiclePrice(vehicle)}</p>
+            {(!vehicle.currency || vehicle.currency === "USD") ? (
+              <span className="detail-price-secondary">≈ RD$ {Math.round(vehicleAmount(vehicle) * USD_TO_DOP_RATE).toLocaleString("en-US")} DOP <small>(tasa estimada 1 USD = {USD_TO_DOP_RATE.toFixed(2)} DOP)</small></span>
+            ) : (
+              <span className="detail-price-secondary">≈ USD ${Math.round(vehicleAmount(vehicle) / 60).toLocaleString("en-US")}</span>
+            )}
+          </div>
           <div className="specs">
             {[
               ["Motor", vehicle.engine],
@@ -2729,6 +2745,9 @@ function VehicleDetail({ vehicle, vehicles = [], onBack, isFavorite = false, onT
         <div>
           <span className="eyebrow">SIGUIENTE PASO</span>
           <strong>{vehiclePrice(vehicle)}</strong>
+          {(!vehicle.currency || vehicle.currency === "USD") && (
+            <small className="detail-decision-dop-estimate">≈ RD$ {Math.round(vehicleAmount(vehicle) * USD_TO_DOP_RATE).toLocaleString("en-US")} DOP</small>
+          )}
           <p>{vehicle.status === "reserved" ? "Este vehículo está reservado. Podemos avisarte si vuelve a estar disponible." : "Un asesor responde tu solicitud con la información completa del vehículo."}</p>
         </div>
         <span className="detail-decision-vehicle">{vehicle.brand} {vehicle.model} · {vehicle.year}</span>

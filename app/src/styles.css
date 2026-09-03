@@ -6806,3 +6806,49 @@ html[data-theme="dark"] .admin-page .crm-assignment select:hover {
     transition: none !important;
   }
 }
+
+/* ---- Rebaja de precio y conversión cambiaria estimada (USD / DOP) ---- */
+.vehicle-tag.discount {
+  top: 42px;
+  background: #b83227;
+  color: #ffffff;
+  font-weight: 600;
+  box-shadow: 0 4px 12px rgba(184, 50, 39, 0.35);
+}
+.vehicle-card-price-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  text-align: right;
+}
+.vehicle-card-dop-estimate {
+  color: var(--text-muted);
+  font: 500 14px "IBM Plex Mono", monospace;
+  opacity: 0.88;
+  margin-top: 2px;
+}
+.detail-price-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 14px 0 22px;
+}
+.detail-price-stack .detail-price {
+  margin: 0;
+}
+.detail-price-secondary {
+  color: var(--text-muted);
+  font: 500 15px "IBM Plex Mono", monospace;
+}
+.detail-price-secondary small {
+  font-size: 14px;
+  opacity: 0.8;
+  margin-left: 6px;
+}
+.detail-decision-dop-estimate {
+  display: block;
+  color: #c8a24b;
+  font: 500 14px "IBM Plex Mono", monospace;
+  margin-top: 2px;
+}
+

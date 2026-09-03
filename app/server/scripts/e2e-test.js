@@ -415,6 +415,31 @@ async function checkAppointmentBooking() {
   check("El timeline incluye la cita", timeline.ok && (timeline.body?.data || []).some((item) => item.eventType === "appointment_pending"), `eventos=${timeline.body?.data?.length || 0}`);
 }
 
+async function checkGoogleCalendarIntegration() {
+  console.log("\n=== Integración Google Calendar ===");
+  const admin = await api("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
+  check("Inicio de sesión de admin para Google Calendar", admin.ok && Boolean(admin.body?.token));
+  const token = admin.body?.token;
+
+  const integrations = await api("/api/admin/integrations", { token });
+  check("Consulta del centro de integraciones", integrations.ok, `status=${integrations.status}`);
+  const gcalHealth = integrations.body?.data?.health?.googleCalendar;
+  check("Estado de salud de Google Calendar presente", Boolean(gcalHealth), `health=${JSON.stringify(gcalHealth)}`);
+
+  const connect = await api("/api/admin/integrations/google-calendar/connect", { token });
+  check("Preparación de autorización Google Calendar", connect.ok && Boolean(connect.body?.data?.authorizationUrl), `status=${connect.status}`);
+  if (connect.body?.data?.authorizationUrl) {
+    const url = new URL(connect.body.data.authorizationUrl);
+    check("URL de Google OAuth apunta a accounts.google.com", url.origin === "https://accounts.google.com");
+    check("URL de Google OAuth contiene scope de calendar", url.searchParams.get("scope")?.includes("calendar"));
+    check("URL de Google OAuth contiene redirect_uri", Boolean(url.searchParams.get("redirect_uri")));
+    check("URL de Google OAuth contiene state firmado", Boolean(url.searchParams.get("state")));
+  }
+
+  const disconnect = await api("/api/admin/integrations/google-calendar", { method: "DELETE", token });
+  check("Desconexión de Google Calendar", disconnect.ok, `status=${disconnect.status}`);
+}
+
 async function cleanup() {
   if (!process.env.DATABASE_URL) return;
   const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
@@ -448,6 +473,7 @@ try {
   await main();
   await checkAppointmentBooking();
   await checkDealerSignup();
+  await checkGoogleCalendarIntegration();
 } catch (error) {
   failed += 1;
   console.error("FAIL  Excepción no controlada —", error.message);
