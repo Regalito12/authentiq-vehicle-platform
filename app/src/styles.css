@@ -1350,6 +1350,25 @@ html[data-theme="dark"] .appointment-actions select { background: var(--panel-de
 .admin-action-dialog-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 10px; margin-top: 5px; }
 .admin-action-dialog .danger-action { border-color: var(--state-danger); background: var(--state-danger); color: #fff; }
 .platform-list-filters { display: grid; grid-template-columns: minmax(0, 1fr) 180px auto; gap: 10px; align-items: center; margin: 0 0 18px; }
+/* Variante para paneles con un solo selector + contador (usuarios de la
+   plataforma): sin la columna intermedia de 180px, que dejaría el contador
+   apretado en el hueco equivocado del grid de 3 columnas. */
+.platform-list-filters.is-compact { grid-template-columns: minmax(0, 1fr) auto; }
+.platform-search-form { display: flex; gap: 10px; margin: 0 0 18px; }
+.platform-search-form input { flex: 1; min-height: 44px; border: 1px solid var(--auth-line); padding: 10px 12px; background: var(--auth-surface); color: var(--auth-ink); font: 14px "Inter Tight", sans-serif; }
+.platform-search-results { display: grid; gap: 18px; }
+.platform-search-results > div { display: grid; gap: 8px; }
+/* Fila compacta para el directorio de usuarios de la plataforma: con cientos de
+   cuentas acumuladas, la tarjeta espaciosa de dealer (.platform-dealer-card,
+   ~100px con su bloque de métricas) hacía la lista casi imposible de recorrer. */
+.platform-user-list { display: grid; }
+.platform-user-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 16px; padding: 10px 0; border-top: 1px solid var(--auth-line); }
+.platform-user-row:first-child { border-top: 0; }
+.platform-user-identity { display: grid; gap: 2px; min-width: 0; }
+.platform-user-identity strong { font-size: 14px; font-weight: 500; }
+.platform-user-identity small { color: var(--auth-muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.platform-user-actions { display: flex; gap: 12px; white-space: nowrap; }
+html[data-theme="dark"] .platform-user-row { border-color: var(--rule-dark); }
 .platform-list-filters input, .platform-list-filters select { min-height: 44px; border: 1px solid var(--auth-line); padding: 10px 12px; background: var(--auth-surface); color: var(--auth-ink); font: 14px "Inter Tight", sans-serif; }
 .platform-list-filters span { color: var(--auth-muted); font: 14px "IBM Plex Mono", monospace; white-space: nowrap; }
 @media (max-width: 620px) { .admin-action-dialog { padding: 22px 18px; } .admin-action-dialog-actions > * { flex: 1 1 160px; } .platform-list-filters { grid-template-columns: 1fr; } .platform-list-filters span { order: 3; } }

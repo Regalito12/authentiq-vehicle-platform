@@ -3212,6 +3212,117 @@ app.patch("/api/platform/organizations/:id/subscription", authenticate, requireR
   } catch (error) { console.error("Platform subscription update failed", error); res.status(500).json({ error: "No se pudo actualizar la suscripción" }); }
 });
 
+// Auditoría de TODA la plataforma, no de un solo dealer: /api/admin/audit-logs ya
+// existe pero exige organization_id=$1 del admin que consulta, así que un
+// platform_admin (organization_id=NULL) nunca podría verla. Aquí no hay ese filtro;
+// en su lugar se puede acotar por dealer o por tipo de acción desde el query.
+app.get("/api/platform/audit-logs", authenticate, requireRoles("platform_admin"), async (req, res) => {
+  const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 300);
+  const organizationId = /^[0-9a-f-]{36}$/i.test(String(req.query.organizationId || "")) ? req.query.organizationId : null;
+  const action = String(req.query.action || "").trim() || null;
+  try {
+    const result = await pool.query(
+      `SELECT a.id, a.action, a.entity_type AS "entityType", a.entity_id AS "entityId", a.metadata, a.created_at AS "createdAt",
+              u.full_name AS "actorName", u.email AS "actorEmail", u.role AS "actorRole",
+              o.id AS "organizationId", o.name AS "organizationName"
+       FROM audit_logs a
+       LEFT JOIN admin_users u ON u.id = a.actor_id
+       LEFT JOIN organizations o ON o.id = u.organization_id
+       WHERE ($1::uuid IS NULL OR u.organization_id = $1) AND ($2::text IS NULL OR a.action = $2)
+       ORDER BY a.created_at DESC LIMIT $3`,
+      [organizationId, action, limit],
+    );
+    res.json({ data: result.rows });
+  } catch (error) { console.error("Platform audit log query failed", error); res.status(500).json({ error: "No se pudo cargar la auditoría de la plataforma" }); }
+});
+
+// Directorio de usuarios de TODOS los dealers. Sin organization_id propio, un
+// platform_admin no puede usar /api/admin/users (scoped a un solo dealer): esta
+// es la vista de soporte para ver o intervenir una cuenta de cualquier concesionario
+// sin tener que impersonarlo primero.
+app.get("/api/platform/users", authenticate, requireRoles("platform_admin"), async (req, res) => {
+  const organizationId = /^[0-9a-f-]{36}$/i.test(String(req.query.organizationId || "")) ? req.query.organizationId : null;
+  try {
+    const result = await pool.query(
+      `SELECT u.id, u.full_name AS "name", u.email, u.role, u.is_active AS "isActive", u.created_at AS "createdAt",
+              o.id AS "organizationId", o.name AS "organizationName", o.slug AS "organizationSlug"
+       FROM admin_users u JOIN organizations o ON o.id = u.organization_id
+       WHERE ($1::uuid IS NULL OR u.organization_id = $1)
+       ORDER BY o.name, u.is_active DESC, u.full_name`,
+      [organizationId],
+    );
+    res.json({ data: result.rows });
+  } catch (error) { console.error("Platform user directory query failed", error); res.status(500).json({ error: "No se pudo cargar el directorio de usuarios" }); }
+});
+
+app.patch("/api/platform/users/:id", authenticate, requireRoles("platform_admin"), async (req, res) => {
+  const isActive = req.body?.isActive !== false;
+  try {
+    const result = await pool.query(
+      `UPDATE admin_users SET is_active=$1, session_version=session_version+1, updated_at=NOW() WHERE id=$2
+       RETURNING id, full_name AS "name", email, role, is_active AS "isActive", organization_id AS "organizationId"`,
+      [isActive, req.params.id],
+    );
+    if (!result.rowCount) return res.status(404).json({ error: "Usuario no encontrado" });
+    await writeAudit(req, "platform.user.update", "admin_user", req.params.id, { isActive, email: result.rows[0].email });
+    res.json({ data: result.rows[0] });
+  } catch (error) { console.error("Platform user update failed", error); res.status(500).json({ error: "No se pudo actualizar el usuario" }); }
+});
+
+app.post("/api/platform/users/:id/reset-password", authenticate, requireRoles("platform_admin"), async (req, res) => {
+  try {
+    const temporaryPassword = crypto.randomBytes(9).toString("base64url");
+    const passwordHash = await bcrypt.hash(temporaryPassword, 12);
+    const result = await pool.query(
+      `UPDATE admin_users SET password_hash=$1, must_change_password=TRUE, session_version=session_version+1, updated_at=NOW()
+       WHERE id=$2 AND is_active=TRUE RETURNING id, email, full_name AS "name"`,
+      [passwordHash, req.params.id],
+    );
+    if (!result.rowCount) return res.status(404).json({ error: "Usuario no encontrado o inactivo" });
+    await writeAudit(req, "platform.user.password_reset", "admin_user", req.params.id, { email: result.rows[0].email });
+    // La contraseña en claro solo existe en esta respuesta: no se guarda ni se registra en la auditoría.
+    res.json({ data: { id: result.rows[0].id, email: result.rows[0].email, name: result.rows[0].name, temporaryPassword } });
+  } catch (error) { console.error("Platform user password reset failed", error); res.status(500).json({ error: "No se pudo restablecer la contraseña" }); }
+});
+
+// Búsqueda de soporte: encontrar un vehículo, un cliente/lead o una cotización de
+// CUALQUIER dealer sin tener que abrir su showroom ni impersonarlo. Cada resultado
+// trae el nombre del dealer para saber a quién pertenece antes de actuar.
+app.get("/api/platform/search", authenticate, requireRoles("platform_admin"), async (req, res) => {
+  const query = String(req.query.q || "").trim();
+  if (query.length < 2) return res.json({ data: { vehicles: [], contacts: [], quotes: [] } });
+  const like = `%${query}%`;
+  try {
+    const [vehicles, contacts, quotes] = await Promise.all([
+      pool.query(
+        `SELECT v.id, b.name AS brand, v.model, v.variant, v.year, v.stock_number AS "stockNumber", v.status,
+                o.id AS "organizationId", o.name AS "organizationName"
+         FROM vehicles v JOIN organizations o ON o.id = v.organization_id JOIN vehicle_brands b ON b.id = v.brand_id
+         WHERE b.name ILIKE $1 OR v.model ILIKE $1 OR v.variant ILIKE $1 OR v.stock_number ILIKE $1
+         ORDER BY v.created_at DESC LIMIT 15`,
+        [like],
+      ),
+      pool.query(
+        `SELECT c.id, c.full_name AS name, c.email, c.phone,
+                o.id AS "organizationId", o.name AS "organizationName"
+         FROM crm_contacts c JOIN organizations o ON o.id = c.organization_id
+         WHERE c.full_name ILIKE $1 OR c.email ILIKE $1 OR c.phone ILIKE $1
+         ORDER BY c.last_activity_at DESC LIMIT 15`,
+        [like],
+      ),
+      pool.query(
+        `SELECT q.id, q.quote_number AS "quoteNumber", q.customer_name AS "customerName", q.status, q.total_usd AS "totalUsd", q.currency,
+                o.id AS "organizationId", o.name AS "organizationName"
+         FROM quotes q JOIN organizations o ON o.id = q.organization_id
+         WHERE q.quote_number ILIKE $1 OR q.customer_name ILIKE $1
+         ORDER BY q.created_at DESC LIMIT 15`,
+        [like],
+      ),
+    ]);
+    res.json({ data: { vehicles: vehicles.rows, contacts: contacts.rows, quotes: quotes.rows } });
+  } catch (error) { console.error("Platform search failed", error); res.status(500).json({ error: "No se pudo completar la búsqueda" }); }
+});
+
 function icsText(value) {
   return String(value || "").replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\r?\n/g, "\\n");
 }
